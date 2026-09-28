@@ -1,0 +1,13 @@
+{
+  "_readme": "Шаблон конфига GitLab MCP. Скопируй в локальный mcp.json, впиши свой GITLAB_API_URL и PAT. PAT — ТОЛЬКО локально: не коммить, не в чат. При другом GitLab MCP-сервере поправь command/args. Ключ _readme удали в рабочем mcp.json.",
+  "mcpServers": {
+    "gitlab": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-gitlab"],
+      "env": {
+        "GITLAB_PERSONAL_ACCESS_TOKEN": "<ВСТАВЬ_PAT_ЛОКАЛЬНО>",
+        "GITLAB_API_URL": "https://gitlab.example.com/api/v4"
+      }
+    }
+  }
+}
