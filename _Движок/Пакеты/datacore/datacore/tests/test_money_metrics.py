@@ -1,4 +1,4 @@
-"""Метрики денег: выручка в рублях и число оплаченных сделок; деньги без сделки видны в пояснении, а не молчат."""
+"""Метрики денег: выручка в рублях и число оплаченных сделок; деньги без сделки и без бренда видны в пояснении."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -51,38 +51,44 @@ def test_payments_count_deals_not_documents(engine):
 
 
 def test_money_without_deal_is_named_but_does_not_lower_status(engine):
-    """Платежи без сделки в выручку кабинета не попадают, о них сказано вслух — но статус они не понижают.
-
-    Это объявленный отбор определения выручки, а не неопределённость: число верное, просто не всё о деньгах
-    компании. «Оценка» из-за него держала бы выручку в оценке всегда (ревью методологии 28.09.2026)."""
+    """Платёж без сделки, но с брендом — деньги кабинета: в его выручке он есть, в выручке по сделкам — нет. Это
+    объявленный отбор определения, а не неопределённость: назван суммой, статус «факт» (ревью методологии 28.09.2026).
+    Счётчик считается тем же отбором, что и число: у второго кабинета этих денег в пояснении нет."""
     migrate(engine)
-    money(engine, [pay("p1", 101, "b1", 5, "100000.00"), pay("p2", None, None, 6, "30000.00")])
+    money(engine, [pay("p1", 101, "b1", 5, "100000.00"), pay("p2", None, "b1", 6, "30000.00")])
     n = revenue(engine, CFG, "b1", *AUG)
-    assert float(n.value) == 100000.0 and n.status is Status.FACT, n.missing
-    assert "без сделки" in n.missing and "30" in n.missing.replace(" ", "")
+    assert float(n.value) == 130000.0 and n.status is Status.FACT, n.missing
+    assert "платежей без сделки на 30 000" in n.missing
+    other = revenue(engine, CFG, "b2", *AUG)
+    assert "без сделки" not in other.missing and other.status is Status.FACT, other.missing
 
 
-def test_declared_selections_keep_fact_and_unfinished_load_lowers_it(engine):
-    """Без основания, без сделки, возврат без сделки, без бренда — все названы суммой, статус остаётся «факт».
-    Незавершённая загрузка денег после успешной — настоящая неопределённость: «оценка». Проверяются оба случая:
-    правка, «улучшающая» статус, без второго случая невидима (стандарт, раздел 4)."""
+def test_declared_selections_keep_fact_and_uncertainty_lowers_it(engine):
+    """Без основания, без сделки, возврат без сделки — названы суммой, статус «факт». Настоящая неопределённость —
+    «оценка»: у кабинета деньги без бренда (могли быть его), у любого числа — незавершённая загрузка после успешной.
+    Проверяются оба случая: правка, «улучшающая» статус, без второго случая невидима (стандарт, раздел 4)."""
     migrate(engine)
     money(engine, [pay("p1", 101, "b1", 5, "100000.00"),
                    pay("p2", 101, "b1", 6, "2500000.00", has_basis=False),
-                   pay("p3", None, None, 7, "30000.00"),
-                   pay("p4", None, None, 8, "-4000.00")])
+                   pay("p3", None, "b1", 7, "30000.00"),
+                   pay("p4", None, "b1", 8, "-4000.00")])
     for scope in ("b1", "company"):
         n = revenue(engine, CFG, scope, *AUG)
         assert n.status is Status.FACT, (scope, n.missing)
-        text = n.missing.replace(" ", "")
-        assert "без документа-основания" in n.missing and "2500000" in text
+        assert "без документа-основания" in n.missing and "2500000" in n.missing.replace(" ", "")
         assert "платежей без сделки" in n.missing and "возвратов без сделки" in n.missing
-    assert "без бренда" in revenue(engine, CFG, "company", *AUG).missing
+
+    money(engine, [pay("p5", None, None, 9, "7000.00")])               # деньги без бренда
+    b1, company = revenue(engine, CFG, "b1", *AUG), revenue(engine, CFG, "company", *AUG)
+    assert b1.status is Status.ESTIMATE and "денег без бренда на 7 000" in b1.missing, b1.missing
+    assert float(b1.value) == 126000.0                                 # в число кабинета они не вошли
+    assert company.status is Status.FACT and "в том числе без бренда 7 000" in company.missing, company.missing
+    assert float(company.value) == 133000.0                            # у компании — вошли
 
     broken = Provenance("ledger", "D", f"L-{uuid4().hex[:8]}", datetime(2026, 9, 17, 12, tzinfo=timezone.utc))
     register_load(engine, broken, date(2026, 9, 17))
     finish_load(engine, broken.load_id, rows_read=0, rows_written=0, status="failed")
-    n = revenue(engine, CFG, "b1", *AUG)
+    n = revenue(engine, CFG, "company", *AUG)
     assert n.status is Status.ESTIMATE and "не завершена" in n.missing, n.missing
 
 
@@ -103,10 +109,10 @@ def test_refund_without_deal_is_named_separately(engine):
     Живой случай 16.09.2026: все четыре возврата сентября пришли по розничным отгрузкам без заказа."""
     migrate(engine)
     money(engine, [pay("p1", 101, "b1", 5, "100000.00"),
-                   pay("p2", None, None, 6, "30000.00"),            # платёж без сделки
-                   pay("r1", None, None, 7, "-20000.00")])          # возврат без сделки
+                   pay("p2", None, "b1", 6, "30000.00"),            # платёж без сделки
+                   pay("r1", None, "b1", 7, "-20000.00")])          # возврат без сделки
     n = revenue(engine, CFG, "b1", *AUG)
-    assert float(n.value) == 100000.0
+    assert float(n.value) == 110000.0
     text = n.missing.replace(" ", "")
     assert "платежейбезсделкина30000" in text, n.missing
     assert "возвратовбезсделкина20000" in text, n.missing
@@ -116,7 +122,7 @@ def test_payment_without_basis_is_not_revenue(engine):
     """Перевод эквайринга по реестру — те же деньги, уже посчитанные по покупкам клиентов. В выручку он не входит,
     но и не пропадает молча: сумма названа в пояснении.
 
-    Живая сверка 16.09.2026: без правила апрель 2026 расходился с P&L на +53,8 %, с правилом — на 2,8 %."""
+    Живая сверка 16.09.2026: без правила месяцы с такими переводами расходились с P&L на десятки процентов."""
     migrate(engine)
     money(engine, [pay("p1", 101, "b1", 5, "100000.00"),
                    pay("p2", 101, "b1", 6, "2500000.00", has_basis=False)])
@@ -180,8 +186,8 @@ def test_company_revenue_includes_money_without_brand(engine):
     """Выручка компании — это все деньги компании, а не сумма кабинетов.
 
     Платёж по заказу без поля «Компания» принадлежит компании, хотя кабинет ему не приписан. Складывая только
-    кабинеты, ядро занижало выручку: живая сверка 16.09.2026 дала −5,8 % против P&L, при том что по всем деньгам
-    разрыв +2,8 %; выпадало 19,8 млн ₽ (209 платежей) за янв–июл 2026."""
+    кабинеты, ядро занижало выручку: живая сверка 16.09.2026 дала расхождение с P&L в другую сторону, чем по всем
+    деньгам, — выпадали платежи заказов без поля бренда."""
     migrate(engine)
     money(engine, [pay("p1", 101, "b1", 5, "100000.00"),
                    pay("p2", 102, "b2", 6, "50000.00"),
@@ -192,7 +198,10 @@ def test_company_revenue_includes_money_without_brand(engine):
 
 
 def test_scope_revenue_still_counts_only_its_own_brand(engine):
-    """Кабинету чужие и безбрендовые деньги по-прежнему не приписываются."""
+    """Кабинету чужие и безбрендовые деньги по-прежнему не приписываются — но безбрендовые названы, и число кабинета
+    становится «оценкой»: чьи они, неизвестно (ревью переноса 28.09.2026 — раньше кабинет молчал о них при «факте»)."""
     migrate(engine)
     money(engine, [pay("p1", 101, "b1", 5, "100000.00"), pay("p3", 103, None, 7, "30000.00")])
-    assert float(revenue(engine, CFG, "b1", *AUG).value) == 100000.0
+    n = revenue(engine, CFG, "b1", *AUG)
+    assert float(n.value) == 100000.0
+    assert n.status is Status.ESTIMATE and "денег без бренда на 30 000" in n.missing, n.missing

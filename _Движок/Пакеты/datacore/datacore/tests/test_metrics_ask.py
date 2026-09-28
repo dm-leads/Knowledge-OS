@@ -40,7 +40,7 @@ def test_new_first_sql_by_brand_company_and_window_in_instance_timezone(engine):
     assert new_first_sql(engine, CFG, "b2", *aug).value == 1
     company = new_first_sql(engine, CFG, "company", *aug)
     # компания — это все её сделки, а не сумма кабинетов: складывать нечего, поэтому и scope остаётся «company»
-    # (решение 17.09.2026; раньше 4 сделки августа без бренда выпадали — 2 889 вместо 2 893)
+    # (решение 17.09.2026; раньше сделки без бренда выпадали из итога компании)
     assert (company.value, company.scope) == (2, "company")
     assert last_as_of(engine, ("crm_mirror", "crm_api")) == date(2026, 9, 14)
 
@@ -164,7 +164,7 @@ def test_share_is_printed_readably():
 def test_share_prints_the_fraction(engine):
     """Ревью Codex этапа 5 (п.7): долю нельзя проверить, если не видно, из чего она получена.
 
-    «0,49 %» — это утверждение, «249 из 50 659 visits» — проверяемый факт: можно пересчитать и заметить, что
+    «0,49 %» — это утверждение, «49 из 10000 visits» — проверяемый факт: можно пересчитать и заметить, что
     знаменатель не тот. Без дроби ошибка в определении группы канала осталась бы незаметной."""
     from datacore.serve.metrics import conversion
     from datacore.serve.ask import render

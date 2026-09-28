@@ -24,10 +24,10 @@ def seed(engine):
             did += 1
             filled = i < (6 if after else 2)
             deals.append(dict(deal_id=did, contact_id=1, brand="b1", pipeline="p", status="s", is_new_first=True,
-                              created_at=datetime(d.year, d.month, d.day, 10, tzinfo=MSK), entry_channel_tech="Sipuni" if filled else None))
+                              created_at=datetime(d.year, d.month, d.day, 10, tzinfo=MSK), entry_channel_tech="calltracker" if filled else None))
         for k in range(4 if after else 1):
             changes.append(dict(deal_id=did, field="field_tech", changed_at=datetime(d.year, d.month, d.day, 11, k, tzinfo=MSK),
-                                old_value=None, new_value="Sipuni", recorded_at=PROV.loaded_at))
+                                old_value=None, new_value="calltracker", recorded_at=PROV.loaded_at))
     write_facts(engine, "deal", deals, PROV)
     write_facts(engine, "deal_field_change", changes, PROV)
 

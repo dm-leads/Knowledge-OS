@@ -1,7 +1,7 @@
 """Снимки чисел (решение владельца 16.09.2026, вариант 2): каждый прогон сохраняет посчитанные числа на свою дату съёма,
 и потом ядро отвечает на вопрос «что мы знали такого-то числа» из снимка, а не пересчётом по изменившимся фактам.
 
-Источники дописывают данные задним числом (август в снимках 03.09 → 09.09 → 16.09 давал 61 395 → 61 404 → 61 272),
+Источники дописывают данные задним числом (один месяц визитов в снимках трёх дат давал три разных числа),
 поэтому без снимков прошлое воспроизвести нельзя в принципе."""
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -103,28 +103,33 @@ def test_snapshot_keeps_status_and_note_of_its_number(engine):
     """Снятая «оценка» из снимка возвращается «оценкой» со своим пояснением, а не «фактом»."""
     seed(engine)
     tracked(engine, "b1", [v(1, 1), v(2, 2)], date(2026, 9, 10))
-    failed_load(engine, "b1", date(2026, 9, 11))
+    failed_load(engine, "b1", date(2026, 9, 10))                     # повторный прогон того же дня оборвался
     live = visits(engine, CFG, "b1", *SEP)
     assert live.status is Status.ESTIMATE and live.as_of == date(2026, 9, 10)
-    assert take_snapshots(engine, CFG, date(2026, 9, 11), periods=[("visits", "b1", *SEP, "")]) == 1
+    assert take_snapshots(engine, CFG, date(2026, 9, 10), periods=[("visits", "b1", *SEP, "")]) == 1
     tracked(engine, "b1", [v(3, 2)], date(2026, 9, 16))                # позже источник починился и дописал визит
     old = visits(engine, CFG, "b1", *SEP, as_of=date(2026, 9, 10))
     assert old.value == 2 and old.status is Status.ESTIMATE
     assert "не завершена" in old.missing and "снимок на 10.09.2026" in old.missing
 
 
-def test_snapshot_is_signed_with_the_number_date_not_the_run_date(engine):
-    """Прогон 12.09 при источнике, застрявшем на 10.09: снимок подписан 10.09 — датой съёма числа. На 12.09 снимка
-    нет, и число на ту дату по-прежнему не выдумывается (К2)."""
+def test_lagging_number_is_not_snapshotted(engine):
+    """Прогон 12.09 при источнике, застрявшем на 10.09: число подписано 10.09, а в фактах к этому дню могли появиться
+    более поздние строки других систем — снимок под старой подписью соврал бы. Такое число не снимается и названо в
+    отчёте «отстают»; снимок 10.09 снимается в прогоне того дня (ревью переноса 28.09.2026)."""
+    from datacore.serve.snapshots import snapshot_run
     seed(engine)
     tracked(engine, "b1", [v(1, 1), v(2, 2)], date(2026, 9, 10))
-    take_snapshots(engine, CFG, date(2026, 9, 12), periods=[("visits", "b1", *SEP, "")])
-    row = engine.fetchone("SELECT as_of, taken_on, status FROM facts.snapshot_number WHERE metric = 'visits'")
-    assert row == (date(2026, 9, 10), date(2026, 9, 12), "факт")
-    assert visits(engine, CFG, "b1", *SEP, as_of=date(2026, 9, 10)).value == 2
-    with pytest.raises(RuleViolation) as e:
+    late = snapshot_run(engine, CFG, date(2026, 9, 12), periods=[("visits", "b1", *SEP, "")])
+    assert (late.saved, late.behind) == (0, 1) and "отстают от дня прогона 1" in late.render()
+    with pytest.raises(RuleViolation) as e:                           # на 12.09 снимка нет — число не выдумывается
         visits(engine, CFG, "b1", *SEP, as_of=date(2026, 9, 12))
     assert e.value.code == "К2"
+    assert engine.fetchone("SELECT COUNT(*) FROM facts.snapshot_number")[0] == 0
+    on_time = snapshot_run(engine, CFG, date(2026, 9, 10), periods=[("visits", "b1", *SEP, "")])
+    assert on_time.saved == 1
+    row = engine.fetchone("SELECT as_of, taken_on, status FROM facts.snapshot_number WHERE metric = 'visits'")
+    assert row == (date(2026, 9, 10), date(2026, 9, 10), "факт")
 
 
 def test_snapshot_of_a_date_is_written_once(engine):
@@ -189,6 +194,8 @@ def test_snapshot_step_reports_and_fails_loudly(engine, capsys, tmp_path):
     seed(engine)
     tracked(engine, "b1", [v(1, 1), v(2, 2)], date(2026, 9, 10))
     engine.close()                      # DuckDB не делит файл с другим соединением на запись
+    assert main(["--config", str(SYNTHETIC), "--db", engine.url, "--as-of", "2026-09-12"]) == 1   # загрузок дня нет
+    assert "отстают от дня прогона" in capsys.readouterr().out
     assert main(["--config", str(SYNTHETIC), "--db", engine.url, "--as-of", "2026-09-10"]) == 0
     assert "записано и прочитано обратно" in capsys.readouterr().out
     empty = f"duckdb:///{(tmp_path / 'empty.duckdb').as_posix()}"     # схемы нет — сбой, а не тихий ноль

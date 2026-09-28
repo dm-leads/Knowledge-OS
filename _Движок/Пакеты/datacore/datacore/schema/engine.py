@@ -74,7 +74,8 @@ class Engine:
                     conflict_key: tuple[str, ...] | None = None) -> None:
         """Пакетная вставка. conflict_key — upsert: конфликт по ключу обновляет все неключевые колонки.
         DuckDB: пачка передаётся таблицей в памяти одним INSERT … SELECT — построчный executemany в DuckDB даёт
-        ~2,7 мс на строку (154 тыс. сделок не легли за 2 часа, 14.09.2026), таблица — 0,6 с. Postgres — executemany."""
+        миллисекунды на строку (полная загрузка CRM не легла за два часа, 14.09.2026), таблица — доли секунды.
+        Postgres — executemany."""
         if not rows:
             return
         cols = ", ".join(columns)
@@ -88,7 +89,7 @@ class Engine:
         import pandas as pd
         from decimal import Decimal
         # DuckDB выводит тип колонки таблицы в памяти по выборке значений: Decimal("1500") даёт DECIMAL(6,0), и сумма
-        # 2 113 920 дальше в той же пачке не влезает (живой прогон 15.09.2026). Поэтому деньги едут строкой, а в SELECT
+        # в миллионы дальше в той же пачке не влезает (живой прогон 15.09.2026). Поэтому деньги едут строкой, а в SELECT
         # каждая колонка явно приводится к типу целевой таблицы.
         rows = [tuple(str(v) if isinstance(v, Decimal) else v for v in r) for r in rows]
         schema, _, name = table.partition(".")

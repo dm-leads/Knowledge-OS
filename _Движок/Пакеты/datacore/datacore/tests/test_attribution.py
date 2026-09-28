@@ -1,7 +1,7 @@
 """«Источник известен» и «без следа» — доли, а не штуки, и считаются от одного знаменателя.
 
-Определение проверено на фактах 16.09.2026: «без следа» — это ПУСТОЙ канал входа сделки (40 = 6,3 % августа,
-38 + 2 по кабинетам), а не пустой маркер визита: по маркеру пустых 96, и это другое число."""
+Определение проверено на фактах 16.09.2026: «без следа» — это ПУСТОЙ канал входа сделки, а не пустой
+маркер визита: по маркеру пустых больше чем вдвое, и это другое число."""
 from datacore.schema.number import Status
 from datacore.serve.metrics import no_trace, source_known
 from datacore.tests.test_contour_metrics import AUG, CFG, deal, marker, setup_deals
@@ -18,7 +18,7 @@ def test_no_trace_is_empty_entry_channel(engine):
 
 def test_source_known_counts_nosource_bucket_as_known(engine):
     """Бакет nosource — это «канал известен, визита нет»: сделка пришла из известного канала входа.
-    Иначе доля известного упала бы с 81,9 % до 53,3 % (проверено на фактах)."""
+    Иначе доля известного упала бы примерно в полтора раза (проверено на фактах)."""
     setup_deals(engine,
                 [deal(1, summary="маркер трекера"), deal(2, summary="звонок"), deal(3, summary=None)],
                 [marker(1, "seo"), marker(2, "nosource-crm"), marker(3, "unknown")])

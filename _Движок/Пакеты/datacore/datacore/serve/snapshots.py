@@ -8,9 +8,13 @@
 не день прогона: при упавшем источнике число остаётся на прошлой дате, и подписать его днём прогона значило бы
 солгать. Из снимка возвращается тот статус, с которым число снято: «оценка» при чтении не становится «фактом».
 
-Снимки копятся только вперёд: снимок одной даты съёма пишется один раз и не перезаписывается — иначе поздний прогон
-с частичной загрузкой подменил бы то, что ядро знало на ту дату. Даты, в которые снимков не снимали, восстановить
-неоткуда.
+Снимается только число, чья дата съёма совпадает с днём прогона. Число, отставшее из-за упавшего или отстающего
+источника, не снимается: снимок его даты был снят в тот день, когда она была свежей, а сейчас в фактах уже могут быть
+более поздние строки другой системы или частичные строки оборванной загрузки — под старой подписью лежали бы новые
+данные (ревью переноса 28.09.2026). Такие числа названы в отчёте шага («отстают»).
+
+Снимки копятся только вперёд: снимок одной даты съёма пишется один раз и не перезаписывается. Даты, в которые снимков
+не снимали, восстановить неоткуда.
 
 Снимки — отдельный шаг ночного прогона с кодом возврата, после загрузок, от которых числа зависят:
 `python -m datacore.serve.snapshots --as-of <день>`. Сбой снимка — сбой прогона, а не побочная заметка загрузчика.
@@ -78,13 +82,15 @@ class SnapshotReport:
     periods: int
     saved: int = 0                  # новых строк записано и прочитано обратно
     kept: int = 0                   # снимок той даты съёма уже был — не перезаписан
+    behind: int = 0                 # дата съёма числа старше дня прогона — источник отстаёт, не снимается
     no_data: int = 0                # «нет данных» — не снимается: снимок не место для выдумок
     refused: dict[str, int] = field(default_factory=dict)   # код правила → сколько чисел не строится
 
     def render(self) -> str:
         refused = ", ".join(f"{code} — {n}" for code, n in sorted(self.refused.items())) or "нет"
         return (f"снимки на {self.taken_on:%d.%m.%Y}: периодов {self.periods}; записано и прочитано обратно "
-                f"{self.saved}, уже были {self.kept}, без данных {self.no_data}, не строятся по правилу: {refused}")
+                f"{self.saved}, уже были {self.kept}, отстают от дня прогона {self.behind}, без данных {self.no_data}, "
+                f"не строятся по правилу: {refused}")
 
 
 def snapshot_run(engine, cfg, taken_on: date, periods=None, stage: int | None = None,
@@ -111,6 +117,9 @@ def snapshot_run(engine, cfg, taken_on: date, periods=None, stage: int | None = 
             continue
         if number.value is None:
             report.no_data += 1
+            continue
+        if number.as_of != taken_on:
+            report.behind += 1
             continue
         key = (metric, scope, number.flow, segment, start, end, number.as_of)
         if key in existing or key in new_keys:
@@ -159,7 +168,8 @@ def read_snapshot(engine, metric: str, scope: str, start: date, end: date, as_of
 
 
 def main(argv=None) -> int:
-    """Шаг ночного прогона: снять снимки своих чисел. Код 1 — сбой или ни одного числа не снято и не было."""
+    """Шаг ночного прогона: снять снимки своих чисел. Код 1 — сбой или ни одного числа этой даты не снято и не было
+    (все числа не строятся или отстают — загрузки дня не состоялись)."""
     from datacore.schema.config import load_config
     from datacore.schema.engine import connect
     from datacore.serve.storage import storage_url
@@ -194,7 +204,7 @@ def main(argv=None) -> int:
         return 1
     print(report.render())
     if periods and not (report.saved or report.kept):
-        print("🟥 ни одного числа не снято и снимков этих дат нет — числа не строятся")
+        print("🟥 ни одного числа этого дня не снято и не было — числа не строятся или отстают от дня прогона")
         return 1
     return 0
 
