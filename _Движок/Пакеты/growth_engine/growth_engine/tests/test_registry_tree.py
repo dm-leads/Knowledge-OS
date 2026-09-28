@@ -120,12 +120,104 @@ def test_unknown_number_id_is_guard_13(tmp_path):
 # --- показ ---
 
 def test_listing_shows_branches_with_ceilings(tmp_path):
+    """Ветки без гипотез и без причины — дыра в покрытии: показ печатает дерево и отвечает кодом 1."""
     with_numbers(tmp_path)
     call(tmp_path, "tree", json=tree_json())
     code, lines = call(tmp_path, "tree")
-    assert code == 0
+    assert code == 1
     text = "\n".join(lines)
     assert "B1" in text and "веб-поток" in text and "400" in text and "615" in text
+    assert "без гипотез и причины 2" in lines[-1]
+
+
+# --- покрытие: у каждой ветки гипотезы или причина, каждая гипотеза в дереве ---
+
+def link(folder, hid, branch):
+    return call(folder, "tree", id=hid,
+                json=json.dumps({"goal_id": number_id(GOAL), "branch_id": branch}, ensure_ascii=False))
+
+
+def note(folder, branch, reason):
+    return call(folder, "tree", json=json.dumps({"goal_id": number_id(GOAL), "branch_id": branch,
+                                                 "no_hypotheses": reason}, ensure_ascii=False))
+
+
+def test_full_coverage_is_code_0(tmp_path):
+    """B1 — гипотеза, B2 — записанная причина: расхождений нет."""
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    call(tmp_path, "hypothesis", id="H-001", status="candidate", json=card_json())
+    link(tmp_path, "H-001", "B1")
+    code, lines = note(tmp_path, "B2", "не рычаг: сделки без визита заводит отдел продаж")
+    assert code == 0, lines[-1]
+    code, lines = call(tmp_path, "tree")
+    assert code == 0, lines
+    text = "\n".join(lines)
+    assert "H-001 [candidate]" in text and "гипотез нет: не рычаг" in text
+    assert "расхождений покрытия 0" in lines[-1]
+
+
+def test_reason_can_be_given_with_the_branch(tmp_path):
+    with_numbers(tmp_path)
+    branches = [{"id": "B1", "name": "веб-поток", "ceiling_id": number_id(CEILING_WEB), "no_hypotheses": "ждёт данных"},
+                {"id": "B2", "name": "без визита", "ceiling_id": number_id(CEILING_OFFLINE), "no_hypotheses": "не рычаг"}]
+    call(tmp_path, "tree", json=tree_json(branches=branches))
+    code, lines = call(tmp_path, "tree")
+    assert code == 0 and "с причиной 2" in lines[-1]
+
+
+def test_hypothesis_outside_the_tree_is_a_hole(tmp_path):
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    call(tmp_path, "hypothesis", id="H-001", status="candidate", json=card_json())
+    note(tmp_path, "B1", "ждёт данных")
+    note(tmp_path, "B2", "не рычаг")
+    code, lines = call(tmp_path, "tree")
+    assert code == 1 and any("вне дерева: H-001" in line for line in lines)
+
+
+def test_archived_hypothesis_does_not_cover_a_branch(tmp_path):
+    """Ветка, где осталась только гипотеза в архиве, требует причины, как пустая; архив вне дерева — не дыра."""
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    call(tmp_path, "hypothesis", id="H-001", json=json.dumps({"formulation": FORMULA}, ensure_ascii=False))
+    call(tmp_path, "hypothesis", id="H-002", json=json.dumps({"formulation": FORMULA}, ensure_ascii=False))
+    link(tmp_path, "H-001", "B1")
+    call(tmp_path, "hypothesis", id="H-001", status="архив")
+    call(tmp_path, "hypothesis", id="H-002", status="архив")
+    note(tmp_path, "B2", "не рычаг")
+    code, lines = call(tmp_path, "tree")
+    assert code == 1 and any("гипотез в работе нет, и причина не записана" in line for line in lines)
+    assert any("вне дерева, в архиве: H-002" in line for line in lines)
+    note(tmp_path, "B1", "единственная гипотеза отклонена")
+    assert call(tmp_path, "tree")[0] == 0
+
+
+def test_relinking_moves_the_hypothesis_out_of_its_old_branch(tmp_path):
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    call(tmp_path, "hypothesis", id="H-001", status="candidate", json=card_json())
+    link(tmp_path, "H-001", "B1")
+    link(tmp_path, "H-001", "B2")
+    tree, = store(tmp_path).read("trees")
+    assert tree.branches[0].hypothesis_ids == () and tree.branches[1].hypothesis_ids == ("H-001",)
+
+
+def test_empty_reason_erases_it(tmp_path):
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    note(tmp_path, "B1", "ждёт данных")
+    code, lines = note(tmp_path, "B1", "")
+    assert code == 0 and "стёрта" in lines[-1]
+    tree, = store(tmp_path).read("trees")
+    assert tree.branches[0].no_hypotheses_reason == ""
+
+
+def test_reason_for_absent_branch_is_guard_13(tmp_path):
+    with_numbers(tmp_path)
+    call(tmp_path, "tree", json=tree_json())
+    code, lines = note(tmp_path, "B9", "ждёт данных")
+    assert code == 1 and "[страж 13]" in lines[-1]
 
 
 def test_listing_empty_says_so(tmp_path):

@@ -17,6 +17,11 @@ from .base import ProbeResult, Query, ReadOnlyClient, SourceError
 SYSTEM = "roistat"
 ENDPOINT = "project/analytics/data"
 DIMENSION = "marker_level_1"
+# Второй уровень маркера: у поиска — система («seo › google», «seo › yandex»), у рефералов — сайт-донор. Нужен дереву
+# цели: спад поиска год к году целиком в Google (28.09.2026), и одной веткой «seo» его не увидеть. Значение сегмента
+# называет оба уровня: второй уровень без первого неоднозначен.
+DIMENSION_2 = "marker_level_2"
+LEVEL_SEPARATOR = " › "
 EMPTY_MARKER = "(пусто)"   # у прямых визитов маркер пустой, а сегмент обязан иметь значение
 
 
@@ -28,10 +33,12 @@ class RoistatAdapter:
         self.client = ReadOnlyClient(section["base_url"], section["allowed_endpoints"], headers,
                                      transport=transport, sleep=sleep)
 
-    def _rows(self, scope: str, names, start: date, end: date):
+    def _rows(self, scope: str, names, start: date, end: date, depth: int = 1):
+        """Строки разреза: (маркер первого уровня, маркер второго уровня или "", значения метрик)."""
         tz = self.section["timezone"]
+        dimensions = [DIMENSION, DIMENSION_2][:depth]
         payload = {
-            "dimensions": [DIMENSION],
+            "dimensions": dimensions,
             "metrics": list(names),
             "period": {"from": f"{start:%Y-%m-%d}T00:00:00{tz}", "to": f"{end:%Y-%m-%d}T00:00:00{tz}"},
             "filters": [],
@@ -46,14 +53,21 @@ class RoistatAdapter:
         rows, seen = [], set()
         for group in (body.get("data") or []) if isinstance(body, dict) else []:
             for item in group.get("items") or []:
-                marker = str(((item.get("dimensions") or {}).get(DIMENSION) or {}).get("value") or "")
-                if marker in seen:
-                    raise GuardViolation(13, f"{ENDPOINT}: маркер «{marker or EMPTY_MARKER}» повторяется в одном "
-                                             "ответе — строки не складываются и не выбираются молча")
-                seen.add(marker)
+                given = item.get("dimensions") or {}
+                marker, second = (str((given.get(name) or {}).get("value") or "") for name in (DIMENSION, DIMENSION_2))
+                second = second if depth > 1 else ""
+                if (marker, second) in seen:
+                    raise GuardViolation(13, f"{ENDPOINT}: маркер «{self._label(marker, second, depth)}» повторяется "
+                                             "в одном ответе — строки не складываются и не выбираются молча")
+                seen.add((marker, second))
                 values = {m.get("metric_name"): float(m.get("value") or 0) for m in item.get("metrics") or []}
-                rows.append((marker, values))
+                rows.append((marker, second, values))
         return rows
+
+    @staticmethod
+    def _label(marker: str, second: str, depth: int) -> str:
+        first = marker or EMPTY_MARKER
+        return first if depth == 1 else f"{first}{LEVEL_SEPARATOR}{second or EMPTY_MARKER}"
 
     @staticmethod
     def _in_flow(marker: str, no_visit: set, flow: str) -> bool:
@@ -62,8 +76,10 @@ class RoistatAdapter:
         return (marker in no_visit) == (flow == "no_visit")
 
     def fetch(self, query: Query) -> list[Number]:
-        if query.breakdown not in (None, DIMENSION):
-            raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {DIMENSION}")
+        if query.breakdown not in (None, DIMENSION, DIMENSION_2):
+            raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {DIMENSION} и "
+                                      f"{DIMENSION_2}")
+        depth = 2 if query.breakdown == DIMENSION_2 else 1
         if query.scope not in self.section["scopes"]:
             raise GuardViolation(9, f"кабинет «{query.scope}» не объявлен в конфигурации")
         if query.flow not in self.cfg.flows:
@@ -71,7 +87,7 @@ class RoistatAdapter:
         rule = self.cfg.rule(query.metric)
         names = self.section["metric_names"]
         metric_name, visits_name = names[query.metric][query.scope], names["visits"][query.scope]
-        rows = self._rows(query.scope, sorted({metric_name, visits_name}), query.period_start, query.period_end)
+        rows = self._rows(query.scope, sorted({metric_name, visits_name}), query.period_start, query.period_end, depth)
         money = query.metric in self.section["money_metrics"]
         common = dict(metric=query.metric, level=rule.level, scope=query.scope, flow=query.flow,
                       period_start=query.period_start, period_end=query.period_end, as_of=query.as_of,
@@ -79,17 +95,17 @@ class RoistatAdapter:
         if not rows:
             return [Number(**common, status=Status.NO_DATA, value=None, missing="источник не вернул строк разреза")]
         no_visit = set(self.section["flow_markers"]["no_visit"][query.scope])
-        drift = sorted(marker for marker, values in rows if marker in no_visit and values.get(visits_name, 0) > 0)
+        drift = sorted({marker for marker, _, values in rows if marker in no_visit and values.get(visits_name, 0) > 0})
         if drift:
             raise GuardViolation(13, f"Т3: у маркеров потока без визита появились визиты: {drift}",
                                  GuardViolation.COVERAGE)
-        selected = [(marker, values) for marker, values in rows if self._in_flow(marker, no_visit, query.flow)]
-        if query.breakdown == DIMENSION:
-            return [Number(**common, segment=f"{DIMENSION}={marker or EMPTY_MARKER}",
+        selected = [row for row in rows if self._in_flow(row[0], no_visit, query.flow)]
+        if query.breakdown is not None:
+            return [Number(**common, segment=f"{query.breakdown}={self._label(marker, second, depth)}",
                            status=Status.PROXY if money else Status.FACT, value=values.get(metric_name, 0.0),
                            missing="деньги по каналу зависят от атрибуции сквозной аналитики" if money else "")
-                    for marker, values in sorted(selected, key=lambda row: row[0])]
-        value = sum(values.get(metric_name, 0.0) for _, values in selected)
+                    for marker, second, values in sorted(selected, key=lambda row: row[:2])]
+        value = sum(values.get(metric_name, 0.0) for _, _, values in selected)
         if money and query.flow != "all":
             return [Number(**common, status=Status.PROXY, value=value,
                            missing="деньги по потоку зависят от атрибуции сквозной аналитики")]
@@ -101,7 +117,7 @@ class RoistatAdapter:
             raise GuardViolation(9, f"кабинет «{scope}» не объявлен в конфигурации")
         names = {metric: self.section["metric_names"][metric][scope] for metric in metrics}
         rows = self._rows(scope, sorted(set(names.values())), start, end)
-        return {metric: sum(values.get(name, 0.0) for _, values in rows) for metric, name in names.items()}
+        return {metric: sum(values.get(name, 0.0) for _, _, values in rows) for metric, name in names.items()}
 
     def probe(self) -> list[ProbeResult]:
         end = date.today()

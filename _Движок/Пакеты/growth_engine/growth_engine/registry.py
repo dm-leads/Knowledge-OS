@@ -37,7 +37,7 @@ from .core.economy import shift_share
 from .core.errors import GuardViolation
 from .core.ladders import UnitOfAction
 from .core.number import Number, Status
-from .core.registry import CHANGE_KINDS, Decision, HStatus, create, iterate, transition
+from .core.registry import CANDIDATE_FIELDS, CHANGE_KINDS, Decision, HStatus, create, iterate, transition
 from .core.router import check_hypothesis_in_route
 from .core.storage import HYPOTHESIS_KINDS, number_id
 from .storage.selection import STORE_KEYS_TEXT, add_store_arguments, given_store_keys, open_store, store_target
@@ -164,6 +164,8 @@ def _dispatch(args, spec: Spec, cfg, raw: dict, target, out, today, bridge_facto
                 return _link(store, args.id, fields, out, label)
             if not fields:
                 return _show_tree(store, out)
+            if "no_hypotheses" in fields and "branches" not in fields:
+                return _note_branch(store, fields, out, label)
             return _write_tree(store, fields, out, label)
     if args.cmd == "bottleneck":
         fields = json_module.loads(args.json) if getattr(args, "json", None) else {}
@@ -446,7 +448,8 @@ def _write_tree(store, fields: dict, out, label: str) -> int:
                             # Единица действия, принятая шагом 3 на этой ветке: гипотеза шага 6 обязана стоять на ней.
                             unit_of_action=(UnitOfAction(item["unit_of_action"]["source_class"],
                                                          dict(item["unit_of_action"]["coordinates"]))
-                                            if item.get("unit_of_action") else None))
+                                            if item.get("unit_of_action") else None),
+                            no_hypotheses_reason=str(item.get("no_hypotheses") or ""))
                      for item in fields.get("branches") or ())
     tree = GoalTree(goal=goal, branches=branches)
     gap = tree.gap()                       # проверки единиц, окна, съёма, потока и системы — до записи
@@ -459,17 +462,66 @@ def _write_tree(store, fields: dict, out, label: str) -> int:
 
 
 def _show_tree(store, out) -> int:
+    """Дерево и покрытие: у каждой ветки — её гипотезы или записанная причина, почему их нет.
+
+    Полноту набора гипотез решает команда, а не взгляд (задача 28.09.2026): ветка без живой гипотезы и без причины и
+    гипотеза реестра вне дерева — расхождение, код 1. Гипотеза в архиве ветку не покрывает: ветка, где остались только
+    архивные, требует причины так же, как пустая.
+    """
     trees = store.read("trees")
     if not trees:
         out("ИТОГ: деревьев цели не найдено")
         return 0
+    registry = {h.id: h for h in store.read("hypotheses")}
+    linked, holes = set(), 0
+    covered = noted = 0
     for tree in trees:
         out(f"цель: {render(tree.goal)}")
         for branch in tree.branches:
-            linked = f"; гипотезы: {', '.join(branch.hypothesis_ids)}" if branch.hypothesis_ids else ""
-            out(f"  ветка {branch.id} «{branch.name}»: потолок {render(branch.ceiling)}{linked}")
+            out(f"  ветка {branch.id} «{branch.name}»: потолок {render(branch.ceiling)}")
+            live = 0
+            for hid in branch.hypothesis_ids:
+                linked.add(hid)
+                hypothesis = registry.get(hid)
+                if hypothesis is None:
+                    holes += 1
+                    out(f"    ❌ {hid}: в реестре нет — связь ведёт в пустоту")
+                    continue
+                live += hypothesis.status is not HStatus.ARCHIVE
+                out(f"    {hid} [{hypothesis.status.value}]")
+            if live:
+                covered += 1
+            elif branch.no_hypotheses_reason:
+                noted += 1
+                out(f"    гипотез {'в работе ' if branch.hypothesis_ids else ''}нет: {branch.no_hypotheses_reason}")
+            else:
+                holes += 1
+                out(f"    ❌ гипотез {'в работе ' if branch.hypothesis_ids else ''}нет, и причина не записана")
         out(f"  разрыв: {render(tree.gap())}")
-    out(f"ИТОГ: деревьев {len(trees)}")
+    outside = [h for h in registry.values() if h.id not in linked]
+    for hypothesis in outside:
+        if hypothesis.status is HStatus.ARCHIVE:
+            out(f"  вне дерева, в архиве: {hypothesis.id}")
+        else:
+            holes += 1
+            out(f"  ❌ вне дерева: {hypothesis.id} [{hypothesis.status.value}] — привязать к ветке: "
+                f"tree --id {hypothesis.id}")
+    branches = sum(len(tree.branches) for tree in trees)
+    out(f"ИТОГ: деревьев {len(trees)}; веток {branches}: с гипотезами {covered}, «гипотез нет» с причиной {noted}, "
+        f"без гипотез и причины {branches - covered - noted}; гипотез реестра {len(registry)}, вне дерева "
+        f"{len(outside)}; расхождений покрытия {holes}")
+    return 1 if holes else 0
+
+
+def _note_branch(store, fields: dict, out, label: str) -> int:
+    """Причина «гипотез нет» у ветки: записывается словами, пустая строка стирает запись."""
+    if not fields.get("goal_id") or not fields.get("branch_id"):
+        raise GuardViolation(9, "причина у ветки: нужны «goal_id», «branch_id» и «no_hypotheses» — текст причины")
+    reports = store.note_branch(str(fields["goal_id"]), str(fields["branch_id"]), str(fields["no_hypotheses"] or ""))
+    out(f"хранилище: {label}")
+    _report(reports, out)
+    out(f"ИТОГ: у ветки {fields['branch_id']} записана причина «гипотез нет»" if fields["no_hypotheses"]
+        else f"ИТОГ: у ветки {fields['branch_id']} причина стёрта")
     return 0
 
 
@@ -634,22 +686,64 @@ def _check_unit_of_action(store, hypothesis) -> None:
                                         f"ветке {branch.id} — там {accepted}")
 
 
+# Поля, которые идея может нести с заведения: карточка кандидата и ссылка на прежнюю версию. До версии 1.1.0 идея
+# молча теряла всё, кроме формулировки, — и новую версию идеи нельзя было завести командой.
+IDEA_FIELDS = CANDIDATE_FIELDS + ("supersedes",)
+# Новая версия формулировки заводится мимо вывода цикла, только пока гипотеза не запущена; запущенную меняет вывод
+# «iterate» подкомандой close.
+REVISABLE = (HStatus.IDEA, HStatus.RESEARCH, HStatus.BLOCKED_NO_DATA)
+# Что новая версия наследует от прежней, если не подано заново (как у iterate в ядре). Ветку дерева не наследует:
+# в дерево гипотезу ставит связь `tree --id`, иначе поле и список ветки разошлись бы.
+INHERITED = ("cycle_id", "business_task", "model_lever", "unit_of_action", "mechanic", "main_metric", "owner")
+
+
+def _successor(store, hid: str, card: dict):
+    """Новая версия гипотезы до запуска: номер `<основа>.v<N+1>`, прежняя остаётся в реестре и уходит в архив."""
+    previous_id = str(card.pop("supersedes"))
+    found = store.read("hypotheses", id=previous_id)
+    if not found:
+        raise GuardViolation(13, f"гипотеза {hid}: прежней версии {previous_id} нет в реестре")
+    previous = found[0]
+    expected = f"{previous.id.split('.v')[0]}.v{previous.version + 1}"
+    if hid != expected:
+        raise GuardViolation(9, f"новая версия {previous.id} получает номер {expected}, а не {hid}")
+    if previous.status not in REVISABLE:
+        raise GuardViolation(7, f"гипотеза {previous.id} в статусе «{previous.status.value}»: новую версию до запуска "
+                                f"получают только {', '.join(s.value for s in REVISABLE)}; запущенную меняет вывод "
+                                "iterate (close)")
+    inherited = {name: getattr(previous, name) for name in INHERITED if name not in card}
+    card.update(inherited, version=previous.version + 1, supersedes=previous.id)
+    return previous
+
+
 def _create(store, hid: str, fields: dict, wanted: HStatus | None, out, label: str) -> int:
     if not fields.get("formulation"):
         raise GuardViolation(9, "гипотеза: нужна формулировка «если — то — потому что» в --json")
     numbers = {number_id(number): number for number in store.read("numbers")}
     card = _card(fields, numbers)
-    hypothesis = create(id=hid, formulation=fields["formulation"])
+    previous = _successor(store, hid, card) if card.get("supersedes") else None
     if wanted is HStatus.CANDIDATE:
-        hypothesis = _to_candidate(hypothesis, card)
+        versioning = {name: card.pop(name) for name in ("version", "supersedes") if name in card}
+        hypothesis = _to_candidate(create(id=hid, formulation=fields["formulation"], **versioning), card)
         _check_route(store, hypothesis)
-    elif wanted is not None and wanted is not HStatus.IDEA:
+    elif wanted is None or wanted is HStatus.IDEA:
+        unknown = sorted(set(card) - set(IDEA_FIELDS) - {"version"})
+        if unknown:
+            raise GuardViolation(9, f"гипотеза {hid}: поля {', '.join(unknown)} не заводятся с идеей; допустимы "
+                                    f"formulation, {', '.join(IDEA_FIELDS)}")
+        hypothesis = create(id=hid, formulation=fields["formulation"], **card)
+    else:
         raise GuardViolation(9, f"гипотеза заводится как «идея» или «candidate»; «{wanted.value}» — переводом статуса "
                                 "после заведения")
     reports = store.create(hypothesis)
+    if previous is not None:
+        reports += store.update_status(previous.id, HStatus.ARCHIVE,
+                                       status_reason=f"заменена новой версией {hid}; прежняя формулировка сохранена")
     stored = store.read("hypotheses", id=hid)
     out(f"хранилище: {label}")
     _report(reports, out)
+    if previous is not None:
+        out(f"прежняя версия {previous.id} — в архиве, формулировка сохранена")
     out(f"ИТОГ: {'гипотеза записана и прочитана' if stored else 'гипотеза в хранилище НЕ найдена'}")
     return 0 if stored else 1
 

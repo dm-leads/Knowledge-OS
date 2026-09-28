@@ -23,7 +23,7 @@ LABELS = {
     "denominator": "Знаменатель", "unit": "Единица", "missing": "Чего не хватает",
     # Дерево цели
     "goal_id": "Цель (№ числа)", "branch_id": "Ветка", "ceiling_id": "Потолок ветки (№ числа)",
-    "hypothesis_ids": "Гипотезы ветки",
+    "hypothesis_ids": "Гипотезы ветки", "no_hypotheses_reason": "Почему гипотез нет",
     # Маршрут цикла
     "goal": "Цель", "written_on": "Записан", "expected_confidence": "Ожидаемая уверенность",
     "main_class": "Главный класс данных", "notes": "Заметки", "closed_at": "Закрыт", "closed_reason": "Причина закрытия",

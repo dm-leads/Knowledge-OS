@@ -87,6 +87,56 @@ def test_idea_needs_only_formulation(tmp_path):
     assert stored.status.value == "идея" and stored.formulation == FORMULA
 
 
+def test_idea_keeps_card_fields_given_with_it(tmp_path):
+    """До 1.1.0 идея молча теряла всё, кроме формулировки; теперь поданные поля карточки хранятся."""
+    code, lines = call(tmp_path, id="H-100", json=json.dumps(
+        {"formulation": FORMULA, "cycle_id": "Ц-2", "business_task": "объём лидов", "owner": "Дмитрий"},
+        ensure_ascii=False))
+    assert code == 0, lines[-1]
+    stored, = store(tmp_path).read("hypotheses", id="H-100")
+    assert (stored.cycle_id, stored.business_task, stored.owner) == ("Ц-2", "объём лидов", "Дмитрий")
+
+
+def test_idea_with_a_field_outside_the_card_is_guard_9(tmp_path):
+    code, lines = call(tmp_path, id="H-100", json=json.dumps({"formulation": FORMULA, "threshold": 0.1},
+                                                             ensure_ascii=False))
+    assert code == 1 and "[страж 9]" in lines[-1] and "threshold" in lines[-1]
+
+
+def test_new_version_of_an_idea_archives_the_old_one(tmp_path):
+    """Новая формулировка до запуска: номер H-100.v2, прежняя — в архиве с причиной, текст сохранён."""
+    call(tmp_path, id="H-100", json=json.dumps({"formulation": FORMULA, "cycle_id": "Ц-2"}, ensure_ascii=False))
+    changed = FORMULA.replace("CR1 страницы", "CR1 формы")
+    code, lines = call(tmp_path, id="H-100.v2", json=json.dumps({"formulation": changed, "supersedes": "H-100"},
+                                                                ensure_ascii=False))
+    assert code == 0, lines[-1]
+    new, = store(tmp_path).read("hypotheses", id="H-100.v2")
+    old, = store(tmp_path).read("hypotheses", id="H-100")
+    assert (new.version, new.supersedes, new.cycle_id, new.status.value) == (2, "H-100", "Ц-2", "идея")
+    assert old.status.value == "архив" and "H-100.v2" in old.status_reason and old.formulation == FORMULA
+
+
+def test_new_version_needs_the_next_number(tmp_path):
+    call(tmp_path, id="H-100", json=json.dumps({"formulation": FORMULA}, ensure_ascii=False))
+    code, lines = call(tmp_path, id="H-101", json=json.dumps({"formulation": FORMULA, "supersedes": "H-100"},
+                                                             ensure_ascii=False))
+    assert code == 1 and "H-100.v2" in lines[-1]
+
+
+def test_new_version_of_a_launched_hypothesis_goes_through_close(tmp_path):
+    with_numbers(tmp_path)
+    call(tmp_path, id="H-001", status="candidate", json=card_json())
+    code, lines = call(tmp_path, id="H-001.v2", json=json.dumps({"formulation": FORMULA, "supersedes": "H-001"},
+                                                                ensure_ascii=False))
+    assert code == 1 and "[страж 7]" in lines[-1] and "iterate" in lines[-1]
+
+
+def test_new_version_of_absent_hypothesis_is_guard_13(tmp_path):
+    code, lines = call(tmp_path, id="H-404.v2", json=json.dumps({"formulation": FORMULA, "supersedes": "H-404"},
+                                                                ensure_ascii=False))
+    assert code == 1 and "[страж 13]" in lines[-1]
+
+
 def test_created_hypothesis_is_reported_by_rows(tmp_path):
     """Успех — число записанных и прочитанных строк по каждому листу, а не слово «готово»."""
     _, lines = call(tmp_path, id="H-100", json=json.dumps({"formulation": FORMULA}, ensure_ascii=False))

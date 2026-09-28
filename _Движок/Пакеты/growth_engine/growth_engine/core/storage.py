@@ -289,7 +289,8 @@ def tree_rows(tree: GoalTree) -> tuple[list[dict], list[Number]]:
              "name": _encode(branch.name, "text"), "ceiling_id": number_id(branch.ceiling),
              "hypothesis_ids": _encode(branch.hypothesis_ids, "json_tuple"),
              # Единица действия, принятая шагом 3: пустая ячейка — шаг по этой ветке ещё не проходил.
-             "unit_of_action": "" if branch.unit_of_action is None else _encode(branch.unit_of_action, "unit")}
+             "unit_of_action": "" if branch.unit_of_action is None else _encode(branch.unit_of_action, "unit"),
+             "no_hypotheses_reason": _encode(branch.no_hypotheses_reason, "text")}
             for branch in tree.branches]
     return rows, [tree.goal] + [branch.ceiling for branch in tree.branches]
 
@@ -303,7 +304,9 @@ def trees_from_rows(rows, numbers: dict) -> list[GoalTree]:
         branch = Branch(id=branch_id, name=_decode(_cell(row, "name"), "text"),
                         ceiling=_resolve(numbers, decode_text(_cell(row, "ceiling_id")), owner, "ceiling"),
                         hypothesis_ids=_decode(_cell(row, "hypothesis_ids"), "json_tuple") or (),
-                        unit_of_action=_decode(_cell(row, "unit_of_action"), "unit"))
+                        unit_of_action=_decode(_cell(row, "unit_of_action"), "unit"),
+                        # Колонка появилась в версии 1.1.0: строки дерева, записанные раньше, её не имеют.
+                        no_hypotheses_reason=_decode(row.get("no_hypotheses_reason", ""), "text"))
         grouped.setdefault(goal, []).append(branch)
     return [GoalTree(goal=_resolve(numbers, goal, "дерево цели", "goal"), branches=tuple(branches))
             for goal, branches in grouped.items()]
@@ -364,7 +367,8 @@ COLUMNS = {
     "numbers": ("id",) + tuple(name for name, _ in NUMBER_FIELDS),
     "hypotheses": _hypothesis_columns(),
     "routes": ("id",) + tuple(name for name, _ in ROUTE_FIELDS) + tuple(name for name, _ in STEP_FIELDS),
-    "trees": ("id", "goal_id", "branch_id", "name", "ceiling_id", "hypothesis_ids", "unit_of_action"),
+    "trees": ("id", "goal_id", "branch_id", "name", "ceiling_id", "hypothesis_ids", "unit_of_action",
+              "no_hypotheses_reason"),
     "knowledge": ("id",) + tuple(field.name for field in fields(KnowledgeEntry) if field.name != "id"),
     "decisions": ("id",) + tuple(field.name for field in fields(DecisionEntry) if field.name != "id"),
     "sources": ("id",) + tuple(field.name for field in fields(SourceMapEntry)),
@@ -729,20 +733,39 @@ class RegistryStore:
         return self._store_hypothesis(measure(hypothesis, measured), revision)
 
     def link_to_tree(self, hypothesis_id: str, goal_id: str, branch_id: str) -> list[WriteReport]:
-        """Связать гипотезу с веткой дерева цели: номер гипотезы — в список ветки, ветка — в поле гипотезы."""
+        """Связать гипотезу с веткой дерева цели: номер гипотезы — в список ветки, ветка — в поле гипотезы.
+
+        Гипотеза стоит ровно на одной ветке дерева: при перепривязке номер уходит из прежней ветки той же цели. Иначе
+        показ покрытия считал бы её дважды, а прежняя ветка выглядела бы покрытой.
+        """
         hypothesis, revision = self._hypothesis(hypothesis_id)
         index = self._index("trees")
         key = encode_text(f"{goal_id}#{branch_id}")
         if key not in index:
             raise GuardViolation(13, f"ветки {branch_id} дерева цели {goal_id} нет на листе «{SHEETS['trees']}»")
-        _, row = index[key]
-        linked = _decode(_cell(row, "hypothesis_ids"), "json_tuple") or ()
-        reports = []
-        if hypothesis_id not in linked:
-            branch = {column: row[column] for column in COLUMNS["trees"]}
-            branch["hypothesis_ids"] = _encode(linked + (hypothesis_id,), "json_tuple")
-            reports.append(self._write("trees", [(branch, _revision(row))]))
+        updates = []
+        for other_key, (_, row) in index.items():
+            if decode_text(_cell(row, "goal_id")) != goal_id:
+                continue
+            linked = _decode(_cell(row, "hypothesis_ids"), "json_tuple") or ()
+            wanted = linked + (hypothesis_id,) if other_key == key and hypothesis_id not in linked else                 tuple(x for x in linked if x != hypothesis_id or other_key == key)
+            if wanted != linked:
+                branch = {column: row.get(column, "") for column in COLUMNS["trees"]}
+                branch["hypothesis_ids"] = _encode(wanted, "json_tuple")
+                updates.append((branch, _revision(row)))
+        reports = [self._write("trees", updates)] if updates else []
         return reports + self._store_hypothesis(replace(hypothesis, tree_branch=branch_id), revision)
+
+    def note_branch(self, goal_id: str, branch_id: str, reason: str) -> list[WriteReport]:
+        """Записать у ветки, почему гипотез на ней нет. Пустая причина стирает запись."""
+        index = self._index("trees")
+        key = encode_text(f"{goal_id}#{branch_id}")
+        if key not in index:
+            raise GuardViolation(13, f"ветки {branch_id} дерева цели {goal_id} нет на листе «{SHEETS['trees']}»")
+        _, row = index[key]
+        branch = {column: row.get(column, "") for column in COLUMNS["trees"]}
+        branch["no_hypotheses_reason"] = _encode(reason, "text")
+        return [self._write("trees", [(branch, _revision(row))])]
 
     def export_snapshot(self, class_status: dict | None = None) -> Snapshot:
         """Экспортировать снимок: все семь артефактов, прочитанных с проверками, и список отсутствующих листов."""
