@@ -52,7 +52,8 @@ Code). **Один движок (`_Движок`) — много проектов
 - `kos-doc-compliance` — привести документ/папку к канону.
 - `kos-memory-check` — брифинг перед работой в живом контуре.
 - `kos-migrate-to-canon` — привести чужую/хаотичную папку к канону.
-- Прочие: `growth-*` (шаги Движка роста), `ads-*` (реклама по площадкам), `keysso`, `seo-niche-research`,
+- `build-plan` — план до правок (один проход или субагенты); `maker-checker` — независимая приёмка.
+- Прочие: `growth-*` (шаги Движка роста), `ads-*` (Авито, ВК, Telegram, Директ), `keysso`, `seo-niche-research`,
   `claude-brief`, `second-agent`, `questions`, `image-edit`, `brand-voice`, `agent-hygiene`,
   `llm-pipeline-economy`, `graphify-graph`, `anthropic-cookbook`.
 
