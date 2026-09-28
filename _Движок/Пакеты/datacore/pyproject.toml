@@ -1,0 +1,39 @@
+# Ядро данных — пакет канона Knowledge-OS (ADR-0003 движка). Исходник здесь; проекты подключают его ссылкой
+# (pip install -e) или получают выпуск с паспортом (_Движок/Инструменты/kos_release.py).
+# Загрузчики систем-источников, конфигурация, известные ответы и прикладные расчёты компании — в инстансе проекта.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datacore"
+version = "1.0.0"
+description = "Ядро данных: собственное хранилище фактов сквозной аналитики — нейтральная база без данных компаний"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb==1.5.5",
+    "psycopg[binary]==3.3.5",
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    # Движок моделей (models/). Драйвер Postgres для него — готовая сборка psycopg2: набор «sqlmesh[postgres]»
+    # собирает psycopg2 из исходников и требует заголовков Postgres, которых на сервере нет.
+    "sqlmesh==0.236.2",
+    "psycopg2-binary==2.9.13",
+]
+
+[dependency-groups]
+dev = ["pytest>=9"]
+
+[tool.setuptools.packages.find]
+include = ["datacore*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.sql", "*.yaml", "*.json"]
+
+# Тесты пакета в каноне: из этой папки `uv run pytest` (своё окружение .venv, вне git).
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["datacore/tests"]
+pythonpath = ["."]

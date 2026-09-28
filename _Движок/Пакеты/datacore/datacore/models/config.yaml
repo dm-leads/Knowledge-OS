@@ -1,0 +1,29 @@
+# Проект моделей Ядра данных. Модели диалект-нейтральны (Я10); диалект гейта задаёт транспиляцию.
+# Пути и параметры подключения — из окружения с умолчаниями; имён поставщиков и компании здесь нет (К9).
+gateways:
+  duckdb:
+    connection:
+      type: duckdb
+      database: {{ env_var('DATACORE_DUCKDB_PATH', '../../Данные/datacore/datacore.duckdb') }}
+    state_connection:
+      type: duckdb
+      database: {{ env_var('DATACORE_STATE_PATH', '../../Данные/datacore/sqlmesh_state.duckdb') }}
+  postgres:
+    connection:
+      type: postgres
+      host: {{ env_var('DATACORE_PG_HOST', '127.0.0.1') }}
+      port: {{ env_var('DATACORE_PG_PORT', '5432') }}
+      user: {{ env_var('DATACORE_PG_USER', 'datacore') }}
+      password: {{ env_var('DATACORE_PG_PASSWORD', 'none') }}   # поле обязательно для SQLMesh; при доверенной аутентификации не используется
+      database: {{ env_var('DATACORE_PG_DATABASE', 'postgres') }}
+    state_connection:
+      type: duckdb
+      database: {{ env_var('DATACORE_STATE_PATH', '../../Данные/datacore/sqlmesh_state_pg.duckdb') }}
+default_gateway: duckdb
+# Кэш движка моделей — вне каталога кода: в проекте код лежит выпуском с паспортом, и любой лишний файл в нём
+# краснит тест паспорта. Путь по умолчанию — от папки models/ к Данные/datacore/ инстанса. Журналы движок пишет
+# в папку запуска: запускать с ключом --log-file-dir <папка вне выпуска>.
+cache_dir: {{ env_var('DATACORE_SQLMESH_CACHE', '../../../Данные/datacore/sqlmesh_cache') }}
+model_defaults:
+  dialect: duckdb
+  start: 2026-01-01

@@ -1,0 +1,90 @@
+# Синтетический инстанс для тестов пакета: форма конфигурации настоящего инстанса, значения выдуманы.
+# Кабинеты b1 и b2, системы — по ролям: CRM (зеркало и API), трекер по кабинету, учётная система денег.
+# Имён компаний и поставщиков здесь нет: пакет проверяется в каноне без инстанса.
+instance: Пример
+timezone: Europe/Moscow
+
+storage:
+  duckdb_path: "../Данные/datacore/datacore.duckdb"
+  postgres_url_env: DATACORE_TEST_NO_SUCH_URL     # тесты передают адрес базы явно
+
+pii:
+  key_env: DATACORE_PII_KEY
+  company_lines: ["74950000121", "79990000410"]
+  phone_in_text_columns: [entry_channel_tech, marker, old_value, new_value, scenario]
+
+crm:
+  system_mirror: crm_mirror
+  system_api: crm_api
+  brand:
+    unknown: unknown
+  history_fields: [field_tech, field_summary]
+  sales_pipelines: ["100", "200"]
+  won_status: 142
+
+tracking:
+  system_by_scope: {b1: tracker_b1, b2: tracker_b2}
+  bot_groups: [bot]
+
+money:
+  system: ledger
+
+contours:
+  all_deals:
+    base: {new_first_only: false}
+    exclude: []
+  full:
+    base: {new_first_only: true}
+    exclude: []
+  narrow:                       # без источника визита «site»
+    base: {new_first_only: true}
+    exclude:
+    - field: marker_level_1
+      exclude: [site]
+  narrow_tech:                  # плюс технический канал приёма лида
+    base: {new_first_only: true}
+    exclude:
+    - field: marker_level_1
+      exclude: [site]
+    - field: entry_channel_tech
+      exclude: ["Лиды партнёра"]
+  strict:                       # плюс сводный канал и префикс обрезанного источником значения
+    base: {new_first_only: true}
+    exclude:
+    - field: marker_level_1
+      exclude: [site]
+    - field: entry_channel_tech
+      exclude: ["Лиды партнёра"]
+    - field: entry_channel_summary
+      exclude: ["партнёр"]
+      exclude_prefix: ["Рекомендация (сосед, знакомый"]
+  with_content:                 # исключение из исключения: переход с внешней площадки возвращает лид в зачёт
+    base: {new_first_only: true}
+    exclude:
+    - field: marker_level_1
+      exclude: [site]
+      keep_referrer: [video.example]
+
+known_answers_tolerance: {abs: 2, rel: 0.01}
+
+boundary:
+  forbidden_names: [vendor_a, vendor_b, custom_, order_field_, company_x, company_y, "11111", "22222", lark, sipuni]
+
+scopes: [b1, b2, company]
+
+cross_scope:
+  new_first_sql:
+    allowed: true
+    proof: "синтетика: дедуп по контакту"
+  payments:
+    allowed: true
+    proof: "синтетика: сделка принадлежит одному кабинету"
+  revenue:
+    allowed: true
+    proof: "синтетика: платёж принадлежит одному заказу"
+  leads:
+    allowed: false
+    proof: "синтетика: дедуп заявок не доказан"
+  visits:
+    allowed: false
+    proof: "синтетика: счётчики разных сайтов"
