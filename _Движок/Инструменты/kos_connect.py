@@ -50,12 +50,29 @@ def default_canon() -> Path:
     return Path(os.environ.get("KNOWLEDGE_OS", "D:/Knowledge-OS"))
 
 
+GLOBAL_IMPORT = f"@kos/{RULES}"
+
+
+def global_passport_path() -> Path:
+    """Глобальный CLAUDE.md устройства (переменная KOS_GLOBAL_PASSPORT — для тестов и других устройств)."""
+    given = os.environ.get("KOS_GLOBAL_PASSPORT")
+    return Path(given) if given else Path.home() / ".claude" / "CLAUDE.md"
+
+
+def rules_imported_globally(passport: Path) -> bool:
+    """Правила канона уже грузятся во все чаты устройства из глобального CLAUDE.md."""
+    return passport.is_file() and GLOBAL_IMPORT in passport.read_text(encoding="utf-8")
+
+
 def block(canon: Path, verified: str, rules_import: bool) -> str:
-    """Блок подключения: импорт правил агента (если включён), пути канона, дата сверки."""
+    """Блок подключения: импорт правил агента (если нужен), пути канона, дата сверки."""
     root = str(canon).replace("/", "\\")
     lines = [BEGIN, "## Канон Knowledge-OS", ""]
     if rules_import:
         lines += [f"@{LINK}/{RULES}", ""]
+    else:
+        lines += ["- Правила работы агента канона грузятся глобально: `~/.claude/CLAUDE.md` импортирует",
+                  f"  `{GLOBAL_IMPORT}` (ссылка `~/.claude/kos` → `_Движок\\Подключение\\`)."]
     lines += [f"- Канон: `{root}`. Методологии — `Методологии\\_manifest.md`, реестр инструментов —",
               "  `Экосистема инструментов\\_manifest.md`, системы с кодом — `_Движок\\Пакеты\\_manifest.md`,",
               "  сценарии — `_Движок\\Сценарии\\_manifest.md`. Всё — ссылкой, не копией.",
@@ -128,9 +145,13 @@ def exclude_from_git(project: Path) -> str:
 
 
 def connect(project: Path, canon: Path, today=None, verified: date | None = None,
-            rules_import: bool = True) -> Report:
+            rules_import: bool | None = None, global_passport: Path | None = None) -> Report:
+    """`rules_import=None` — решить самому: импорт в проект нужен, только если глобальный CLAUDE.md его не делает."""
     project, canon = Path(project), Path(canon)
     today = today or date.today()
+    if rules_import is None:
+        rules_import = not rules_imported_globally(Path(global_passport) if global_passport
+                                                   else global_passport_path())
     connection = canon / "_Движок" / "Подключение"
     if not (connection / RULES).is_file():
         raise ConnectError(f"в каноне нет {connection / RULES} — проверьте путь к канону (--canon или KNOWLEDGE_OS)")
@@ -153,15 +174,18 @@ def main(argv=None) -> int:
     parser.add_argument("--project", required=True, help="корень проекта — папка, где открывают чаты")
     parser.add_argument("--canon", default=None, help="корень канона (по умолчанию KNOWLEDGE_OS или D:/Knowledge-OS)")
     parser.add_argument("--verified", default=None, help="дата сверки с каноном ГГГГ-ММ-ДД (обновить строку)")
-    parser.add_argument("--no-rules-import", action="store_true",
-                        help="не импортировать правила агента в проект (если они уже грузятся глобально)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--no-rules-import", action="store_true",
+                      help="не импортировать правила агента в проект")
+    mode.add_argument("--rules-import", action="store_true",
+                      help="импортировать правила в проект, даже если глобальный CLAUDE.md их уже грузит")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parser.parse_args(argv)
     try:
         report = connect(Path(args.project), Path(args.canon) if args.canon else default_canon(),
                          verified=date.fromisoformat(args.verified) if args.verified else None,
-                         rules_import=not args.no_rules_import)
+                         rules_import=False if args.no_rules_import else (True if args.rules_import else None))
     except (ConnectError, ValueError) as exc:
         print(f"❌ {exc}")
         return 1

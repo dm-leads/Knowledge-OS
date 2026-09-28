@@ -12,6 +12,12 @@ import kos_connect
 from kos_connect import BEGIN, END, ConnectError, connect
 
 
+@pytest.fixture(autouse=True)
+def no_global_import(tmp_path, monkeypatch):
+    """Тесты не зависят от настоящего ~/.claude/CLAUDE.md устройства: по умолчанию глобального импорта нет."""
+    monkeypatch.setenv("KOS_GLOBAL_PASSPORT", str(tmp_path / "нет-глобального.md"))
+
+
 @pytest.fixture
 def canon(tmp_path):
     root = tmp_path / "Канон"
@@ -111,6 +117,23 @@ def test_ordinary_folder_named_kos_is_not_replaced(canon, project):
 def test_missing_canon_rules_stop(tmp_path, project):
     with pytest.raises(ConnectError, match="agent-rules.md"):
         connect(project, tmp_path / "нет канона", today=date(2026, 9, 28))
+
+
+def test_rules_already_imported_globally_are_not_imported_twice(canon, project, tmp_path):
+    """С 28.09.2026 ~/.claude/CLAUDE.md сам импортирует правила канона — в проекте второй импорт лишний."""
+    global_passport = tmp_path / "global.md"
+    global_passport.write_text("# устройство\n\n@kos/agent-rules.md\n", encoding="utf-8")
+    report = connect(project, canon, today=date(2026, 9, 28), global_passport=global_passport)
+    text = (project / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "@.kos/" not in text and not (project / ".kos").exists() and report.link == "не нужна"
+    assert "грузятся глобально" in text
+
+
+def test_without_global_import_the_project_imports_the_rules(canon, project, tmp_path):
+    global_passport = tmp_path / "global.md"
+    global_passport.write_text("# устройство без импорта\n", encoding="utf-8")
+    connect(project, canon, today=date(2026, 9, 28), global_passport=global_passport)
+    assert "@.kos/agent-rules.md" in (project / "CLAUDE.md").read_text(encoding="utf-8")
 
 
 def test_command_line_prints_the_outcome(canon, project, capsys):
