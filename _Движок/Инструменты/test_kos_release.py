@@ -132,6 +132,17 @@ def test_release_over_hand_edits_stops(tmp_path, canon):
         issue(canon, into)
 
 
+def test_release_over_another_packages_release_stops(tmp_path, canon):
+    """Ревью 28.09.2026: ошибка в --into не должна молча стирать целый выпуск другого пакета."""
+    into = released(tmp_path, canon)
+    passport = json.loads((into / PASSPORT).read_text(encoding="utf-8"))
+    passport["package"] = "other"
+    (into / PASSPORT).write_text(json.dumps(passport, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ReleaseError, match="другого пакета"):
+        issue(canon, into)
+    assert (into / "sub" / "calc.py").is_file()
+
+
 def test_first_release_over_an_existing_folder_needs_the_flag(tmp_path, canon):
     into = tmp_path / "проект" / "demo"
     into.mkdir(parents=True)

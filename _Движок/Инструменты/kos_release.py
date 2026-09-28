@@ -139,6 +139,9 @@ def issue(package: Path, into: Path, first: bool = False) -> dict:
         raise ReleaseError(f"пакет {name} в каноне не закоммичен — выпуск делается только с коммита канона")
     commit = git(package, "log", "-1", "--format=%H", "--", ".")
     old = read_passport(into) if into.exists() else None
+    if old is not None and old.get("package") != name:
+        raise ReleaseError(f"в {into} лежит выпуск другого пакета ({old.get('package')}), а выпускается {name} — "
+                           "проверьте --into")
     if old is not None:
         changed, missing, extra = compare(into, old)
         if changed or missing or extra:
