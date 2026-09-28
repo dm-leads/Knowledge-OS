@@ -66,6 +66,7 @@ def breakpoint_report(engine, cfg, column: str, field: str, break_day: date, day
 def main(argv=None) -> int:
     from datacore.schema.config import load_config
     from datacore.schema.engine import connect
+    from datacore.serve.storage import storage_url
     ap = argparse.ArgumentParser(description="Перелом в истории: заполняемость колонки и события по дням")
     ap.add_argument("--column", required=True)
     ap.add_argument("--field", required=True)
@@ -75,7 +76,9 @@ def main(argv=None) -> int:
     ap.add_argument("--config", default=None)
     a = ap.parse_args(argv)
     cfg = load_config(Path(a.config) if a.config else Path(__file__).resolve().parents[3] / "Ядро данных" / "Конфигурация инстанса.yaml")
-    engine = connect(a.db or f"duckdb:///{cfg.duckdb_path.as_posix()}", read_only=True)
+    # Адрес — через общий помощник: на сервере база в окружении, и своя сборка адреса читала бы локальный файл
+    # вместо рабочей базы (найдено проверкой точек входа при переносе в пакет, 28.09.2026).
+    engine = connect(storage_url(cfg, a.db), read_only=True)
     try:
         start, end = a.break_day - timedelta(days=a.days), a.break_day + timedelta(days=a.days + 1)
         for d, n, f in fill_rate_by_day(engine, cfg, a.column, start, end):
