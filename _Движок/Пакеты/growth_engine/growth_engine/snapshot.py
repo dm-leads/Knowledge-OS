@@ -50,9 +50,11 @@ def run(args, out=print, today=date.today, bridge_factory=None) -> int:
 def _run(args, out, today, bridge_factory) -> int:
     raw = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     cfg = parse_config(raw)
-    money_system = (raw.get("economy") or {}).get("money_system")
+    money_system = getattr(args, "system", None) or (raw.get("economy") or {}).get("money_system")
     if not money_system:
         raise GuardViolation(9, "в разделе economy конфигурации не указана денежная система (money_system)")
+    if getattr(args, "system", None) and args.system not in (raw.get("sources") or {}):
+        raise GuardViolation(9, f"система «{args.system}» не объявлена в sources: {', '.join(raw.get('sources') or {})}")
     if money_system == MODEL_SYSTEM:
         raise GuardViolation(9, f"денежная система не может быть «{MODEL_SYSTEM}»: это числа, построенные моделью цикла")
     filters = {field: getattr(args, field, None) for field in FILTERS}
@@ -80,6 +82,9 @@ def main(argv=None) -> int:
     parser.add_argument("--flow", default=None)
     parser.add_argument("--segment", default=None, help="разрез «измерение=значение»")
     parser.add_argument("--all-takes", action="store_true", help="показать все съёмы, а не последний")
+    # 1.2.2: числа других систем пишет source_run (веб-аналитика по страницам, кабинет рекламы по кампаниям) —
+    # без ключа их нельзя было прочитать командой.
+    parser.add_argument("--system", default=None, help="система-источник из sources; по умолчанию — денежная")
     add_store_arguments(parser, required=False)
     # Кодировка чинится ДО разбора аргументов: `--help` печатается и завершает процесс внутри `parse_args()`,
     # поэтому справка со знаком вне кодировки консоли иначе падает трассировкой (приёмочный прогон 7б).

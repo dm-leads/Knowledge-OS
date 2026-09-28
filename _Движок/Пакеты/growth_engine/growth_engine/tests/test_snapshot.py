@@ -109,3 +109,18 @@ def test_store_comes_from_the_instance_config_without_a_key(tmp_path):
 def test_store_not_declared_anywhere_is_code_1(tmp_path):
     code, lines = call(None)
     assert code == 1 and "хранилище не задано" in lines[-1]
+
+
+# 1.2.2: числа других систем (их пишет source_run) читаются ключом --system; по умолчанию — денежная система.
+def test_other_system_is_shown_with_the_system_key(tmp_path):
+    dialogs = n("sales_entry", 999, scope="p1", source="F:dialogs-z:facts", as_of=LATER)
+    folder = store_with(tmp_path, snapshot(P1) + [dialogs])
+    code, lines = call(folder, system="dialogs-z")
+    assert code == 0, lines
+    assert "система «dialogs-z»" in lines[0] and any("999" in line for line in lines)
+    assert not any("sales_entry = 1 3" in line for line in lines)      # числа денежной системы сюда не входят
+
+
+def test_undeclared_system_names_the_declared_ones(tmp_path):
+    code, lines = call(store_with(tmp_path, snapshot(P1)), system="nowhere")
+    assert code == 1 and "не объявлена в sources" in lines[-1]
