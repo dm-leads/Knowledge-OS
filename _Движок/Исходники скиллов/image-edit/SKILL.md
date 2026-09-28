@@ -23,13 +23,17 @@ description: >
 
 ## Перед запуском (обязательно)
 
-- Это **платный внешний вызов** (~$0.04/картинку) и **картинка уходит в Google** → сказать стоимость и получить «да» (особенно для чувствительного/ПДн — тогда нельзя).
+- Это **платный внешний вызов** (~$0.067 за картинку 1K, тарифы Google на 28.09.2026; перед крупной партией
+  цену снять со страницы тарифов заново) и **картинка уходит в Google** → сказать стоимость и получить «да» (особенно для чувствительного/ПДн — тогда нельзя).
 - Это **полный ре-рендер**: модель перерисовывает всю картинку, не вырезает кусочек. После — **сверить**, не «поплыло» ли что-то ещё; и **размер может измениться** (модель отдаёт крупнее / чуть иную пропорцию) — при необходимости подогнать под исходные размеры.
 - Ключ: `GOOGLE_AI_STUDIO_API_KEY` из `C:\Users\redmi\Second Brain Secrets\.env` (в чат не печатать). Предпочитать его, не OpenRouter (личные деньги).
 
-## Рабочий рецепт (проверен 2026-08-12)
+## Рабочий рецепт (проверен 2026-08-12, модель сменена 2026-09-28)
 
-Модель `gemini-2.5-flash-image`, endpoint `:generateContent`. Промпт: точечно опиши что менять и добавь
+Модель `gemini-3.1-flash-image` (Nano Banana 2), endpoint `:generateContent`. Прежняя `gemini-2.5-flash-image`
+отключается Google 02.10.2026. Проба 28.09: правка «до 20%» → «до 15%» на плашке с градиентом — бесшовно, шрифт и
+фон не поплыли; разрешение 1024×512 → 1440×720 (пропорция сохранилась). Дешевле — `gemini-3.1-flash-lite-image`
+(~$0.034), но бесшовная правка текста на ней не проверена. Промпт: точечно опиши что менять и добавь
 «keep everything else identical, same font/size/position, same resolution/aspect». Явно перечисли, что НЕ трогать.
 
 ```python
@@ -44,7 +48,7 @@ prompt=("Edit this image. <ЧТО ИМЕННО поменять и где>. Keep
 "Return the full edited image at the same resolution and aspect ratio.")
 payload={"contents":[{"parts":[{"inline_data":{"mime_type":"image/jpeg","data":b64}},{"text":prompt}]}],
          "generationConfig":{"responseModalities":["IMAGE"]}}
-url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={key}"
+url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key={key}"
 req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"})
 resp=json.load(urllib.request.urlopen(req,timeout=180))
 for p in resp.get('candidates',[{}])[0].get('content',{}).get('parts',[]):
