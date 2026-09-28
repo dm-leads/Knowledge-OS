@@ -150,6 +150,22 @@ def test_numbers_built_by_the_cycle_model_do_not_enter_the_snapshot():
     assert failing(checks) == [] and checks[0].text.startswith("снимок модели от 03.09.2026")
 
 
+# 1.1.1: команды данных (живая воронка, числа веток дерева цели) пишут метрику цели из той же системы, но позже прогона
+# модели. Раньше они сдвигали дату снимка: гейт видел «снимок 0 дней» и проверял съём без денег — ложно-зелёный.
+def test_later_funnel_numbers_of_the_money_system_do_not_move_the_snapshot():
+    later_funnel = [replace(n("sales_entry", 40, scope="p1", as_of=LATER), segment="ветка дерева цели=B1")]
+    checks = check_model(snapshot(P1) + later_funnel, ROLES, CFG, TODAY, 35, "analytics-x")
+    assert failing(checks) == [] and checks[0].text.startswith("снимок модели от 03.09.2026")
+
+
+def test_same_day_funnel_numbers_without_money_are_not_an_incomplete_model():
+    """Живая воронка того же съёма: метрика цели и продажи по каналу, без денег — это не неполная группа модели."""
+    funnel = [replace(n(metric, value, scope="p1"), segment="marker_level_1=seo")
+              for metric, value in (("sales_entry", 600), ("sales", 150))]
+    checks = check_model(snapshot(P1) + funnel, ROLES, CFG, TODAY, 35, "analytics-x")
+    assert failing(checks) == []
+
+
 def test_two_different_numbers_of_one_role_in_one_window_stop():
     other = n("sales_entry", 1900, scope="p1", source="C:analytics-x:другой запрос")
     bad = failing(check_model(snapshot(P1) + [other], ROLES, CFG, TODAY, 35, "analytics-x"))

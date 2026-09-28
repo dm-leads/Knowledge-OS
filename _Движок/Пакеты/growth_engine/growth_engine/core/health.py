@@ -22,6 +22,7 @@ from .registry import HStatus, check_state
 
 MODEL_ROLES = ("users", "sales", "revenue", "cogs", "profit")
 MONEY_ROLES = ("sales", "revenue", "cogs", "profit")
+DATE_ROLES = ("revenue", "cogs", "profit")      # роли, которые пишет только прогон денежной модели
 CABINET_DERIVED = ("c1", "avg_check", "margin", "amppu", "ampu")
 CONNECTED = "подключён"
 SECTION_SOURCES = "карта источников"
@@ -145,7 +146,12 @@ def check_model(numbers, roles: dict, cfg, today: date, max_age_days: int, money
     → метрики конфигурации."""
     role_metrics = {roles[role] for role in MODEL_ROLES if role in roles}
     measured = [number for number in numbers if number.as_of is not None and number.source_system == money_system]
-    dates = [number.as_of for number in measured if number.metric in role_metrics]
+    # Дату снимка задают деньги: их пишет только прогон модели. Метрику цели и продажи из той же системы пишут и команды
+    # данных (живая воронка, числа веток дерева цели) — по ним дата съезжала на их съём, и гейт проверял съём без денег,
+    # молча зелёным (1.1.1). Денег в хранилище нет вовсе — дата по всем ролям, как раньше.
+    dated = {roles[role] for role in DATE_ROLES if role in roles}
+    dates = [number.as_of for number in measured if number.metric in dated] or \
+        [number.as_of for number in measured if number.metric in role_metrics]
     if not dates:
         return [Check(SECTION_MODEL, 13, Outcome.COVERAGE,
                       f"в хранилище нет чисел денежной системы «{money_system}» с датой съёма — модель не проверить")]
@@ -174,7 +180,9 @@ def check_model(numbers, roles: dict, cfg, today: date, max_age_days: int, money
     models = {}
     for key in sorted(groups):
         group = groups[key]
-        if not any(role in group for role in MONEY_ROLES):
+        # Группа модели — та, где есть деньги: их пишет только прогон модели. Продажи и метрику цели того же съёма пишет и
+        # живая воронка (помесячно, по каналам) — без денег это не неполная модель, а другие числа (1.1.1).
+        if not any(role in group for role in DATE_ROLES):
             continue
         sample = next(iter(group.values()))
         label = f"кабинет {sample.scope}, окно {_window(sample)}"
