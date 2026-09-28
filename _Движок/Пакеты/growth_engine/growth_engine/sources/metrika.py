@@ -49,6 +49,9 @@ class MetrikaAdapter:
         raise GuardViolation(9, f"метрика «{metric}» не описана для веб-аналитики в конфигурации")
 
     def _segment(self, path: str) -> str:
+        # Яндекс дописывает к адресу входа хвост «&lr=…&search_source=…&etext=…» — это не страница: варианты одной
+        # страницы складываются, а непрозрачные токены хвоста не попадают в хранилище (1.2.3).
+        path = path.split("&", 1)[0]
         if not path:
             return f"{BREAKDOWN}={EMPTY_PAGE}"
         if any(path.lower().startswith(prefix.lower()) for prefix in self.section["junk_page_prefixes"]):

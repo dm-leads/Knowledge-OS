@@ -81,6 +81,8 @@ def test_findings(text, kind):
     # 1.2.1: адрес страницы из слов через дефис с годом — не секрет (страж остановил запись страниц рейтингов)
     "landing_page=/blog/rejting-ochistitelej-vozduha-dlya-kvartiry-luchshie-modeli-2025-goda",
     "/blog/luchshie-brizery-dlya-kvartiry-2026-goda-top-10",
+    "landing_page=/air-purifier/dyson-purifier-hot-cool-ph04",
+    "/brizer/ballu-oneair-asp-200sp-warm",
 ])
 def test_registry_texts_are_not_findings(text):
     assert find_pii(text, DOMAINS) == []
