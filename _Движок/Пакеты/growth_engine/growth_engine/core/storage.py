@@ -385,6 +385,8 @@ _PHONE = re.compile(r"(?<![\w+.,])(?:\+7|7|8)[\s\- ]*\(?\d{3}\)?[\s\- ]*\d{3}[
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"https?://([^/\s?#\"'<>]+)([^\s\"'<>]*)", re.IGNORECASE)
 _TOKEN = re.compile(r"(?<![\w-])[A-Za-z0-9_-]{32,}(?![\w-])")
+# Адрес страницы из слов через дефис («…-modeli-2025-goda»): у ключа части смешанные, у адреса — нет (1.2.1).
+_SLUG = re.compile(r"(?:[A-Za-z]{1,20}|[0-9]{1,4})(?:-(?:[A-Za-z]{1,20}|[0-9]{1,4})){3,}")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
 
 
@@ -408,6 +410,8 @@ def find_pii(text: str, allowed_domains=()) -> list[str]:
         token = match.group(0)
         if _UUID.fullmatch(token):
             continue
+        if _SLUG.fullmatch(token):
+            continue                        # адрес страницы: слова через дефис, каждое — только буквы или только цифры
         if any(char.isdigit() for char in token) and any(char.isalpha() for char in token):
             found.append("похоже на секрет")
             break

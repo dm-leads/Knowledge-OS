@@ -65,6 +65,8 @@ def test_fixture_rows_of_all_seven_sheets_have_no_findings():
     ("карточка https://company.crm.example/leads/detail/123", "ссылка на домен вне списка инстанса"),
     ("https://api.analytics-x.example/v1/data?email=x", "строка запроса в ссылке"),
     ("токен y0_AgAAAAB4bWx0eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA", "похоже на секрет"),
+    ("ключ sk-live-A1b2C3d4E5f6G7h8I9j0K1l2M3n4", "похоже на секрет"),
+    ("id a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8", "похоже на секрет"),
     ('["позвонить +7 999 123-45-67"]', "телефон"),
 ])
 def test_findings(text, kind):
@@ -76,6 +78,9 @@ def test_findings(text, kind):
     "marker_level_1=seo", "API_KEY_X", "35,71%", "https://api.analytics-x.example/v1/data",
     "https://сайт.пример-компании.рф/catalog/item/", "https://{ACCOUNT}.crm.example/api/v4", "payments_with_new_first",
     "8 064 заявки, 1 994 New First SQL", "C:analytics-x:project/analytics/data",
+    # 1.2.1: адрес страницы из слов через дефис с годом — не секрет (страж остановил запись страниц рейтингов)
+    "landing_page=/blog/rejting-ochistitelej-vozduha-dlya-kvartiry-luchshie-modeli-2025-goda",
+    "/blog/luchshie-brizery-dlya-kvartiry-2026-goda-top-10",
 ])
 def test_registry_texts_are_not_findings(text):
     assert find_pii(text, DOMAINS) == []
