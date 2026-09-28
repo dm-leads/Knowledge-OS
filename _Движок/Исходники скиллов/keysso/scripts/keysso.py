@@ -96,9 +96,49 @@ def save(out: str, label: str, params: dict, resp, rows: list) -> str:
     return str(stem)
 
 
+def monitoring_rows(project: str, date_from: str, date_to: str) -> list[dict]:
+    """Позиции проекта мониторинга плоской таблицей: строка на дату × систему × регион × фразу × домен.
+
+    Ответ `monitoring/<id>/report` вложенный (data.words[фраза].domains[группа].engines[].regions{}.dates[]); строки
+    считать по нему руками — значит спутать ключи словаря с фразами, так и было 28.09.2026.
+    """
+    entity = call("GET", f"/monitoring/{project}/entity", {})
+    rows = []
+    for setting in entity.get("searchSettings") or []:
+        params = {"dateFrom": date_from, "dateTo": date_to, "per_page": 100, "sort": "superwsk|desc",
+                  "searchSettings[]": json.dumps({"regionId": setting["regionId"], "engine": setting["engine"]})}
+        page, last = 1, 1
+        while page <= last:
+            resp = call("GET", f"/monitoring/{project}/report", {**params, "page": page})
+            last = int(resp.get("last_page") or 1)
+            data = resp.get("data") or {}
+            snippets = data.get("snippets") or {}
+            for word in (data.get("words") or {}).values():
+                for group in (word.get("domains") or {}).values():
+                    for engine in group.get("engines") or []:
+                        for region in (engine.get("regions") or {}).values():
+                            for day in region.get("dates") or []:
+                                snippet = snippets.get(day.get("snippet_hash") or "", {})
+                                rows.append({"date": day.get("date"), "engine": engine.get("search_engine_name"),
+                                             "engine_id": engine.get("search_engine"),
+                                             "region": region.get("region_name"), "region_id": region.get("region_id"),
+                                             "word": word.get("word"), "wsk": word.get("wsk"),
+                                             "domain": group.get("tracking_item"),
+                                             "is_competitor": group.get("is_competitor"),
+                                             "organic_pos": day.get("organic_pos"), "real_pos": day.get("real_pos"),
+                                             "check_status": day.get("check_status"), "url": snippet.get("url", "")})
+            print(f"  {setting.get('regionName', setting['regionId'])}, система {setting['engine']}: страница "
+                  f"{page}/{last}")
+            page += 1
+    return rows
+
+
 def main() -> int:
+    # Консоль Windows в cp1251 падала на печати «→» уже после сохранения файла — вывод всегда в UTF-8.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
-    ap.add_argument("verb", choices=["limits", "get", "post"])
+    ap.add_argument("verb", choices=["limits", "get", "post", "monitoring"])
     ap.add_argument("path", nargs="?")
     ap.add_argument("params", nargs="*", help="ключ=значение")
     ap.add_argument("--json", help="файл с телом запроса (post)")
@@ -107,7 +147,21 @@ def main() -> int:
     ap.add_argument("--max-rows", type=int, default=50000)
     ap.add_argument("--tie", help="второе поле сортировки для постраничной выгрузки, напр. word|asc или id|asc")
     ap.add_argument("--out", default="keysso_out")
+    ap.add_argument("--from", dest="date_from", help="monitoring: первая дата ГГГГ-ММ-ДД")
+    ap.add_argument("--to", dest="date_to", help="monitoring: последняя дата ГГГГ-ММ-ДД")
     a = ap.parse_args()
+
+    if a.verb == "monitoring":
+        if not a.path or not a.date_from or not a.date_to:
+            raise SystemExit("monitoring: нужны номер проекта, --from и --to (ГГГГ-ММ-ДД)")
+        rows = monitoring_rows(a.path, a.date_from, a.date_to)
+        stem = save(a.out, f"monitoring.{a.path}.positions", {"from": a.date_from, "to": a.date_to},
+                    {"total_rows": len(rows), "data": rows}, rows)
+        print(f"Позиций: {len(rows)} → {stem}")
+        if not rows:
+            print("Пустой результат — съём ещё не готов или даты вне истории проекта.", file=sys.stderr)
+            return 2
+        return 0
 
     if a.verb == "limits":
         resp = call("GET", "/limits/all", {})

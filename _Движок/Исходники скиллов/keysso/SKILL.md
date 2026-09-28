@@ -14,6 +14,7 @@ python scripts/keysso.py limits                                   # остато
 python scripts/keysso.py get report/simple/domain_dashboard base=msk domain=бризекс.рф --out <папка>
 python scripts/keysso.py get report/simple/organic/keywords base=msk domain=tion.ru "sort=wsk|desc" "filter=pos<=10" --all --out <папка>
 python scripts/keysso.py post tools/check-top base=msk --json тело.json --out <папка>
+python scripts/keysso.py monitoring <id проекта> --from 2026-09-28 --to 2026-10-28 --out <папка>   # ряд позиций плоской таблицей
 ```
 
 ## Какой вопрос — какой метод
