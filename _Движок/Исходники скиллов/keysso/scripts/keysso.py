@@ -136,12 +136,52 @@ def monitoring_rows(project: str, date_from: str, date_to: str) -> list[dict]:
     return rows
 
 
+def serp_export(serp_id: str, out: str, wait_minutes: int = 15) -> str:
+    """Полная выдача проекта выдачи (дочернего у мониторинга) — CSV всех доменов и позиций: так берутся позиции
+    конкурентов, которых отчёт мониторинга не отдаёт. Выгрузка асинхронная: поставить, дождаться, скачать."""
+    job = call("GET", f"/serp/{serp_id}/csv", {"searchEngine": "false", "organic": "true", "context": "false",
+                                               "wizard": "false", "ai_answer": "false", "encoding": "utf8"})
+    job_id = job.get("job_id")
+    if not job_id:
+        raise SystemExit(f"serp {serp_id}: выгрузка не поставлена — {job}")
+    deadline = time.time() + wait_minutes * 60
+    while time.time() < deadline:
+        state = call("GET", f"/serp/{serp_id}/csv/export-status", {"job_id": job_id})
+        if state.get("status") == "done" and state.get("downloadUrl"):
+            day = datetime.now().strftime("%Y-%m-%d")
+            folder = Path(out) / day
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / f"{datetime.now():%H%M%S}_serp.{serp_id}.organic.csv"
+            with urllib.request.urlopen(state["downloadUrl"], timeout=120) as resp:
+                content = resp.read()
+            if content[:2] == b"PK":             # сервис отдаёт CSV внутри ZIP — распаковываем в тот же снимок
+                import zipfile
+                archive = target.with_suffix(".zip")
+                archive.write_bytes(content)
+                with zipfile.ZipFile(archive) as z:
+                    members = [m for m in z.namelist() if m.lower().endswith(".csv")]
+                    if not members:
+                        raise SystemExit(f"serp {serp_id}: в архиве выгрузки нет CSV — {z.namelist()}")
+                    target.write_bytes(z.read(members[0]))
+            else:
+                target.write_bytes(content)
+            with open(Path(out) / "manifest.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "call": f"serp.{serp_id}.csv",
+                                    "params": {"organic": True}, "rows": state.get("rows"), "file": str(target)},
+                                   ensure_ascii=False) + "\n")
+            return str(target)
+        if state.get("status") in ("error", "failed"):
+            raise SystemExit(f"serp {serp_id}: выгрузка упала — {state.get('error')}")
+        time.sleep(10)
+    raise SystemExit(f"serp {serp_id}: выгрузка не готова за {wait_minutes} мин (job {job_id}) — повторить позже")
+
+
 def main() -> int:
     # Консоль Windows в cp1251 падала на печати «→» уже после сохранения файла — вывод всегда в UTF-8.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
-    ap.add_argument("verb", choices=["limits", "get", "post", "monitoring"])
+    ap.add_argument("verb", choices=["limits", "get", "post", "monitoring", "serp-export"])
     ap.add_argument("path", nargs="?")
     ap.add_argument("params", nargs="*", help="ключ=значение")
     ap.add_argument("--json", help="файл с телом запроса (post)")
@@ -164,6 +204,12 @@ def main() -> int:
         if not rows:
             print("Пустой результат — съём ещё не готов или даты вне истории проекта.", file=sys.stderr)
             return 2
+        return 0
+
+    if a.verb == "serp-export":
+        if not a.path:
+            raise SystemExit("serp-export: нужен номер проекта выдачи (дочерний у мониторинга: GET monitoring/<id>/entity)")
+        print(f"Выдача → {serp_export(a.path, a.out)}")
         return 0
 
     if a.verb == "limits":
