@@ -57,7 +57,10 @@ def call(method: str, path: str, params: dict, body=None) -> dict:
                 time.sleep(int(e.headers.get("Retry-After") or 10)); continue
             if e.code in (500, 502, 503, 504) and attempt < 4:
                 time.sleep(3 * (attempt + 1)); continue
-            hint = {401: "ключ не принят", 402: "ограничение тарифа на этот запрос",
+            # Аккаунтом пользуются несколько человек, ключ API перевыпускают часто — 401 при непустом ключе означает
+            # сменённый ключ, а не ошибку запроса. Проекты мониторинга и их расписание от ключа не зависят.
+            hint = {401: "ключ не принят — скорее всего, его перевыпустили в кабинете Keys.so: взять новый и "
+                         "обновить KEYSO_API_KEY в мастер-.env; запрос не переписывать", 402: "ограничение тарифа на этот запрос",
                     404: "не найдено — домен передавай кириллицей, не punycode"}.get(e.code, "")
             raise SystemExit(f"Keys.so {method} {path}: HTTP {e.code} {hint} | {txt}")
         if isinstance(resp, dict) and resp.get("code") == 202 and waited < 360:
