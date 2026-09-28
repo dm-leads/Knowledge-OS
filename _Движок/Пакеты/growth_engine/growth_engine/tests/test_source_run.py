@@ -14,7 +14,8 @@ from growth_engine.storage.markdown import MarkdownBackend
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TODAY = date(2026, 9, 29)
-PAGES = {"/blog/rating-2025-goda": 30.0, "/blog/brizer": 20.0, "/catalog": 50.0}
+PAGES = {"/blog/rating-2025-goda": 30.0, "/blog/brizer": 20.0, "/catalog": 50.0,
+         "/blog/rating-luxBxAAGIAEMgcICBAAGI8CMgcICRAAGI8C0gEJMzQxNWowajE1qAIIsAIB8QV": 3.0}
 
 
 class FakeAdapter:
@@ -80,3 +81,13 @@ def test_dry_run_writes_nothing(tmp_path):
     lines = []
     assert run(args(tmp_path, dry_run=True), out=lines.append, adapter=FakeAdapter(), today=lambda: TODAY) == 0
     assert "ничего не записано" in lines[-1] and not (tmp_path / "store").exists()
+
+
+def test_segment_that_looks_like_a_secret_is_dropped_by_count(tmp_path):
+    """1.2.4: мусор, приклеенный к адресу, не пишется и не останавливает прогон — число исключённых названо."""
+    lines = []
+    assert run(args(tmp_path, match=["/blog/rating*"]), out=lines.append, adapter=FakeAdapter(),
+               today=lambda: TODAY) == 0
+    assert any("исключено похожих на секрет или ПДн: 1" in line for line in lines)
+    assert all("luxBx" not in line for line in lines)
+    assert {x.segment for x in stored(tmp_path)} == {"", "landing_page=/blog/rating-2025-goda"}

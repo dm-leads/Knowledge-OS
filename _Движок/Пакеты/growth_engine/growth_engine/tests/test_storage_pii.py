@@ -83,6 +83,7 @@ def test_findings(text, kind):
     "/blog/luchshie-brizery-dlya-kvartiry-2026-goda-top-10",
     "landing_page=/air-purifier/dyson-purifier-hot-cool-ph04",
     "/brizer/ballu-oneair-asp-200sp-warm",
+    "/brizer/xiaomi-smartmi-fresh-air-system-xfxtdfr02zm",
 ])
 def test_registry_texts_are_not_findings(text):
     assert find_pii(text, DOMAINS) == []

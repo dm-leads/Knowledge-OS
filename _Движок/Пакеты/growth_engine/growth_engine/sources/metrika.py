@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 import time
 from datetime import date, timedelta
 
@@ -51,7 +53,7 @@ class MetrikaAdapter:
     def _segment(self, path: str) -> str:
         # Яндекс дописывает к адресу входа хвост «&lr=…&search_source=…&etext=…» — это не страница: варианты одной
         # страницы складываются, а непрозрачные токены хвоста не попадают в хранилище (1.2.3).
-        path = path.split("&", 1)[0]
+        path = re.split(r"[&?]|%3[DdFf]|%26", path, maxsplit=1)[0]   # и закодированные «=», «?», «&» (1.2.4)
         if not path:
             return f"{BREAKDOWN}={EMPTY_PAGE}"
         if any(path.lower().startswith(prefix.lower()) for prefix in self.section["junk_page_prefixes"]):

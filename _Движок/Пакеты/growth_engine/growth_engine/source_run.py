@@ -27,6 +27,7 @@ from . import adapters as registry
 from .core.arithmetic import render
 from .core.config import parse_config
 from .core.errors import GuardViolation
+from .core.storage import find_pii
 from .funnel_run import parse_months
 from .sources.base import Query, SourceError
 from .storage.selection import add_store_arguments, open_store
@@ -37,7 +38,8 @@ def pick(numbers, patterns) -> list:
     return [x for x in numbers if any(fnmatchcase(x.segment.partition("=")[2], p) for p in patterns)]
 
 
-def collect(adapter, metrics, scope: str, flow: str, windows, breakdown, patterns, as_of: date, out) -> list:
+def collect(adapter, metrics, scope: str, flow: str, windows, breakdown, patterns, as_of: date, out,
+            domains=()) -> list:
     numbers = []
     for start, end in windows:
         for metric in metrics:
@@ -47,8 +49,13 @@ def collect(adapter, metrics, scope: str, flow: str, windows, breakdown, pattern
             out(f"{start:%m.%Y} · {render(total)}")
             if breakdown:
                 parts = pick(adapter.fetch(Query(**query, breakdown=breakdown)), patterns)
-                numbers += parts
-                out(f"   разрез «{breakdown}»: значений по отбору {len(parts)}")
+                # Значение разреза, похожее на секрет или ПДн (мусор, приклеенный к адресу), хранить нельзя (страж 12):
+                # оно исключается с названным числом, а не останавливает весь прогон и не пропадает молча (1.2.4).
+                clean = [x for x in parts if not find_pii(x.segment, domains)]
+                numbers += clean
+                dropped = len(parts) - len(clean)
+                out(f"   разрез «{breakdown}»: значений по отбору {len(parts)}"
+                    + (f"; исключено похожих на секрет или ПДн: {dropped} (страж 12, значения не печатаются)" if dropped else ""))
     return numbers
 
 
@@ -74,7 +81,8 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None, go
     out(f"Снятие: система «{args.system}», метрик {len(metrics)}, месяцев {len(windows)}, кабинет {args.scope}, "
         f"поток {args.flow}" + (f", разрез «{args.breakdown}», образцов {len(patterns)}" if args.breakdown else "")
         + f", дата съёма {as_of:%d.%m.%Y}")
-    numbers = collect(adapter, metrics, args.scope, args.flow, windows, args.breakdown, patterns, as_of, out)
+    numbers = collect(adapter, metrics, args.scope, args.flow, windows, args.breakdown, patterns, as_of, out,
+                      cfg.storage_link_domains)
     if getattr(args, "dry_run", False):
         out(f"сухой прогон: чисел к записи {len(numbers)}, ничего не записано")
         return 0
