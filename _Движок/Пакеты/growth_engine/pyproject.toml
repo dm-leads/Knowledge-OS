@@ -1,0 +1,18 @@
+# Движок роста — пакет канона Knowledge-OS (ADR-0003). Исходник здесь; проекты подключают его ссылкой
+# (pip install -e) или получают выпуск с паспортом (_Движок/Инструменты/kos_release.py).
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "growth_engine"
+version = "1.0.0"
+description = "Движок роста: юнит-экономика и growth hacking как цикл — нейтральная база без данных компаний"
+requires-python = ">=3.12"
+dependencies = ["pyyaml", "requests", "gspread", "google-auth"]
+
+[tool.setuptools.packages.find]
+include = ["growth_engine*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.mjs", "*.yaml", "*.csv", "*.json", "*.md"]

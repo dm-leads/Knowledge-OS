@@ -1,0 +1,23 @@
+# Нейтральная карта источников для тестов ядра. Настоящая карта Бризекс — Планирование/Движок роста/.
+sources:
+  - name: аналитика-x
+    class: C
+    status: подключён
+    history_from: "2021-04"
+    truth_point: заявки и вход в продажи по каналам
+    probe: analytics/data за 1 день
+    traps: [визиты дописываются задним числом]
+    secret_env_names: [API_KEY_X]
+  - name: веб-аналитика-y
+    class: A
+    status: есть, нет доступа
+    history_from: ""
+    truth_point: визиты и цели по страницам
+    probe: ""
+    secret_env_names: [WEB_TOKEN_Y]
+  - name: диалоги-z
+    class: F
+    status: подключён
+    history_from: "2025-01"
+    truth_point: причины отказа с цитатами
+    probe: число бесед за день

@@ -1,0 +1,43 @@
+# Нейтральная конфигурация для тестов команды гейта: минимальная конфигурация ядра, два источника, роли денежной модели
+# и раздел health. Настоящая конфигурация Бризекс — Планирование/Движок роста/.
+goal:
+  metric: sales_entry
+  window_months: 3
+  baseline: 850
+  target_periods: ["2026-10", "2026-11"]
+business_form:
+  purchase: разовая
+  ticket: высокий
+  market: смешанный
+  pmf: сильный
+  manual_share: высокая
+  deal_cycle: длинный
+levels: [visit, lead, qualified, sales_entry, buyer, money]
+flows: [web, no_visit, all]
+metrics:
+  visits: {level: visit, period_additive: true}
+  leads: {level: lead, period_additive: true}
+  qualified: {level: qualified, period_additive: true}
+  sales_entry:
+    level: sales_entry
+    period_additive: true
+    cross_scope_additive: true
+    proof: "сверка двух кабинетов с CRM: 264 + 28 = 292, 10.09.2026"
+  sales: {level: buyer}
+  avg_check: {level: money, summable: false}
+  pnl_revenue: {level: money, period_additive: true, cross_scope_additive: true, proof: "сумма кабинетов сверена с P&L — тест"}
+  pnl_cogs: {level: money, period_additive: true, cross_scope_additive: true, proof: "тождество выручка − себестоимость = прибыль — тест"}
+  gross_profit: {level: money, period_additive: true, cross_scope_additive: true, proof: "тождество выручка − себестоимость = прибыль — тест"}
+sources:
+  analytics-x: {class: C, secret_env: [API_KEY_X], scopes: {p1: {}, p2: {}}}
+  dialogs-z: {class: F, paid: true}
+economy:
+  money_system: analytics-x
+  money_metrics: {users: sales_entry, sales: sales, revenue: pnl_revenue, cogs: pnl_cogs, profit: gross_profit}
+health:
+  model_snapshot_max_days: 35
+  source_map: source_map_minimal.yaml
+  revisions: {role: users, months: 2, abs_units: 2, rel: 0.01, proof: "допуск моста — тест"}
+  known_answers:
+    - {system: analytics-x, metric: sales_entry, scope: p1, flow: all, period: ["2026-08-01", "2026-09-01"], expected: 1860, abs_units: 0, rel: 0.01, changes_since: "2026-09-03", checked: "снимок 03.09.2026 — тест"}
+storage: {adapter: markdown}

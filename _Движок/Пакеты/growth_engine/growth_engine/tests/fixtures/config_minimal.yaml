@@ -1,0 +1,30 @@
+# Нейтральная конфигурация для тестов ядра. Настоящая конфигурация Бризекс — фаза 1.
+goal:
+  metric: sales_entry
+  window_months: 3
+  baseline: 850
+  target_periods: ["2026-10", "2026-11"]
+business_form:
+  purchase: разовая
+  ticket: высокий
+  market: смешанный
+  pmf: сильный
+  manual_share: высокая
+  deal_cycle: длинный
+levels: [visit, lead, qualified, sales_entry, buyer, money]
+flows: [web, no_visit, all]
+metrics:
+  visits: {level: visit, period_additive: true}
+  leads: {level: lead, period_additive: true}
+  qualified: {level: qualified, period_additive: true}
+  sales_entry:
+    level: sales_entry
+    period_additive: true
+    cross_scope_additive: true
+    proof: "сверка двух кабинетов с CRM: 264 + 28 = 292, 10.09.2026"
+  sales: {level: buyer}
+  avg_check: {level: money, summable: false}
+  pnl_revenue: {level: money, period_additive: true, cross_scope_additive: true, proof: "сумма кабинетов сверена с P&L — тест"}
+  pnl_cogs: {level: money, period_additive: true, cross_scope_additive: true, proof: "тождество выручка − себестоимость = прибыль — тест"}
+  gross_profit: {level: money, period_additive: true, cross_scope_additive: true, proof: "тождество выручка − себестоимость = прибыль — тест"}
+storage: {adapter: markdown}
