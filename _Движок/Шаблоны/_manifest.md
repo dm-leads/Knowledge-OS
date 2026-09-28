@@ -35,7 +35,7 @@ tags:
 - Шаблон — Плейбук.md · Шаблон — Инструкция.md · Шаблон — Методология.md · Шаблон — Справочник.md
 - Шаблон — Гайд.md · Шаблон — Аналитика.md · Шаблон — Спецификация.md · Шаблон — Решение (ADR).md
 
-## Типы без отдельного файла (генерит `create-doc` из канона на лету)
+## Типы без отдельного файла (генерит `kos-create-doc` из канона на лету)
 
 research, retrospective, postmortem, audit, bootstrap, charter, requirements, log, artifact,
 course/article/book/video. Отдельный шаблон добавляем, когда тип реально понадобится.
