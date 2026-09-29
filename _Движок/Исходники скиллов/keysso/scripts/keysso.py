@@ -99,6 +99,13 @@ def save(out: str, label: str, params: dict, resp, rows: list) -> str:
     return str(stem)
 
 
+def _values(part):
+    """Ответ мониторинга отдаёт вложенные наборы то списком, то словарём (с двумя датами — словарём)."""
+    if isinstance(part, dict):
+        return list(part.values())
+    return list(part or [])
+
+
 def monitoring_rows(project: str, date_from: str, date_to: str) -> list[dict]:
     """Позиции проекта мониторинга плоской таблицей: строка на дату × систему × регион × фразу × домен.
 
@@ -118,8 +125,8 @@ def monitoring_rows(project: str, date_from: str, date_to: str) -> list[dict]:
             snippets = data.get("snippets") or {}
             for word in (data.get("words") or {}).values():
                 for group in (word.get("domains") or {}).values():
-                    for engine in group.get("engines") or []:
-                        for region in (engine.get("regions") or {}).values():
+                    for engine in _values(group.get("engines")):
+                        for region in _values(engine.get("regions")):
                             for day in region.get("dates") or []:
                                 snippet = snippets.get(day.get("snippet_hash") or "", {})
                                 rows.append({"date": day.get("date"), "engine": engine.get("search_engine_name"),
