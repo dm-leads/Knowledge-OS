@@ -29,6 +29,13 @@ tracking:
 money:
   system: ledger
 
+mql:                              # правило MQL: воронки квалификации, статусы, целевой маршрут, настоящие отказы
+  pipelines: ["300", "301"]
+  qualified_status: "142"
+  route_values: ["Маршрут А"]
+  lost_status: "143"
+  close_reasons: ["Причина 1", "Причина 2"]
+
 contours:
   all_deals:
     base: {new_first_only: false}

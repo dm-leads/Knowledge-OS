@@ -28,7 +28,7 @@ from datacore.serve.metrics import REGISTRY, last_as_of
 
 # Метрики, которые ядро публикует по умолчанию. Список именно здесь, а не в конфигурации инстанса: это решение
 # ядра о том, что оно готово отдавать наружу, а не настройка одного инстанса.
-DEFAULT_METRICS = ("new_first_sql", "visits", "calls", "revenue", "payments", "paid_deals_crm",
+DEFAULT_METRICS = ("new_first_sql", "mql", "visits", "calls", "revenue", "payments", "paid_deals_crm",
                    "cogs", "gross_profit", "ampu", "lead_conversion", "revenue_leads", "cogs_leads",
                    "gross_profit_leads", "ampu_per_lead", "source_known", "no_trace")
 

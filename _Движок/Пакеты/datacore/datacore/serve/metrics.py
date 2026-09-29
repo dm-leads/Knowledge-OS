@@ -913,6 +913,109 @@ def paid_deals_crm(engine, cfg, scope: str, start: date, end: date, as_of: date 
     return _per_scope(cfg, "paid_deals_crm", scope, one)
 
 
+PIPELINE_SEGMENT = "pipeline="            # разрез по воронке CRM: вид «проекта» внешней системы, где проект = воронка
+
+
+def _mql_rule(cfg) -> dict:
+    """Правило MQL из конфигурации: воронки квалификации, статус «квалифицирован» и целевой маршрут, статус «закрыт» и
+    настоящие причины отказа. Правило — договорённость компании, а не свойство данных (Я12)."""
+    rule = cfg.mql or {}
+    need = ("pipelines", "qualified_status", "route_values", "lost_status", "close_reasons")
+    missing = [k for k in need if not rule.get(k)]
+    if missing:
+        raise RuleViolation("К2", f"в конфигурации нет правила MQL или в нём пусто: {', '.join(missing)}")
+    return {"pipelines": [str(x) for x in rule["pipelines"]], "qualified_status": str(rule["qualified_status"]),
+            "route_values": [str(x) for x in rule["route_values"]], "lost_status": str(rule["lost_status"]),
+            "close_reasons": [str(x) for x in rule["close_reasons"]],
+            "max_unfilled_share": float(rule.get("max_unfilled_share", 0.05))}
+
+
+def mql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None, segment: str = "") -> Number:
+    """MQL — лиды, прошедшие квалификацию, по дате создания сделки: промежуточная ступень воронки между обращением и
+    первым квалифицированным (New First SQL).
+
+    Сделка воронки квалификации считается MQL, если сейчас она:
+    - в статусе «квалифицирован» и её маршрут (новое или прежнее поле маршрута) содержит целевое значение — клиента
+      передали в продажи;
+    - или закрыта без продажи по настоящей причине — это живой клиент, которому отказали по существу, а не мусор.
+    Обе ветки не пересекаются: у сделки один текущий статус.
+
+    Бренд — по полю сделки, итог компании — по всем фактам (Я4). Разрез `pipeline=<воронка>` ограничивает одну
+    воронку квалификации: так внешняя система, у которой проект равен воронке, сверяется с ядром один к одному.
+
+    Проверка загрузки полей — по сделкам, которые квалификатор уже закрыл (оба статуса правила): у них маршрут или
+    причина есть почти всегда. Ни у одной закрытой сделки окна полей нет — поля не загружены, это «нет данных», а не
+    ноль. Без полей больше объявленной доли (`max_unfilled_share`, по умолчанию 5 %) — загружены не все (например,
+    историю не перечитали из источника), это «оценка» с числом таких сделок. Сделки, которые ещё в работе, в проверку
+    не входят: полей у них и не должно быть, и свежее окно не выдаётся за незагруженное."""
+    rule = _mql_rule(cfg)
+    if scope not in cfg.scopes:
+        raise RuleViolation("К2", f"кабинет «{scope}» не объявлен в конфигурации: {cfg.scopes}")
+    pipelines = rule["pipelines"]
+    if segment:
+        if not segment.startswith(PIPELINE_SEGMENT) or segment[len(PIPELINE_SEGMENT):] not in pipelines:
+            raise RuleViolation("К2", f"у MQL разрез только «{PIPELINE_SEGMENT}<воронка квалификации>» из "
+                                      f"{pipelines}, получено «{segment}»")
+        pipelines = [segment[len(PIPELINE_SEGMENT):]]
+    common = dict(metric="mql", level="mql", scope=scope, flow="all", period_start=start, period_end=end,
+                  segment=segment, source=f"D:{SOURCE_SYSTEM}:facts.deal qualification", unit="шт")
+    if as_of is not None:
+        snap = from_snapshot(engine, "mql", scope, start, end, as_of, segment, level="mql", flow="all", unit="шт",
+                             source=f"D:{SOURCE_SYSTEM}:facts.snapshot_number")
+        if snap is not None:
+            return snap
+    as_of, state_note = _checked_state(engine, _crm_systems(cfg), as_of, "CRM")
+    lo, hi = window(start, end, cfg.timezone)
+    pipe_marks = ", ".join("?" for _ in pipelines)
+    route_cond = " OR ".join(["COALESCE(d.qualification_route, '') LIKE ?"] * len(rule["route_values"])
+                             + ["COALESCE(d.qualification_route_legacy, '') LIKE ?"] * len(rule["route_values"]))
+    route_args = tuple(f"%{v}%" for v in rule["route_values"]) * 2
+    reason_marks = ", ".join("?" for _ in rule["close_reasons"])
+    brand_cond = "" if scope == "company" else " AND d.brand = ?"
+    brand_args = () if scope == "company" else (scope,)
+    # Одна выборка на все счётчики: число, ветки и проверка загрузки полей считаются тем же отбором (стандарт, раздел 4).
+    qualified_cond = "d.status = ? AND (" + route_cond + ")"
+    refused_cond = f"d.status = ? AND COALESCE(d.close_reason, '') IN ({reason_marks})"
+    mql_args = (rule["qualified_status"], *route_args, rule["lost_status"], *rule["close_reasons"])
+    no_fields = ("d.qualification_route IS NULL AND d.qualification_route_legacy IS NULL AND d.close_reason IS NULL")
+    base = (f"FROM facts.deal d WHERE d.deleted_at IS NULL AND d.pipeline IN ({pipe_marks}) "
+            "AND d.created_at >= ? AND d.created_at < ?{brand} "
+            "AND NOT EXISTS (SELECT 1 FROM facts.exclusion e WHERE e.entity = 'deal' "
+            "AND e.entity_key = CAST(d.deal_id AS VARCHAR))")
+    # Одна выборка на все счётчики: число, ветки и проверка загрузки полей считаются тем же отбором (стандарт, раздел 4).
+    row = engine.fetchone(
+        f"SELECT COUNT(DISTINCT d.deal_id) FILTER (WHERE {qualified_cond}), "
+        f"COUNT(DISTINCT d.deal_id) FILTER (WHERE {refused_cond}), "
+        "COUNT(DISTINCT d.deal_id) FILTER (WHERE d.status IN (?, ?)), "
+        f"COUNT(DISTINCT d.deal_id) FILTER (WHERE d.status IN (?, ?) AND {no_fields}) "
+        + base.format(brand=brand_cond),
+        (*mql_args, rule["qualified_status"], rule["lost_status"], rule["qualified_status"], rule["lost_status"],
+         *pipelines, lo, hi, *brand_args))
+    qualified, refused, closed, closed_unfilled = (int(x or 0) for x in row)
+    notes = [state_note] if state_note else []
+    if closed and closed_unfilled == closed:
+        return Number(status=Status.NO_DATA, value=None, as_of=as_of,
+                      missing="; ".join(notes + [f"у закрытых квалификатором сделок окна ({closed}) нет полей "
+                                                 "квалификации ни у одной — поля не загружены"]), **common)
+    if closed and closed_unfilled / closed > rule["max_unfilled_share"]:
+        notes.append(f"у {closed_unfilled} из {closed} закрытых квалификатором сделок нет полей квалификации — "
+                     "загружены не все, число занижено")
+    # Сделки MQL с неопределённым брендом: в итог компании входят, по кабинетам не раскладываются — у любого кабинета
+    # они могли быть его, поэтому число становится оценкой (как у New First SQL). Считаются тем же отбором, что и число.
+    # В виде проекта (разрез по воронке) бренд не участвует — там это не неопределённость.
+    if not segment:
+        unknown_brand = cfg.crm["brand"]["unknown"] if cfg.crm else "unknown"
+        nameless = engine.fetchone(
+            f"SELECT COUNT(DISTINCT d.deal_id) FILTER (WHERE ({qualified_cond}) OR ({refused_cond})) "
+            + base.format(brand=" AND (d.brand IS NULL OR d.brand = ?)"),
+            (*mql_args, *pipelines, lo, hi, unknown_brand))[0]
+        if nameless:
+            notes.append(f"сделок MQL с неопределённым брендом в окне: {nameless} — по кабинетам не раскладываются")
+    routine = [f"передано в продажи: {qualified}; закрыто по настоящей причине: {refused}"]
+    return Number(status=Status.ESTIMATE if notes else Status.FACT, value=float(qualified + refused), as_of=as_of,
+                  missing="; ".join(notes + routine), **common)
+
+
 def _attribution_share(engine, cfg, scope: str, start: date, end: date, as_of: date | None,
                        contour: str, *, known: bool) -> Number:
     """Доля сделок, у которых канал входа заполнен («источник известен») или пуст («без следа»).
@@ -1022,6 +1125,6 @@ def conversion(engine, cfg, scope: str, start: date, end: date, as_of: date | No
 
 REGISTRY = {"new_first_sql": new_first_sql, "visits": visits, "calls": calls,
             "new_first_sql_by_channel": new_first_sql_by_channel, "revenue": revenue, "payments": payments, "source_known": source_known, "no_trace": no_trace, "conversion": conversion,
-            "paid_deals_crm": paid_deals_crm, "cogs": cogs, "gross_profit": gross_profit, "ampu": ampu,
+            "paid_deals_crm": paid_deals_crm, "mql": mql, "cogs": cogs, "gross_profit": gross_profit, "ampu": ampu,
             "lead_conversion": lead_conversion, "revenue_leads": revenue_leads, "cogs_leads": cogs_leads,
             "gross_profit_leads": gross_profit_leads, "ampu_per_lead": ampu_per_lead}

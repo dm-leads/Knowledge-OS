@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "datacore"
-version = "1.0.0"
+version = "1.1.0"
 description = "Ядро данных: собственное хранилище фактов сквозной аналитики — нейтральная база без данных компаний"
 requires-python = ">=3.12"
 dependencies = [
