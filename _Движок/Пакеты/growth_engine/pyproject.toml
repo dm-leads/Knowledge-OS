@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "growth_engine"
-version = "1.2.4"
+version = "1.3.0"
 description = "Движок роста: юнит-экономика и growth hacking как цикл — нейтральная база без данных компаний"
 requires-python = ">=3.12"
 dependencies = ["pyyaml", "requests", "gspread", "google-auth"]
