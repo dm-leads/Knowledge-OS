@@ -45,6 +45,9 @@ def path_identity(path: Path) -> str:
 
 class Server:
     def __init__(self, executable: Path, home: Path):
+        if not executable.is_file():
+            raise FileNotFoundError("Native Codex executable is missing: " + str(executable)
+                                    + "; resolve the current installed package before running")
         env = dict(os.environ)
         env["CODEX_HOME"] = str(home)
         self.process = subprocess.Popen(
@@ -275,6 +278,8 @@ def write_report(output: Path, report: dict):
 
 def repair(args):
     """One offline, guarded repair. Existing thread/source IDs are retained."""
+    if not args.exe.is_file():
+        raise FileNotFoundError("Native Codex executable is missing: " + str(args.exe))
     home, output = args.home.resolve(), args.output.resolve()
     if output.exists() or output == home or home in output.parents:
         raise ValueError("Repair output must be a new directory outside the real home")

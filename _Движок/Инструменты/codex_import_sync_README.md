@@ -50,3 +50,11 @@ response items, повтор без дублей, совпадение всех 
 desktop может вновь мигрировать историю в paginated.
 
 Проверка кода: `python -m unittest test_codex_import_sync -v` из этой папки.
+
+Запускной файл `codex_import_sync_run.ps1 -ThreadId <ID>` определяет текущую
+установку через `Get-AppxPackage OpenAI.Codex`, проверяет наличие native exe,
+выводит и сохраняет полный console log. Он сохранён с UTF-8 BOM для Windows
+PowerShell 5.1/ISE. Путь к конкретной версии WindowsApps не фиксируется:
+обновление приложения удаляет старый пакет и иначе вызывает WinError 2.
+Повторная изолированная проверка с app-server 0.159.2 также прошла:
+5908→6010, сохранение прежней истории, повтор без дублей.

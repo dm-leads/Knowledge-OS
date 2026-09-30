@@ -74,12 +74,21 @@ class RecoveryTests(unittest.TestCase):
     def test_wait_timeout_does_not_modify_destination(self):
         self.args.output = Path(self.temp.name) / "waiting-result"
         self.args.wait_seconds = 0
+        self.args.exe = self.rollout  # preflight requires a file, but no process starts
         with patch.object(sync, "desktop_or_cli_running", return_value=True):
             sync.repair(self.args)
         report = json.loads((self.args.output / "report.json").read_text())
         self.assertEqual(report["status"], "cancelled_without_changes")
         self.assertEqual(self.rollout.read_bytes(), self.old)
         self.assertEqual(self.mode(), "paginated")
+
+    def test_missing_executable_fails_before_creating_backup_or_changing_chat(self):
+        self.args.output = Path(self.temp.name) / "missing-exe-result"
+        self.args.exe = Path(self.temp.name) / "missing.exe"
+        with self.assertRaises(FileNotFoundError):
+            sync.repair(self.args)
+        self.assertFalse(self.args.output.exists())
+        self.assertEqual(self.rollout.read_bytes(), self.old)
 
 
 if __name__ == "__main__":
