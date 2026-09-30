@@ -71,6 +71,16 @@ class RecoveryTests(unittest.TestCase):
             self.recover()
         self.assertEqual(self.mode(), "paginated")
 
+    def test_wait_timeout_does_not_modify_destination(self):
+        self.args.output = Path(self.temp.name) / "waiting-result"
+        self.args.wait_seconds = 0
+        with patch.object(sync, "desktop_or_cli_running", return_value=True):
+            sync.repair(self.args)
+        report = json.loads((self.args.output / "report.json").read_text())
+        self.assertEqual(report["status"], "cancelled_without_changes")
+        self.assertEqual(self.rollout.read_bytes(), self.old)
+        self.assertEqual(self.mode(), "paginated")
+
 
 if __name__ == "__main__":
     unittest.main()

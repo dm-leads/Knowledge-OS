@@ -270,6 +270,7 @@ def write_report(output: Path, report: dict):
     temporary = output / "report.json.new"
     temporary.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(temporary, output / "report.json")
+    print("Status: " + report["status"], flush=True)
 
 
 def repair(args):
@@ -281,12 +282,23 @@ def repair(args):
     report = {"thread_id": args.thread, "status": "waiting_for_codex_exit", "home": str(home)}
     write_report(output, report)
     deadline = time.monotonic() + args.wait_seconds
+    next_notice = time.monotonic()
     while desktop_or_cli_running():
         if time.monotonic() >= deadline:
             report["status"] = "cancelled_without_changes"
             write_report(output, report)
             return
-        time.sleep(3)
+        if time.monotonic() >= next_notice:
+            print("Waiting for all Codex processes to exit, including the Codex extension in Cursor. "
+                  "No chat changes have started. Remaining seconds: "
+                  + str(max(0, int(deadline - time.monotonic()))), flush=True)
+            next_notice = time.monotonic() + 15
+        try:
+            time.sleep(3)
+        except KeyboardInterrupt:
+            report["status"] = "cancelled_without_changes"
+            write_report(output, report)
+            return
     try:
         with writer_lock(home, args.thread):
             record = target_record(home, args.thread)
