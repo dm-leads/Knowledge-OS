@@ -39,14 +39,18 @@ def pick(numbers, patterns) -> list:
 
 
 def collect(adapter, metrics, scope: str, flow: str, windows, breakdown, patterns, as_of: date, out,
-            domains=()) -> list:
+            domains=(), rules=None) -> list:
     numbers = []
     for start, end in windows:
         for metric in metrics:
             query = dict(metric=metric, scope=scope, flow=flow, period_start=start, period_end=end, as_of=as_of)
-            total = adapter.fetch(Query(**query, breakdown=None))[0]
-            numbers.append(total)
-            out(f"{start:%m.%Y} · {render(total)}")
+            if rules is not None and not rules.rule(metric).summable:
+                # Средняя (позиция, доля) не складывается — итога у неё нет, есть только разрез (1.3.1).
+                out(f"{start:%m.%Y} · {metric}: несуммируемая — итог не снимается, только разрез")
+            else:
+                total = adapter.fetch(Query(**query, breakdown=None))[0]
+                numbers.append(total)
+                out(f"{start:%m.%Y} · {render(total)}")
             if breakdown:
                 parts = pick(adapter.fetch(Query(**query, breakdown=breakdown)), patterns)
                 # Значение разреза, похожее на секрет или ПДн (мусор, приклеенный к адресу), хранить нельзя (страж 12):
@@ -82,7 +86,7 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None, go
         f"поток {args.flow}" + (f", разрез «{args.breakdown}», образцов {len(patterns)}" if args.breakdown else "")
         + f", дата съёма {as_of:%d.%m.%Y}")
     numbers = collect(adapter, metrics, args.scope, args.flow, windows, args.breakdown, patterns, as_of, out,
-                      cfg.storage_link_domains)
+                      cfg.storage_link_domains, cfg)
     if getattr(args, "dry_run", False):
         out(f"сухой прогон: чисел к записи {len(numbers)}, ничего не записано")
         return 0

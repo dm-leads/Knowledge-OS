@@ -91,3 +91,16 @@ def test_segment_that_looks_like_a_secret_is_dropped_by_count(tmp_path):
     assert any("исключено похожих на секрет или ПДн: 1" in line for line in lines)
     assert all("luxBx" not in line for line in lines)
     assert {x.segment for x in stored(tmp_path)} == {"", "landing_page=/blog/rating-2025-goda"}
+
+
+def test_non_summable_metric_skips_the_total(tmp_path):
+    """1.3.1: средняя позиция не складывается — команда не просит у адаптера итог, пишет только разрез."""
+    raw = yaml.safe_load(Path(config(tmp_path)).read_text(encoding="utf-8"))
+    raw["metrics"]["position"] = {"level": "visit", "summable": False}
+    path = tmp_path / "config_position.yaml"          # args() пересоздаёт config.yaml — нужен свой файл
+    path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    adapter, lines = FakeAdapter(), []
+    assert run(args(tmp_path, config=str(path), metrics="position"), out=lines.append, adapter=adapter,
+               today=lambda: TODAY) == 0
+    assert all(q.breakdown for q in adapter.calls) and any("несуммируемая" in line for line in lines)
+    assert {x.segment for x in stored(tmp_path)} == {"landing_page=/blog/rating-2025-goda"}
