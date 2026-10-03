@@ -25,6 +25,10 @@ LEVEL_SEPARATOR = " › "
 # Страница входа (1.3.0): «маркер › путь». New First SQL по странице — честная мера страницы: цели веб-аналитики видят
 # только формы, а мессенджеры, чат и звонки колл-трекинга — нет. Домен из адреса отрезается, главная — «/».
 DIMENSION_PAGE = "landing_page"
+# Страница входа внутри второго уровня маркера (1.4.0): «маркер › второй уровень › путь». Нужен, когда изменение касается
+# одной поисковой системы: «seo › /catalog» складывает Яндекс с Google, и эффект в одной системе тонет в другой.
+DIMENSION_2_PAGE = "marker_level_2_landing_page"
+SECOND = {DIMENSION_2: (DIMENSION_2,), DIMENSION_PAGE: (DIMENSION_PAGE,), DIMENSION_2_PAGE: (DIMENSION_2, DIMENSION_PAGE)}
 EMPTY_MARKER = "(пусто)"   # у прямых визитов маркер пустой, а сегмент обязан иметь значение
 
 
@@ -37,9 +41,11 @@ class RoistatAdapter:
                                      transport=transport, sleep=sleep)
 
     def _rows(self, scope: str, names, start: date, end: date, depth: int = 1, second_dimension: str = DIMENSION_2):
-        """Строки разреза: (маркер первого уровня, второе измерение или "", значения метрик)."""
+        """Строки разреза: (маркер первого уровня, второе измерение или "", значения метрик). У разреза из двух
+        измерений после маркера второе значение составное — «второй уровень › путь»."""
         tz = self.section["timezone"]
-        dimensions = [DIMENSION, second_dimension][:depth]
+        extra = SECOND[second_dimension] if depth > 1 else ()
+        dimensions = [DIMENSION, *extra]
         payload = {
             "dimensions": dimensions,
             "metrics": list(names),
@@ -57,11 +63,12 @@ class RoistatAdapter:
         for group in (body.get("data") or []) if isinstance(body, dict) else []:
             for item in group.get("items") or []:
                 given = item.get("dimensions") or {}
-                marker, second = (str((given.get(name) or {}).get("value") or "") for name in (DIMENSION, second_dimension))
-                second = second if depth > 1 else ""
+                marker = str((given.get(DIMENSION) or {}).get("value") or "")
+                parts = [str((given.get(name) or {}).get("value") or "") for name in extra]
+                parts = [self._page(part) if name == DIMENSION_PAGE else part for name, part in zip(extra, parts)]
+                second = LEVEL_SEPARATOR.join(part or EMPTY_MARKER for part in parts) if len(parts) > 1 else "".join(parts)
                 values = {m.get("metric_name"): float(m.get("value") or 0) for m in item.get("metrics") or []}
-                if depth > 1 and second_dimension == DIMENSION_PAGE:
-                    second = self._page(second)
+                if DIMENSION_PAGE in extra:
                     # Адреса одной страницы с разными хвостами («?utm=…») — одна страница: складываются, а не стоп.
                     if (marker, second) in merged:
                         for name, value in values.items():
@@ -96,11 +103,11 @@ class RoistatAdapter:
         return (marker in no_visit) == (flow == "no_visit")
 
     def fetch(self, query: Query) -> list[Number]:
-        if query.breakdown not in (None, DIMENSION, DIMENSION_2, DIMENSION_PAGE):
+        if query.breakdown not in (None, DIMENSION, *SECOND):
             raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {DIMENSION}, "
-                                      f"{DIMENSION_2} и {DIMENSION_PAGE}")
-        depth = 2 if query.breakdown in (DIMENSION_2, DIMENSION_PAGE) else 1
-        second_dimension = DIMENSION_PAGE if query.breakdown == DIMENSION_PAGE else DIMENSION_2
+                                      f"{', '.join(SECOND)}")
+        depth = 2 if query.breakdown in SECOND else 1
+        second_dimension = query.breakdown if query.breakdown in SECOND else DIMENSION_2
         if query.scope not in self.section["scopes"]:
             raise GuardViolation(9, f"кабинет «{query.scope}» не объявлен в конфигурации")
         if query.flow not in self.cfg.flows:
