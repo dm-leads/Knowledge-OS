@@ -2,7 +2,9 @@
 
 Показы и клики — итог по дневной истории или разрез по запросу (первые N по показам). Средняя позиция —
 только в разрезе по запросу и не складывается. История запросов хранится с даты из конфигурации: период
-раньше — «нет данных». Нижняя ступень «запрос × наша страница» — отдельный отчёт, в v1 не подключён.
+раньше — «нет данных». Разрез по запросу хранится короче истории — скользящим окном около 12 недель и с задержкой в
+несколько дней: число разреза несёт период, который покрыт на деле. Нижняя ступень «запрос × наша страница» —
+отдельный отчёт, в v1 не подключён.
 """
 from __future__ import annotations
 
@@ -30,6 +32,7 @@ class WebmasterAdapter:
         self.client = ReadOnlyClient(section["base_url"], allowed,
                                      {"Authorization": f"OAuth {secrets[section['secret_env'][0]]}"},
                                      transport=transport, sleep=sleep)
+        self._days: dict[date, bool] = {}              # есть ли у источника запросы за день — один вопрос на день
 
     def fetch(self, query: Query) -> list[Number]:
         if query.metric not in INDICATORS:
@@ -67,9 +70,48 @@ class WebmasterAdapter:
             if len(page) < limit or offset >= int(body.get("count") or 0):
                 break                                  # неполная страница — выдача закончилась
         note = f"первые {len(rows)} запросов по показам — остальные вне разреза"
+        if rows:
+            # Статистика по запросам лежит скользящим окном и выходит с задержкой (1.4.1): ответ за период молча
+            # суммирует только хранимые дни. Число несёт период, который покрыт на деле, а не запрошенный.
+            first, last = self._covered(query.period_start, query.period_end - timedelta(days=1))
+            if (first, last) != (query.period_start, query.period_end - timedelta(days=1)):
+                common.update(period_start=first, period_end=last + timedelta(days=1))
+                note += (f"; период неполный: источник хранит запросы за {first:%d.%m.%Y}–{last:%d.%m.%Y}, запрошено "
+                         f"{query.period_start:%d.%m.%Y}–{query.period_end - timedelta(days=1):%d.%m.%Y}")
         return [Number(**common, source=f"E:{SYSTEM}:{POPULAR}", segment=f"{BREAKDOWN}={item['query_text']}",
                        status=Status.FACT, value=float(item["indicators"][indicator]), missing=note)
                 for item in rows if item.get("query_text")]
+
+    def _has_queries(self, day: date) -> bool:
+        if day not in self._days:
+            body = self.client.call("GET", f"{self.host}/{POPULAR}", params=[
+                ("order_by", "TOTAL_SHOWS"), ("query_indicator", "TOTAL_SHOWS"), ("date_from", day.isoformat()),
+                ("date_to", day.isoformat()), ("limit", 1), ("offset", 0)])
+            self._days[day] = int(body.get("count") or 0) > 0
+        return self._days[day]
+
+    def _covered(self, start: date, last: date) -> tuple[date, date]:
+        """Первый и последний день периода, за которые источник отдаёт запросы. Хранимые дни идут подряд, поэтому край
+        ищется делением пополам; если пусты оба края периода, сначала находится любой день с данными."""
+        if self._has_queries(start):
+            first = start
+        else:
+            anchor = last if self._has_queries(last) else next(
+                (start + timedelta(days=i) for i in range(1, (last - start).days) if self._has_queries(start + timedelta(days=i))),
+                None)
+            if anchor is None:
+                return start, last                       # ни одного дня с данными не видно — период не сужаем
+            empty, first = start, anchor
+            while (first - empty).days > 1:
+                middle = empty + timedelta(days=(first - empty).days // 2)
+                empty, first = (empty, middle) if self._has_queries(middle) else (middle, first)
+        if self._has_queries(last):
+            return first, last
+        found, empty = first, last
+        while (empty - found).days > 1:
+            middle = found + timedelta(days=(empty - found).days // 2)
+            found, empty = (middle, empty) if self._has_queries(middle) else (found, middle)
+        return first, found
 
     def probe(self) -> list[ProbeResult]:
         try:
