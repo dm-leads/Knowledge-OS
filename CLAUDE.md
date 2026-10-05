@@ -54,6 +54,8 @@ Code). **Один движок (`_Движок`) — много проектов
 - `kos-memory-check` — брифинг перед работой в живом контуре.
 - `kos-migrate-to-canon` — привести чужую/хаотичную папку к канону.
 - `build-plan` — план до правок (один проход или субагенты); `maker-checker` — независимая приёмка.
+- `unit-economics` — юнит-экономика по Красинскому: испытания курса одной линией и постоянный формат таблицы;
+  применять до первого числа, когда считают экономику, точку роста, гипотезу в деньгах или план от цели.
 - Прочие: `growth-*` (шаги Движка роста), `ads-*` (Авито, ВК, Telegram, Директ), `keysso`, `topvisor`, `seo-niche-research`,
   `claude-brief`, `second-agent`, `questions`, `image-edit`, `brand-voice`, `agent-hygiene`,
   `llm-pipeline-economy`, `graphify-graph`, `anthropic-cookbook`.
