@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Клиент JEV (TypeSafe AI) — модели-решателя: по тексту записи отвечает на вопросы «да/нет», «выбор», «шкала».
 
-Четыре команды:
+Пять команд:
     python jev.py check --questions вопросы.json
         проверить файл вопросов, ничего не отправляя
+    python jev.py ping [--yes]
+        проверка связи: один зашитый в код запрос без повторов — работает ли ключ и отвечает ли модель
     python jev.py plan  --questions вопросы.json --input записи.csv --text-col текст [--id-col id] [--limit N]
         пробный режим: число запросов, прогноз токенов и цены, пример запроса; в сеть не ходит
     python jev.py run   --questions вопросы.json --input записи.csv --text-col текст --out <папка> --label <имя>
@@ -13,10 +15,12 @@
         сверка с человеческой разметкой: совпадение по вопросам и классам, честность вероятностей, таблица порогов
 
 Что клиент соблюдает сам, а не по просьбе в описании:
-- ключ берётся только из переменной TYPESAFE_API_KEY (или из файла --env-file), не печатается, вырезается из текста
-  и из разобранного JSON ответов сервиса и не попадает в ошибки и файлы; переменную OPENROUTER_API_KEY клиент не читает;
+- ключ берётся только из переменной TYPESAFE_API_KEY либо из переменной, названной явно в --key-var (в окружении
+  или в файле --env-file), не печатается, вырезается из текста и из разобранного JSON ответов сервиса и не
+  попадает в ошибки и файлы; сам по себе клиент переменные OPENROUTER_API_KEY не читает;
 - адрес — ровно https://api.typesafe.ai или https://openrouter.ai/api, без другого пути, порта и имени в адресе;
-  перенаправления не выполняются; ключ OpenRouter без лимита расходов отклоняется до отправки;
+  перенаправления не выполняются; прогон с ключом OpenRouter без лимита расходов отклоняется до отправки
+  (проверка связи ping — один зашитый запрос без повторов — допускает такой ключ с предупреждением);
 - цена и число запросов печатаются до первого запроса; потолок --budget-usd — конечное число больше нуля, цену
   нельзя занизить; под каждый запрос бронируется верхняя граница его цены на все повторы (токенов не больше, чем
   байт в запросе, и не больше предела входа), поэтому при цене не выше документированной прогон останавливается,
@@ -221,11 +225,11 @@ def contact_ids(records) -> list[str]:
 
 # ---------- сеть ----------
 
-def load_env_file(path) -> None:
-    """Из файла берутся только две переменные клиента; остальные секреты файла не читаются в окружение."""
+def load_env_file(path, key_var: str = KEY_VAR) -> None:
+    """Из файла берутся только переменная ключа и адрес; остальные секреты файла не читаются в окружение."""
     for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
         name, _, value = line.partition("=")
-        if name.strip() in (KEY_VAR, BASE_VAR) and value.strip():
+        if name.strip() in (key_var, BASE_VAR) and value.strip():
             os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
 
 
@@ -477,9 +481,9 @@ def run(args, send=transport) -> int:
     budget = args.budget_usd
     if not math.isfinite(budget) or budget <= 0:
         raise SystemExit("jev: --budget-usd — конечное число больше нуля. Ничего не отправлено.")
-    key = os.environ.get(KEY_VAR)
+    key = os.environ.get(args.key_var)
     if not key:
-        raise SystemExit(f"jev: нет переменной {KEY_VAR}. Положите ключ в окружение или в файл и укажите --env-file. Ничего не отправлено.")
+        raise SystemExit(f"jev: нет переменной {args.key_var}. Положите ключ в окружение или в файл и укажите --env-file. Ничего не отправлено.")
     folder = Path(args.out) / re.sub(r"[^\w.-]+", "_", args.label)
     folder.mkdir(parents=True, exist_ok=True)
     lock_path = folder / "run.lock"
@@ -711,13 +715,78 @@ def print_eval(report: dict) -> None:
             f"{t}: {v['решено без человека']} ({v['доля']:.0%}) → {v['ошибок среди них']}" for t, v in item["пороги"].items()))
 
 
+# ---------- проверка связи ----------
+
+PING_STATE = "Мастер опоздал на два часа и не извинился, но прибор установил аккуратно."
+PING_QUESTIONS = {
+    "недоволен": {"type": "noul", "instructions": "Есть ли у автора отзыва претензия к работе компании?",
+                  "criteria": {"true": "названа хотя бы одна претензия", "false": "претензий нет"}},
+    "тема": {"type": "choice", "instructions": "На что автор жалуется в первую очередь?",
+             "criteria": {"сроки": "опоздание или срыв срока", "качество": "плохо выполненная работа",
+                          "нет_претензий": "претензий нет"}},
+    "сила": {"type": "score", "instructions": "Насколько сильно автор раздражён?",
+             "criteria": ["спокоен, претензий нет", "сдержанно отмечает минус", "явно зол, требует или угрожает"]},
+}
+
+
+def ping(args, send=transport) -> int:
+    """Проверка связи: ровно один фиксированный запрос без повторов — работает ли ключ и отвечает ли модель.
+
+    Запись и вопросы зашиты в код, поэтому цена ограничена одним коротким запросом. Ключ OpenRouter без лимита
+    здесь допускается с предупреждением: израсходовать счёт одним запросом нельзя; команда run такой ключ не примет.
+    """
+    base, host = endpoint()
+    model, price = money_settings(args, host)
+    payload = {"model": model, "state": PING_STATE, "questions": PING_QUESTIONS}
+    bound = request_bound_usd(payload, host, price)
+    print(f"проверка связи: один запрос на {base}/v1/systemone, модель {model}; "
+          f"цена не выше {bound:.6f} $ при документированной цене")
+    if not args.yes:
+        print("ничего не отправлено: добавьте --yes, чтобы отправить этот один запрос")
+        return 0
+    key = os.environ.get(args.key_var)
+    if not key:
+        raise SystemExit(f"jev: нет переменной {args.key_var}. Положите ключ в окружение или в файл и укажите --env-file. "
+                         "Ничего не отправлено.")
+    if host == "openrouter.ai":
+        status, data, _ = send("GET", base + "/v1/key", key)
+        info = data.get("data") if status == 200 and isinstance(data, dict) else None
+        if not isinstance(info, dict):
+            raise SystemExit(f"jev: OpenRouter не принял ключ (HTTP {status}) — запрос к модели не отправлен")
+        print(f"ключ OpenRouter: лимит расходов {info.get('limit')}, остаток лимита {info.get('limit_remaining')}, "
+              f"израсходовано {info.get('usage')} $, бесплатный уровень: {'да' if info.get('is_free_tier') else 'нет'}")
+        if info.get("limit") is None:
+            print("ВНИМАНИЕ: у ключа нет лимита расходов — команда run с ним работать не будет; для прогонов нужен ключ с лимитом")
+    started = time.time()
+    try:
+        data, _ = call(send, base + "/v1/systemone", key, payload, attempts=1)
+    except Stop as error:
+        print("СЕРВИС НЕ ОТВЕТИЛ КАК ОЖИДАЛОСЬ:", error)
+        if error.unconfirmed:
+            print(f"возможно списано: до {bound:.6f} $ — сверьте с кабинетом сервиса")
+        return 3
+    usage = data["usage"]
+    cost = request_cost(usage, price)
+    print(f"ответила модель {data.get('model')}; время ответа {round((time.time() - started) * 1000)} мс; "
+          f"входных токенов {usage['input_tokens']}; стоимость {cost:.8f} $ "
+          + ("(по данным сервиса)" if usage.get("cost") is not None else "(по прайсу)"))
+    print(f"запись: «{PING_STATE}»")
+    for name, answer in data["answers"].items():
+        if name in PING_QUESTIONS:
+            flat = flatten(answer)
+            print(f"  {name}: {flat['value']} — вероятность {flat['p_top']}, уверенность {flat['confidence']}")
+    if cost > bound:
+        print(f"ВНИМАНИЕ: запрос стоил больше расчётной границы {bound:.6f} $ — сервис берёт дороже документированной цены")
+    return 0
+
+
 # ---------- команды ----------
 
 def main(argv=None, send=transport) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("verb", choices=["check", "plan", "run", "eval"])
+    parser.add_argument("verb", choices=["check", "ping", "plan", "run", "eval"])
     parser.add_argument("--questions", help="файл вопросов (JSON)")
     parser.add_argument("--input", help="записи: CSV или JSONL")
     parser.add_argument("--text-col", action="append", default=[], help="колонка с текстом; можно несколько")
@@ -732,14 +801,19 @@ def main(argv=None, send=transport) -> int:
     parser.add_argument("--price-per-mtok", type=float, default=PRICE_PER_MTOK_USD, help="цена входа, $ за млн токенов")
     parser.add_argument("--shuffle-choices", type=int, help="переставить варианты выбора (число — зерно перестановки)")
     parser.add_argument("--contacts-ok", action="store_true", help="телефоны и почта в записях — не контакты людей")
-    parser.add_argument("--env-file", help="файл с переменными TYPESAFE_API_KEY и TYPESAFE_BASE_URL")
+    parser.add_argument("--env-file", help="файл с переменной ключа и TYPESAFE_BASE_URL")
+    parser.add_argument("--key-var", default=KEY_VAR, help="имя переменной окружения с ключом; по умолчанию TYPESAFE_API_KEY")
     parser.add_argument("--show", action="store_true", help="plan: напечатать первый запрос целиком")
     parser.add_argument("--results", help="eval: results.jsonl прогона")
     parser.add_argument("--gold", help="eval: эталон — CSV с колонкой id и колонкой на каждый вопрос")
     parser.add_argument("--compare", help="eval: results.jsonl второго прогона тех же записей")
     args = parser.parse_args(argv)
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", args.key_var):
+        raise SystemExit("jev: --key-var — имя переменной окружения, а не сам ключ: заглавные латинские буквы, цифры и «_»")
     if args.env_file:
-        load_env_file(args.env_file)
+        load_env_file(args.env_file, args.key_var)
+    if args.verb == "ping":
+        return ping(args, send)
 
     if args.verb == "eval":
         if not args.results or not (args.gold or args.compare):

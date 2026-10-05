@@ -680,3 +680,90 @@ def test_overpriced_answer_is_kept_but_run_stops_and_says_so(files, monkeypatch,
     out = capsys.readouterr().out
     assert calls.count("POST") == 1 and summary["sent_now"] == 1 and summary["usd"] == 0.01      # оплаченный ответ сохранён
     assert "дороже документированной цены" in summary["stopped"] and "потолок уже превышен" in summary["stopped"] and "ПРОГОН ОСТАНОВЛЕН" in out
+
+
+# ---------- проверка связи и имя переменной ключа ----------
+
+def test_ping_without_yes_sends_nothing(monkeypatch, capsys):
+    monkeypatch.setenv(jev.KEY_VAR, KEY)
+    fake = Fake()
+    assert jev.main(["ping"], send=fake) == 0
+    assert not fake.calls and "ничего не отправлено" in capsys.readouterr().out
+
+
+def test_ping_sends_exactly_one_fixed_request_and_hides_key(monkeypatch, capsys):
+    monkeypatch.setenv(jev.KEY_VAR, KEY)
+    calls = []
+
+    def send(method, url, key, payload=None, timeout=60):
+        calls.append((method, url, payload))
+        answers = {"недоволен": {"type": "noul", "noul": 0.9},
+                   "тема": {"type": "choice", "choice": "сроки", "probabilities": {"сроки": 0.8, "качество": 0.1, "нет_претензий": 0.1}, "confidence": 0.7},
+                   "сила": {"type": "score", "score": 1.2, "probabilities": {"0": 0.1, "1": 0.6, "2": 0.3}, "confidence": 0.5}}
+        return 200, {"model": payload["model"], "answers": answers, "usage": {"input_tokens": 350, "output_tokens": 30}}, ""
+    assert jev.main(["ping", "--yes"], send=send) == 0
+    out = capsys.readouterr().out
+    assert len(calls) == 1 and calls[0][1] == "https://api.typesafe.ai/v1/systemone" and calls[0][2]["state"] == jev.PING_STATE
+    assert "входных токенов 350" in out and "недоволен: да" in out and KEY not in out
+
+
+def test_ping_does_not_retry(monkeypatch, capsys):
+    monkeypatch.setenv(jev.KEY_VAR, KEY)
+    fake = Fake(status=503)
+    assert jev.main(["ping", "--yes"], send=fake) == 3
+    out = capsys.readouterr().out
+    assert len(fake.posts) == 1 and "возможно списано" in out
+
+
+def test_ping_allows_openrouter_key_without_limit_but_run_still_refuses(files, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY_2", KEY)
+    monkeypatch.setenv(jev.BASE_VAR, "https://openrouter.ai/api")
+    seen = []
+
+    def send(method, url, key, payload=None, timeout=60):
+        seen.append((method, key))
+        if method == "GET":
+            return 200, {"data": {"limit": None, "limit_remaining": None, "usage": 1.25, "is_free_tier": False}}, ""
+        answers = {"недоволен": {"type": "noul", "noul": 0.9},
+                   "тема": {"type": "choice", "choice": "сроки", "probabilities": {"сроки": 1.0}, "confidence": 1},
+                   "сила": {"type": "score", "score": 1.0, "probabilities": {"1": 1.0}, "confidence": 1}}
+        return 200, {"model": payload["model"] + "-20260917", "answers": answers,
+                     "usage": {"input_tokens": 300, "output_tokens": 30, "cost": 0.0000126}}, ""
+    assert jev.main(["ping", "--yes", "--key-var", "OPENROUTER_API_KEY_2"], send=send) == 0
+    out = capsys.readouterr().out
+    assert [m for m, _ in seen] == ["GET", "POST"] and all(k == KEY for _, k in seen)
+    assert "нет лимита расходов" in out and "по данным сервиса" in out and KEY not in out
+    with pytest.raises(SystemExit) as error:                                 # прогон с тем же ключом без лимита не стартует
+        jev.main(run_args(files, "--yes", "--budget-usd", "1", "--key-var", "OPENROUTER_API_KEY_2"), send=send)
+    assert "нет лимита" in str(error.value) and [m for m, _ in seen].count("POST") == 1
+
+
+def test_ping_stops_when_openrouter_rejects_key(monkeypatch):
+    monkeypatch.setenv(jev.KEY_VAR, KEY)
+    monkeypatch.setenv(jev.BASE_VAR, "https://openrouter.ai/api")
+    calls = []
+
+    def send(method, url, key, payload=None, timeout=60):
+        calls.append(method)
+        return 401, {"error": {"message": "No auth credentials found"}}, ""
+    with pytest.raises(SystemExit):
+        jev.main(["ping", "--yes"], send=send)
+    assert calls == ["GET"]
+
+
+def test_key_var_must_be_a_name_not_a_key(monkeypatch):
+    fake = Fake()
+    with pytest.raises(SystemExit) as error:
+        jev.main(["ping", "--yes", "--key-var", "sk-or-v1-abcdef"], send=fake)
+    assert "имя переменной" in str(error.value) and not fake.calls
+
+
+def test_env_file_loads_only_named_key_variable(tmp_path):
+    import os
+    env = tmp_path / ".env"
+    env.write_text(f"OPENROUTER_API_KEY=личный\nOPENROUTER_API_KEY_2={KEY}\nДРУГОЙ_СЕКРЕТ=x\n", encoding="utf-8")
+    try:
+        jev.load_env_file(env, "OPENROUTER_API_KEY_2")
+        assert os.environ["OPENROUTER_API_KEY_2"] == KEY and "OPENROUTER_API_KEY" not in os.environ and jev.KEY_VAR not in os.environ
+    finally:
+        os.environ.pop("OPENROUTER_API_KEY_2", None)
