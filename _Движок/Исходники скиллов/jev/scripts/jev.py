@@ -19,8 +19,9 @@
   или в файле --env-file), не печатается, вырезается из текста и из разобранного JSON ответов сервиса и не
   попадает в ошибки и файлы; сам по себе клиент переменные OPENROUTER_API_KEY не читает;
 - адрес — ровно https://api.typesafe.ai или https://openrouter.ai/api, без другого пути, порта и имени в адресе;
-  перенаправления не выполняются; прогон с ключом OpenRouter без лимита расходов отклоняется до отправки
-  (проверка связи ping — один зашитый запрос без повторов — допускает такой ключ с предупреждением);
+  перенаправления не выполняются; прогон с ключом OpenRouter без лимита расходов отклоняется до отправки —
+  кроме малого прогона с явным флагом --key-without-limit и потолком не выше 0,5 $ (проверка связи ping —
+  один зашитый запрос без повторов — допускает такой ключ с предупреждением);
 - цена и число запросов печатаются до первого запроса; потолок --budget-usd — конечное число больше нуля, цену
   нельзя занизить; под каждый запрос бронируется верхняя граница его цены на все повторы (токенов не больше, чем
   байт в запросе, и не больше предела входа), поэтому при цене не выше документированной прогон останавливается,
@@ -61,6 +62,7 @@ STOP_CODES = {400, 401, 402, 403, 404, 413, 422}
 RETRY_CODES = {408, 429, 500, 502, 503, 504, 524, 529}
 REJECTED_UNBILLED = {429, 529}             # отказ до обработки: лимит частоты и перегрузка денег не списывают
 ATTEMPTS = 4
+UNLIMITED_KEY_BUDGET_CAP = 0.5             # с ключом OpenRouter без лимита прогон допускается только при таком потолке, $
 OVERHEAD_BOUND_TOKENS = 2000               # запас на постоянную часть запроса при расчёте верхней границы цены
 MODEL_ID = re.compile(r"^(typesafe/)?jev-\d+(\.\d+)*(-\d{8})?$")   # точная версия; псевдонимы latest и preview не годятся
 # телефон — 10–15 цифр подряд через пробел, дефис или скобки (любая страна); точка разделителем не считается,
@@ -369,15 +371,26 @@ def call(send, url: str, key: str, payload: dict, attempts: int = ATTEMPTS, slee
     raise Stop("сервис не ответил", unknown)
 
 
-def openrouter_key_guard(send, base: str, key: str, need_usd: float) -> None:
-    """У ключа OpenRouter должен стоять лимит расходов: ключ без лимита тратит весь счёт владельца."""
+def openrouter_key_guard(send, base: str, key: str, need_usd: float, allow_unlimited: bool = False) -> None:
+    """У ключа OpenRouter должен стоять лимит расходов: ключ без лимита тратит весь счёт владельца.
+
+    Владелец может явно разрешить ключ без лимита, но только для малого прогона — с потолком не выше
+    UNLIMITED_KEY_BUDGET_CAP; большой прогон без лимита на ключе не стартует.
+    """
     status, data, text = send("GET", base + "/v1/key", key)
     info = (data or {}).get("data") if isinstance(data, dict) else None
     if status != 200 or not isinstance(info, dict):
         raise SystemExit(f"jev: OpenRouter не ответил на проверку ключа (HTTP {status}) — прогон не начат")
     limit, remaining = info.get("limit"), info.get("limit_remaining")
     if not isinstance(limit, (int, float)) or isinstance(limit, bool) or not math.isfinite(limit):
-        raise SystemExit("jev: у ключа OpenRouter нет лимита расходов — заведите отдельный ключ с лимитом; прогон не начат")
+        if not allow_unlimited:
+            raise SystemExit("jev: у ключа OpenRouter нет лимита расходов — заведите отдельный ключ с лимитом; прогон не начат")
+        if need_usd > UNLIMITED_KEY_BUDGET_CAP:
+            raise SystemExit(f"jev: с ключом без лимита потолок прогона не может быть выше {UNLIMITED_KEY_BUDGET_CAP} $ — "
+                             "для большого прогона поставьте лимит на ключ; прогон не начат")
+        print(f"ВНИМАНИЕ: у ключа OpenRouter нет лимита расходов; прогон разрешён флагом --key-without-limit, "
+              f"защита — только потолок клиента {need_usd} $")
+        return
     if isinstance(remaining, (int, float)) and not isinstance(remaining, bool) and remaining < need_usd:
         raise SystemExit(f"jev: остаток лимита ключа {remaining} $ меньше потолка прогона {need_usd} $ — прогон не начат")
 
@@ -513,7 +526,7 @@ def send_all(args, send, questions, thresholds, records, fc, base, host, model, 
         raise SystemExit(f"jev: прогноз «с запасом» {worst:.6f} $ больше потолка {budget} $ — "
                          "уменьшите --limit или поднимите потолок. Ничего не отправлено.")
     if host == "openrouter.ai" and todo:
-        openrouter_key_guard(send, base, key, budget)
+        openrouter_key_guard(send, base, key, budget, args.key_without_limit)
 
     state = {"spent": 0.0, "unconfirmed": 0.0, "reserved": 0.0, "tokens": 0, "written": 0, "stop": "",
              "models": set(), "latency": []}
@@ -802,6 +815,8 @@ def main(argv=None, send=transport) -> int:
     parser.add_argument("--shuffle-choices", type=int, help="переставить варианты выбора (число — зерно перестановки)")
     parser.add_argument("--contacts-ok", action="store_true", help="телефоны и почта в записях — не контакты людей")
     parser.add_argument("--env-file", help="файл с переменной ключа и TYPESAFE_BASE_URL")
+    parser.add_argument("--key-without-limit", action="store_true",
+                        help="владелец разрешил ключ OpenRouter без лимита; только при потолке не выше 0,5 $")
     parser.add_argument("--key-var", default=KEY_VAR, help="имя переменной окружения с ключом; по умолчанию TYPESAFE_API_KEY")
     parser.add_argument("--show", action="store_true", help="plan: напечатать первый запрос целиком")
     parser.add_argument("--results", help="eval: results.jsonl прогона")

@@ -767,3 +767,24 @@ def test_env_file_loads_only_named_key_variable(tmp_path):
         assert os.environ["OPENROUTER_API_KEY_2"] == KEY and "OPENROUTER_API_KEY" not in os.environ and jev.KEY_VAR not in os.environ
     finally:
         os.environ.pop("OPENROUTER_API_KEY_2", None)
+
+
+# ---------- ключ без лимита по явному разрешению владельца ----------
+
+def unlimited(method, url, key, payload=None, timeout=60):
+    if method == "GET":
+        return 200, {"data": {"limit": None, "limit_remaining": None}}, ""
+    return 200, {"model": payload["model"], "answers": ANSWERS, "usage": {"input_tokens": 400, "output_tokens": 20}}, ""
+
+
+def test_unlimited_key_runs_only_with_explicit_flag_and_small_budget(files, monkeypatch, capsys):
+    monkeypatch.setenv(jev.KEY_VAR, KEY)
+    monkeypatch.setenv(jev.BASE_VAR, "https://openrouter.ai/api")
+    with pytest.raises(SystemExit) as error:                                 # без флага — отказ, как раньше
+        jev.main(run_args(files, "--yes", "--budget-usd", "0.01"), send=unlimited)
+    assert "нет лимита" in str(error.value)
+    with pytest.raises(SystemExit) as error:                                 # с флагом, но потолок выше разрешённого
+        jev.main(run_args(files, "--yes", "--budget-usd", "0.51", "--key-without-limit", "--label", "много"), send=unlimited)
+    assert "не может быть выше" in str(error.value)
+    assert jev.main(run_args(files, "--yes", "--budget-usd", "0.5", "--key-without-limit", "--label", "мало"), send=unlimited) == 0
+    assert "ВНИМАНИЕ: у ключа OpenRouter нет лимита" in capsys.readouterr().out
