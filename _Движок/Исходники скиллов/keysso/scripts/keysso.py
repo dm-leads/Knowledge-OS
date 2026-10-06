@@ -54,6 +54,10 @@ def call(method: str, path: str, params: dict, body=None) -> dict:
         except urllib.error.HTTPError as e:
             txt = e.read().decode("utf-8", "replace")[:400]
             if e.code == 429:
+                # Суточный лимит объектов один на аккаунт: ждать его в цикле — значит молча висеть (06.10.2026).
+                if "за сутки" in txt:
+                    raise SystemExit(f"Keys.so {method} {path}: HTTP 429, суточный лимит аккаунта исчерпан "
+                                     f"(строка analysis в `limits`) — повторить после его обновления | {txt}")
                 time.sleep(int(e.headers.get("Retry-After") or 10)); continue
             if e.code in (500, 502, 503, 504) and attempt < 4:
                 time.sleep(3 * (attempt + 1)); continue
