@@ -71,6 +71,12 @@ contours:
     - field: marker_level_1
       exclude: [site]
       keep_referrer: [video.example]
+  one_per_contact:              # у контакта засчитывается самая ранняя первая квалифицированная сделка
+    base: {new_first_only: true, first_per_contact: true}
+    exclude: []
+  one_per_contact_all:          # ошибка конфигурации: «одна на контакт» без «только первые квалифицированные»
+    base: {new_first_only: false, first_per_contact: true}
+    exclude: []
 
 known_answers_tolerance: {abs: 2, rel: 0.01}
 

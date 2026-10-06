@@ -60,6 +60,12 @@ def ladder(engine, cfg, scope: str, start: date, end: date, contour: str) -> lis
     # Исключения применяются накопительно: каждое следующее считается поверх предыдущих. База набора уже
     # посчитана отдельным шагом, поэтому здесь она добавляется в запрос явно — иначе счётчик прыгал бы вверх.
     base_sql = " AND d.is_new_first" if (contours[contour].get("base") or {}).get("new_first_only") else ""
+    if (contours[contour].get("base") or {}).get("first_per_contact"):
+        from datacore.serve.contour import FIRST_PER_CONTACT_SQL
+        base_sql += f" AND {FIRST_PER_CONTACT_SQL}"
+        prev = n
+        n = engine.fetchone(f"SELECT COUNT(DISTINCT d.deal_id) {common}{base_sql}", (lo, hi, *brand_args))[0]
+        steps.append({"name": "одна сделка на контакт", "value": n, "cut": prev - n})
     applied, applied_params = [], []
     for i, rule in enumerate(rules, 1):
         single, single_params = contour_clause(_one_rule_cfg(cfg, contour, i), contour)

@@ -156,3 +156,76 @@ def test_unknown_brand_lowers_status_and_is_named(engine):
     n = new_first_sql(engine, CFG, "company", *AUG)
     assert n.value == 2 and n.status is Status.ESTIMATE
     assert "неопределённым брендом" in n.missing, n.missing
+
+
+# --- «Одна сделка на контакт»: у контакта засчитывается самая ранняя из первых квалифицированных ---
+
+JUL = (date(2026, 7, 1), date(2026, 8, 1))
+
+
+def contact_deal(deal_id, contact_id, day, *, month=8, new_first=True, deleted_at=None):
+    return dict(deal_id=deal_id, contact_id=contact_id, brand="b1", pipeline="100", status="142",
+                created_at=datetime(2026, month, day, tzinfo=timezone.utc), is_new_first=new_first,
+                entry_channel_tech=None, entry_channel_summary=None, deleted_at=deleted_at)
+
+
+def setup_contacts(engine, rows, excluded=()):
+    migrate(engine)
+    p = Provenance("crm_mirror", "D", "L-crm", NOW)
+    register_load(engine, p, NOW.date())
+    contacts = sorted({r["contact_id"] for r in rows})
+    write_facts(engine, "contact", [dict(contact_id=c, brand="b1", created_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
+                                    for c in contacts], p, mode="upsert")
+    write_facts(engine, "deal", list(rows), p, mode="upsert")
+    if excluded:
+        write_facts(engine, "exclusion", [dict(entity="deal", entity_key=str(k), reason="технический тест",
+                                               since=date(2026, 7, 1), decided_by="t") for k in excluded], p)
+    finish_load(engine, p.load_id, rows_read=len(rows), rows_written=len(rows), status="ok")
+
+
+def test_one_per_contact_counts_the_earliest_deal_only(engine):
+    """Две сделки с флагом у одного контакта и одна у другого: без правила 3, с правилом 2."""
+    setup_contacts(engine, [contact_deal(1, 10, 5), contact_deal(2, 10, 20), contact_deal(3, 11, 6)])
+    assert new_first_sql(engine, CFG, "b1", *AUG).value == 3
+    assert new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact").value == 2
+
+
+def test_one_per_contact_keeps_the_deal_in_its_own_month(engine):
+    """Первая сделка контакта — в июле, вторая — в августе: июль её засчитывает, август — нет."""
+    setup_contacts(engine, [contact_deal(1, 10, 5, month=7), contact_deal(2, 10, 20)])
+    assert new_first_sql(engine, CFG, "b1", *JUL, contour="one_per_contact").value == 1
+    assert new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact").value == 0
+    assert new_first_sql(engine, CFG, "b1", *AUG).value == 1
+
+
+def test_one_per_contact_ignores_earlier_deal_that_is_not_a_lead(engine):
+    """Место первой не занимает ни удалённая сделка, ни сделка без флага, ни технический тест."""
+    gone = datetime(2026, 8, 6, tzinfo=timezone.utc)
+    setup_contacts(engine, [contact_deal(1, 10, 5, deleted_at=gone), contact_deal(2, 10, 20),
+                            contact_deal(3, 11, 5, new_first=False), contact_deal(4, 11, 20),
+                            contact_deal(5, 12, 5), contact_deal(6, 12, 20)], excluded=[5])
+    assert new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact").value == 3
+
+
+def test_one_per_contact_breaks_a_tie_by_deal_id(engine):
+    """Две сделки контакта созданы в одну секунду: засчитывается ровно одна, а не обе и не ни одной."""
+    setup_contacts(engine, [contact_deal(1, 10, 5), contact_deal(2, 10, 5)])
+    assert new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact").value == 1
+
+
+def test_one_per_contact_requires_new_first_base(engine):
+    """«Одна на контакт» среди всех сделок компании — ошибка конфигурации, а не тихий другой расчёт."""
+    setup_contacts(engine, [contact_deal(1, 10, 5)])
+    with pytest.raises(RuleViolation) as e:
+        new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact_all")
+    assert e.value.code == "К2" and "first_per_contact" in str(e.value)
+
+
+def test_ladder_shows_the_contact_step(engine):
+    """Лестница отбора называет шаг и его цену — и сходится с числом метрики."""
+    from datacore.serve.explain import ladder
+    setup_contacts(engine, [contact_deal(1, 10, 5), contact_deal(2, 10, 20), contact_deal(3, 11, 6)])
+    steps = ladder(engine, CFG, "b1", *AUG, "one_per_contact")
+    step = next(s for s in steps if s["name"] == "одна сделка на контакт")
+    assert (step["value"], step["cut"]) == (2, 1)
+    assert steps[-1]["value"] == new_first_sql(engine, CFG, "b1", *AUG, contour="one_per_contact").value

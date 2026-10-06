@@ -49,7 +49,7 @@ tags:
 | Пакет | Версия | Где выпуск | Заметка |
 |---|---|---|---|
 | `growth_engine` | 1.0.0 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Growth\Скрипты\growth_engine\` (GitLab компании) | Выпуск 28.09.2026; инстанс — `Скрипты\growth_instance\`; на сервере компании пока нет |
-| `datacore` | 1.1.0 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Сквозная аналитика\Скрипты\datacore\` (GitLab компании) | Выпуск 1.1.0 — 29.09.2026 (1.0.0 — 28.09, первый, с `--first`); инстанс — `Скрипты\datacore_instance\` (загрузчики, мотивация, витрина, сверка с проектами трекера); сервер Lorentz на новой раскладке с 29.09.2026 |
+| `datacore` | 1.2.0 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Сквозная аналитика\Скрипты\datacore\` (GitLab компании) | Выпуск 1.1.0 — 29.09.2026 (1.0.0 — 28.09, первый, с `--first`); инстанс — `Скрипты\datacore_instance\` (загрузчики, мотивация, витрина, сверка с проектами трекера); сервер Lorentz на новой раскладке с 29.09.2026 |
 
 ## Движок
 

@@ -29,6 +29,17 @@ FIELD_SQL = {"marker_level_1": "m.marker_level_1",
 # Площадка перехода живёт в фактах визитов; метрика присоединяет их, когда набор этого требует.
 REFERRER_SQL = "v.referrer_host"
 
+# «Одна сделка на контакт»: у контакта засчитывается самая ранняя из его первых квалифицированных сделок.
+# Флаг ставит CRM, и он не всегда единственный у контакта (у первого инстанса — 6 контактов с двумя флагами
+# за 2026 год). Удалённая и исключённая как технический тест сделка место первой не занимает. При равном
+# времени создания порядок задаёт номер сделки — иначе обе сделки выпали бы или обе остались.
+FIRST_PER_CONTACT_SQL = (
+    "NOT EXISTS (SELECT 1 FROM facts.deal p WHERE p.contact_id = d.contact_id AND p.is_new_first "
+    "AND p.deleted_at IS NULL "
+    "AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.deal_id < d.deal_id)) "
+    "AND NOT EXISTS (SELECT 1 FROM facts.exclusion pe WHERE pe.entity = 'deal' "
+    "AND pe.entity_key = CAST(p.deal_id AS VARCHAR)))")
+
 
 def contour_names(cfg) -> tuple[str, ...]:
     return tuple(cfg.contours or {})
@@ -55,8 +66,14 @@ def contour_clause(cfg, name: str) -> tuple[str, list]:
     """Условие для WHERE и его параметры. Пустая строка — набор не ограничивает ничего."""
     contour = _contour(cfg, name)
     parts, params = [], []
-    if (contour.get("base") or {}).get("new_first_only"):
+    base = contour.get("base") or {}
+    if base.get("new_first_only"):
         parts.append("d.is_new_first")
+    if base.get("first_per_contact"):
+        if not base.get("new_first_only"):
+            raise RuleViolation("К2", f"набор «{name}»: «first_per_contact» имеет смысл только вместе с "
+                                      "«new_first_only» — первая сделка выбирается среди первых квалифицированных")
+        parts.append(FIRST_PER_CONTACT_SQL)
     for rule in contour.get("exclude") or []:
         field = rule.get("field")
         if field not in FIELD_SQL:
