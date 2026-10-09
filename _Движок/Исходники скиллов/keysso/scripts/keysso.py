@@ -18,7 +18,8 @@
 - при --all листаем страницы; если сортировка по одному полю — добавляем второе, иначе строки на стыке
   страниц теряются или дублируются;
 - 0 строк при --all — код выхода 2: пустой результат не выдаётся за успех.
-Ключ — KEYSO_API_KEY в мастер-.env, значение не печатается.
+Ключ — KEYSO_API_KEY в мастер-.env, значение не печатается. Путь к .env переопределяется переменной окружения
+KOS_ENV: у проекта может быть свой ключ, который перевыпускают отдельно от ключа устройства.
 """
 import argparse, csv, io, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
 from datetime import datetime
@@ -26,7 +27,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-ENV = dotenv_values(Path(r"C:\Users\redmi\Second Brain Secrets\.env"))
+ENV_PATH = Path(os.environ.get("KOS_ENV") or r"C:\Users\redmi\Second Brain Secrets\.env")
+ENV = dotenv_values(ENV_PATH)
 API = "https://api.keys.so"
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 _calls: list = []
@@ -64,7 +66,7 @@ def call(method: str, path: str, params: dict, body=None) -> dict:
             # Аккаунтом пользуются несколько человек, ключ API перевыпускают часто — 401 при непустом ключе означает
             # сменённый ключ, а не ошибку запроса. Проекты мониторинга и их расписание от ключа не зависят.
             hint = {401: "ключ не принят — скорее всего, его перевыпустили в кабинете Keys.so: взять новый и "
-                         "обновить KEYSO_API_KEY в мастер-.env; запрос не переписывать", 402: "ограничение тарифа на этот запрос",
+                         f"обновить KEYSO_API_KEY в {ENV_PATH}; запрос не переписывать", 402: "ограничение тарифа на этот запрос",
                     404: "не найдено — домен передавай кириллицей, не punycode"}.get(e.code, "")
             raise SystemExit(f"Keys.so {method} {path}: HTTP {e.code} {hint} | {txt}")
         if isinstance(resp, dict) and resp.get("code") == 202 and waited < 360:
@@ -204,6 +206,9 @@ def main() -> int:
     ap.add_argument("--from", dest="date_from", help="monitoring: первая дата ГГГГ-ММ-ДД")
     ap.add_argument("--to", dest="date_to", help="monitoring: последняя дата ГГГГ-ММ-ДД")
     a = ap.parse_args()
+    if not ENV.get("KEYSO_API_KEY"):
+        raise SystemExit(f"KEYSO_API_KEY не найден в {ENV_PATH} — проверь путь (переменная окружения KOS_ENV) "
+                         f"и имя переменной")
 
     if a.verb == "monitoring":
         if not a.path or not a.date_from or not a.date_to:
