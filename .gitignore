@@ -23,3 +23,4 @@ service-account*.json
 __pycache__/
 .venv/
 node_modules/
+*.egg-info/
