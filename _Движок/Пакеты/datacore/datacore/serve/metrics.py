@@ -383,6 +383,39 @@ def _money_system(cfg) -> str:
     return system
 
 
+def money_where(system: str, lo: datetime, hi: datetime, brand: str | None = None, *, alias: str = "",
+                no_brand: bool = False) -> tuple[str, tuple]:
+    """Отбор денег — один для метрик выручки, оплат и себестоимости и для публикации «деньги по сделкам»
+    (serve/deal_money.py). Два места с отдельными условиями разошлись бы при первой правке, и сумма по сделкам
+    перестала бы равняться метрике молча.
+
+    Платежи системы денег с документом-основанием по дате денег; brand — кабинет платежа, no_brand — деньги без
+    бренда, ни то ни другое — все деньги. Отдаёт условие WHERE и его параметры по порядку."""
+    p = f"{alias}." if alias else ""
+    sql = f"{p}money_system = ? AND {p}has_basis AND {p}paid_at >= ? AND {p}paid_at < ?"
+    args: tuple = (system, lo, hi)
+    if no_brand:
+        sql += f" AND {p}brand IS NULL"
+    elif brand is not None:
+        sql += f" AND {p}brand = ?"
+        args += (brand,)
+    return sql, args
+
+
+def paid_orders(system: str, lo: datetime, hi: datetime, brand: str | None = None,
+                no_brand: bool = False) -> tuple[str, tuple]:
+    """Заказы, деньги по которым пришли в периоде: поступления (не возвраты) с заказом, одна строка на заказ.
+    Отбор себестоимости периода — общий для метрики и для публикации по сделкам."""
+    where, args = money_where(system, lo, hi, brand, alias="p", no_brand=no_brand)
+    return ("SELECT p.order_id, SUM(p.revenue) AS paid FROM facts.payment p "
+            f"WHERE {where} AND p.order_id IS NOT NULL AND p.revenue > 0 GROUP BY p.order_id"), args
+
+
+# Себестоимость по заказу: у заказа бывает несколько отгрузок (частями), и все они — одна продажа.
+ORDER_COGS = ("SELECT order_id, SUM(cogs) AS cogs, SUM(unpriced_revenue) AS unpriced FROM facts.shipment_cogs "
+              "WHERE money_system = ? AND order_id IS NOT NULL GROUP BY order_id")
+
+
 def revenue(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None, segment: str = "") -> Number:
     """Выручка: сумма платежей с документом-основанием по дате денег, а не по дате заказа. У кабинета — платежи его
     бренда (со сделкой и без), у компании — все. Деньги без бренда в число кабинета не входят: они названы в
@@ -410,9 +443,8 @@ def revenue(engine, cfg, scope: str, start: date, end: date, as_of: date | None 
         # компании, и складывая одни кабинеты, ядро занижало выручку компании (сверка 16.09.2026).
         brand_where = "" if all_brands else " AND brand = ?"
         args = (system, lo, hi) if all_brands else (system, s, lo, hi)
-        total = engine.fetchone(f"SELECT COALESCE(SUM(revenue), 0) FROM facts.payment "
-                                f"WHERE money_system = ?{brand_where} AND has_basis "
-                                "AND paid_at >= ? AND paid_at < ?", args)[0]
+        where, where_args = money_where(system, lo, hi, None if all_brands else s)
+        total = engine.fetchone(f"SELECT COALESCE(SUM(revenue), 0) FROM facts.payment WHERE {where}", where_args)[0]
         # Платежи и возвраты без сделки называются раздельно: сложенные вместе, они гасят друг друга, и пояснение
         # занижает обе величины (живой случай 16.09.2026 — все возвраты месяца пришли по розничным
         # отгрузкам без заказа).
@@ -422,14 +454,13 @@ def revenue(engine, cfg, scope: str, start: date, end: date, as_of: date | None 
         orphan_in, orphan_out = engine.fetchone(
             "SELECT COALESCE(SUM(CASE WHEN revenue > 0 THEN revenue END), 0), "
             "COALESCE(SUM(CASE WHEN revenue < 0 THEN -revenue END), 0) FROM facts.payment "
-            f"WHERE money_system = ?{brand_where} AND deal_id IS NULL AND has_basis AND paid_at >= ? AND paid_at < ?",
-            args)
+            f"WHERE {where} AND deal_id IS NULL", where_args)
         no_basis = engine.fetchone("SELECT COALESCE(SUM(revenue), 0) FROM facts.payment "
                                    f"WHERE money_system = ?{brand_where} AND NOT has_basis AND paid_at >= ? AND paid_at < ?",
                                    args)[0]
-        nameless = engine.fetchone("SELECT COALESCE(SUM(revenue), 0) FROM facts.payment WHERE money_system = ? "
-                                   "AND brand IS NULL AND has_basis AND paid_at >= ? AND paid_at < ?",
-                                   (system, lo, hi))[0]
+        nameless_where, nameless_args = money_where(system, lo, hi, no_brand=True)
+        nameless = engine.fetchone(f"SELECT COALESCE(SUM(revenue), 0) FROM facts.payment WHERE {nameless_where}",
+                                   nameless_args)[0]
         # Статус понижает только неопределённость: незавершённая загрузка денег и — у кабинета — деньги без бренда
         # (чьи они, неизвестно: могли быть и его). Платежи и возвраты без сделки и платежи без основания —
         # объявленные отборы определения выручки (стандарт, раздел 3а): число верное, они названы суммой, статус не
@@ -479,9 +510,9 @@ def payments(engine, cfg, scope: str, start: date, end: date, as_of: date | None
             return Number(status=Status.NO_DATA, value=None, missing="; ".join(x for x in (gap, note) if x), **common)
         # Только положительные суммы: возврат покупателя лежит в тех же фактах отрицательным числом и
         # оплаченной сделкой не является.
-        n = engine.fetchone("SELECT COUNT(DISTINCT deal_id) FROM facts.payment WHERE money_system = ? AND brand = ? "
-                            "AND deal_id IS NOT NULL AND revenue > 0 AND has_basis "
-                            "AND paid_at >= ? AND paid_at < ?", (system, s, lo, hi))[0]
+        where, where_args = money_where(system, lo, hi, s)
+        n = engine.fetchone("SELECT COUNT(DISTINCT deal_id) FROM facts.payment "
+                            f"WHERE {where} AND deal_id IS NOT NULL AND revenue > 0", where_args)[0]
         return Number(status=Status.ESTIMATE if note else Status.FACT, value=float(n), missing=note, **common)
     return _per_scope(cfg, "payments", scope, one)
 
@@ -503,10 +534,7 @@ def _cogs_of_paid_orders(engine, system: str, scope: str, lo: datetime, hi: date
     Оплаченные заказы без отгрузки считаются отдельно и называются вслух: их себестоимость неизвестна, и молча
     вычесть из выручки себестоимость только части проданного значит завысить валовую прибыль (аванс за товар,
     который уедет клиенту в следующем месяце, — обычное дело)."""
-    brand_where = "" if all_brands else " AND p.brand = ?"
-    paid = ("SELECT p.order_id, SUM(p.revenue) AS paid FROM facts.payment p "
-            f"WHERE p.money_system = ?{brand_where} AND p.order_id IS NOT NULL AND p.has_basis "
-            "  AND p.revenue > 0 AND p.paid_at >= ? AND p.paid_at < ? GROUP BY p.order_id")
+    paid, paid_args = paid_orders(system, lo, hi, None if all_brands else scope)
     # Отгрузка связана с деньгами заказом или счётом; и то и другое ведёт к одному заказу. Себестоимость
     # складывается по заказу: у одного заказа бывает несколько отгрузок (частями), и все они — одна продажа.
     #
@@ -516,13 +544,12 @@ def _cogs_of_paid_orders(engine, system: str, scope: str, lo: datetime, hi: date
     per_order = ("SELECT order_id, SUM(cogs) AS cogs, SUM(unpriced_revenue) AS unpriced, "
                  "       SUM(CASE WHEN shipped_at >= ? AND shipped_at < ? THEN 0 ELSE cogs END) AS outside "
                  "FROM facts.shipment_cogs WHERE money_system = ? AND order_id IS NOT NULL GROUP BY order_id")
-    args = (system, lo, hi) if all_brands else (system, scope, lo, hi)
     row = engine.fetchone(
         "SELECT COALESCE(SUM(c.cogs), 0), COALESCE(SUM(c.unpriced), 0), "
         "COUNT(c.order_id), COUNT(*) - COUNT(c.order_id), "
         "COALESCE(SUM(CASE WHEN c.order_id IS NULL THEN o.paid END), 0), "
         "COALESCE(SUM(c.outside), 0) "
-        f"FROM ({paid}) o LEFT JOIN ({per_order}) c ON c.order_id = o.order_id", (*args, lo, hi, system))
+        f"FROM ({paid}) o LEFT JOIN ({per_order}) c ON c.order_id = o.order_id", (*paid_args, lo, hi, system))
     return float(row[0]), float(row[1]), int(row[2]), int(row[3]), float(row[4]), float(row[5])
 
 

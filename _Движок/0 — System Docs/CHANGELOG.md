@@ -14,6 +14,21 @@ tags:
 
 # CHANGELOG — Knowledge-OS
 
+## 2026-10-20 — `datacore` 1.3.0: публикация «деньги по сделкам»
+
+- `serve/deal_money.py` (шаг ночи `python -m datacore.serve.deal_money --as-of <день>`) и миграция `0015`:
+  `metrics.deal_money_month` (месяц × кабинет бренда и «none» × сделка), `metrics.deal_money_month_total` (итог с
+  метриками того же прогона, доля поступлений без сделки, `coverage_status`), `metrics.deal_money` (сделка за всё время:
+  `paid_net`, `paid`, `cogs_lifetime`, `gross_profit_lifetime`, роль воронки, исход), `metrics.contact_source`
+  («откуда узнал» с категорией). Построение проверяет: сумма строк = `revenue` и `gross_profit` до копейки, иначе
+  код 1 и прошлая публикация остаётся.
+- Отбор денег вынесен в `money_where` и `paid_orders` (`serve/metrics.py`): метрики и публикация считаются одним
+  отбором; поведение метрик не изменилось (тесты денег без правки).
+- Новые ключи конфигурации инстанса (необязательные): `crm.lost_status`, `crm.declared_source_categories`
+  (`exact`, `prefix`, `default`), `money.fact_max_no_deal_share`, `money.history_from` (первый месяц публикации).
+- Новые имена не совпадают с метриками: `paid` — не метрика `payments`; `gross_profit_lifetime` — не сумма месячных
+  `gross_profit`. Стандарт Ядра, раздел 10 — абзац «Деньги по сделкам».
+
 ## 2026-10-18 — `ads-direct`: семантика через Keys.so
 
 В таблицу источников навыка добавлена строка: при доступе к Keys.so фразы для кампании собираются и проверяются через навык `keysso` — что покупают в Директе конкуренты (`context/keywords`, `avbid`), точная частотность и сезонность (парсер Wordstat), тексты конкурентов (`context/ads`); Вордстат — сверка. Причина: решение владельца в проекте, где семантика собиралась только Вордстатом и не видела рекламы конкурентов.

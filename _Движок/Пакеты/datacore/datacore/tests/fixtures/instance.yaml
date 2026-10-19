@@ -21,6 +21,11 @@ crm:
   history_fields: [field_tech, field_summary]
   sales_pipelines: ["100", "200"]
   won_status: 142
+  lost_status: 143
+  declared_source_categories:     # «откуда узнал» → категория: точные значения, префиксы, остальное — по умолчанию
+    exact: {"Спросить позже": ask_on_sale}
+    prefix: {"Повторн": repeat, "Не помнит": not_told}
+    default: channel
 
 tracking:
   system_by_scope: {b1: tracker_b1, b2: tracker_b2}
@@ -28,6 +33,7 @@ tracking:
 
 money:
   system: ledger
+  fact_max_no_deal_share: 0.01    # доля поступлений без сделки, выше которой месяц публикации не выше «оценки»
 
 mql:                              # правило MQL: воронки квалификации, статусы, целевой маршрут, настоящие отказы
   pipelines: ["300", "301"]
