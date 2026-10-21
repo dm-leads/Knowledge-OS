@@ -258,7 +258,7 @@ def _bottleneck(store, cfg, raw: dict, fields: dict, out, label: str) -> int:
     funnel = []
     for metric in stages:
         cfg.rule(str(metric))              # метрика вне конфигурации — страж 3 с её именем
-        funnel += _window(numbers, str(metric), window, scope, flow, system)
+        funnel += _window(numbers, str(metric), window, scope, flow, system, whole=True)
     # В настоящем хранилище одна метрика лежит от нескольких съёмов. Числа разных съёмов не делятся (страж 4),
     # поэтому воронка берётся по последнему съёму — как это делает команда снимка. В папке прогона съём всегда один,
     # и первый живой цикл 17.09.2026 споткнулся именно здесь.
@@ -315,17 +315,22 @@ def _bottleneck(store, cfg, raw: dict, fields: dict, out, label: str) -> int:
     return 0
 
 
-def _window(numbers, metric: str, month: str, scope: str, flow: str, system: str | None = None) -> list[Number]:
+def _window(numbers, metric: str, month: str, scope: str, flow: str, system: str | None = None,
+            whole: bool = False) -> list[Number]:
     """Числа одной метрики, окна, кабинета и потока — отбором из хранилища, а не по номерам: сегментов десятки.
 
     `system` сужает отбор до одной системы-источника. Без него одна метрика за одно окно приходит и от системы
     (факт), и от модели (цель окна, потолок ветки, эффект гипотезы): приёмочный прогон 7б показал, что тогда воронка
     строит ступень «метрика → та же метрика» и сама же отвергает её стражем 4 — шаг 3 становился непроходим при
     любом написании ключей.
+
+    `whole` — только числа без разреза: для воронки узкого места числа с разрезом («marker_level_1=…») — части
+    ступени, а не ступень. Без этого на книге с разрезами по каналам страж 4 отвергал переход как смешанную метрику
+    (первый инстанс, 21.10.2026). Разложение доли (shift-share) разрезы, наоборот, и берёт.
     """
     chosen = [x for x in numbers
               if x.metric == metric and f"{x.period_start:%Y-%m}" == month and x.scope == scope and x.flow == flow
-              and (system is None or x.source_system == system)]
+              and not (whole and x.segment) and (system is None or x.source_system == system)]
     if not chosen:
         where = f"(кабинет {scope}, поток {flow}" + (f", система {system})" if system else ")")
         raise GuardViolation(13, f"в хранилище нет чисел «{metric}» за окно {month} {where}")

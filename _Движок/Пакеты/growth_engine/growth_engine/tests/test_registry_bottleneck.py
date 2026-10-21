@@ -97,6 +97,20 @@ def test_nothing_is_written(tmp_path):
     assert before == after
 
 
+def test_numbers_with_a_segment_do_not_enter_the_funnel(tmp_path):
+    """Дефект первого инстанса 21.10.2026: рядом со ступенями окна в хранилище лежат те же метрики с разрезом по
+    каналам («marker_level_1=…»). Отбор без разреза брал их в воронку, и страж 4 отвергал переход как смешанную
+    метрику — на живой книге шаг 3 был непроходим. Воронка строится по числам без разреза."""
+    s = with_numbers(tmp_path)
+    s.create_numbers([replace(x, segment=f"marker_level_1={channel}", value=x.value / 2)
+                      for channel in ("seo", "direct") for x in funnel_numbers()])
+    code, lines = call(tmp_path, json=ask_json())
+    assert code == 0, lines[-1]
+    printed = [line.strip() for line in lines if line.startswith("   ") and "→" in line]
+    assert len(printed) == 4, printed
+    assert any("visits → leads" in line and "узкое место" in line for line in lines)
+
+
 def test_stages_are_taken_from_the_money_system_only(tmp_path):
     """Дефект приёмочного прогона 7б: числа модели ломали воронку шага 3.
 
