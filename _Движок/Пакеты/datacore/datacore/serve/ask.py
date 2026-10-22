@@ -84,6 +84,21 @@ def render(n: Number) -> str:
             + (f"\n  чего не хватает: {n.missing}" if n.missing else ""))
 
 
+def segment_kwargs(fn, segment: str) -> dict:
+    """Разрез из командной строки → аргумент метрики. Доли «без следа» и «источник известен» принимают набор отбора
+    параметром `contour`, а не `segment`: команда передавала им `segment` и падала (найдено 22.10.2026)."""
+    if not segment:
+        return {}
+    import inspect
+    params = inspect.signature(fn).parameters
+    if "segment" in params:
+        return {"segment": segment}
+    key, _, value = segment.partition("=")
+    if key == "contour" and "contour" in params and value:
+        return {"contour": value}
+    raise RuleViolation("К2", f"метрика не поддерживает разрез «{segment}»")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Ядро данных — ask (только чтение)")
     ap.add_argument("--db", default=None)
@@ -115,8 +130,7 @@ def main(argv=None) -> int:
             return 1
         engine = connect(url, read_only=True)
         try:
-            kwargs = {"segment": a.segment} if a.segment else {}
-            print(render(fn(engine, cfg, a.scope, a.start, a.end, a.as_of, **kwargs)))
+            print(render(fn(engine, cfg, a.scope, a.start, a.end, a.as_of, **segment_kwargs(fn, a.segment))))
         finally:
             engine.close()
         return 0

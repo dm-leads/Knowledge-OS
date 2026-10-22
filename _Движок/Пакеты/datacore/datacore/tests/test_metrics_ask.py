@@ -176,3 +176,17 @@ def test_share_prints_the_fraction(engine):
     assert n.denominator_value == 200.0
     out = render(n)
     assert "1 из 200" in out and "0,50 %" in out, out
+
+
+def test_contour_segment_reaches_share_metrics():
+    """Доли «без следа» и «источник известен» берут набор параметром contour: команда обязана его передать,
+    а не падать на неизвестном аргументе segment (22.10.2026)."""
+    import pytest
+    from datacore.schema.errors import RuleViolation
+    from datacore.serve.ask import segment_kwargs
+    from datacore.serve.metrics import new_first_sql, no_trace
+    assert segment_kwargs(no_trace, "contour=strict") == {"contour": "strict"}
+    assert segment_kwargs(new_first_sql, "contour=strict") == {"segment": "contour=strict"}
+    assert segment_kwargs(no_trace, "") == {}
+    with pytest.raises(RuleViolation):
+        segment_kwargs(no_trace, "channel_group=seo")
