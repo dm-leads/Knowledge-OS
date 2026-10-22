@@ -1047,6 +1047,9 @@ def _attribution_share(engine, cfg, scope: str, start: date, end: date, as_of: d
                        contour: str, *, known: bool) -> Number:
     """Доля сделок, у которых канал входа заполнен («источник известен») или пуст («без следа»).
 
+    С 1.4.0 канал входа — посчитанный ядром (`entry_channel_derived`, миграция 0016), а не поле CRM: поле заполнял
+    внешний скрипт вручную, и месяц без его прогона давал «без следа» у всех сделок.
+
     Знаменатель — те же сделки при том же наборе отбора, поэтому доли складываются в единицу. «Без следа» — это
     пустой канал входа СДЕЛКИ: определение снято с интерфейса прежней системы сквозной аналитики («Неизвестное значение» в группировке
     по каналу входа) и проверено на фактах 16.09.2026. По пустому маркеру визита их было бы больше чем вдвое — это
@@ -1075,7 +1078,7 @@ def _attribution_share(engine, cfg, scope: str, start: date, end: date, as_of: d
     test = "<>" if known else "="
     total, hit = engine.fetchone(
         f"SELECT COUNT(DISTINCT d.deal_id), "
-        f"COUNT(DISTINCT CASE WHEN COALESCE(d.entry_channel_summary, '') {test} '' THEN d.deal_id END) "
+        f"COUNT(DISTINCT CASE WHEN COALESCE(d.entry_channel_derived, '') {test} '' THEN d.deal_id END) "
         f"FROM facts.deal d {join} WHERE d.deleted_at IS NULL{brand_cond} "
         "AND d.created_at >= ? AND d.created_at < ? AND NOT EXISTS (SELECT 1 FROM facts.exclusion e "
         f"WHERE e.entity = 'deal' AND e.entity_key = CAST(d.deal_id AS VARCHAR)){where}",

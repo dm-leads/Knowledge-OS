@@ -24,7 +24,10 @@ from datacore.schema.errors import RuleViolation
 # иначе набор отбора стал бы способом писать произвольный SQL из конфигурации.
 FIELD_SQL = {"marker_level_1": "m.marker_level_1",
              "entry_channel_tech": "d.entry_channel_tech",
-             "entry_channel_summary": "d.entry_channel_summary"}
+             "entry_channel_summary": "d.entry_channel_summary",
+             # сводный канал, посчитанный ядром (миграция 0016): правило не зависит от того, заполнил ли поле CRM
+             # внешний скрипт
+             "entry_channel_derived": "d.entry_channel_derived"}
 
 # Площадка перехода живёт в фактах визитов; метрика присоединяет их, когда набор этого требует.
 REFERRER_SQL = "v.referrer_host"

@@ -18,10 +18,12 @@ AUG = (date(2026, 8, 1), date(2026, 9, 1))
 NOW = datetime(2026, 9, 17, 12, tzinfo=timezone.utc)
 
 
-def deal(deal_id, *, tech=None, summary=None, new_first=True, brand="b1"):
+def deal(deal_id, *, tech=None, summary=None, new_first=True, brand="b1", derived="как summary"):
+    """`derived` — сводный канал, посчитанный ядром; по умолчанию совпадает с полем CRM `summary`."""
     return dict(deal_id=deal_id, contact_id=1, brand=brand, pipeline="100", status="142",
                 created_at=datetime(2026, 8, 5, tzinfo=timezone.utc), is_new_first=new_first,
-                entry_channel_tech=tech, entry_channel_summary=summary)
+                entry_channel_tech=tech, entry_channel_summary=summary,
+                entry_channel_derived=summary if derived == "как summary" else derived)
 
 
 def marker(deal_id, level_1, system="tracker_b1"):
