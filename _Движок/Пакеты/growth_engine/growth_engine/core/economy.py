@@ -286,7 +286,7 @@ def required_last_month(previous: list[Number], target: float, cfg: InstanceConf
     start = total.period_end
     common = dict(metric=f"{total.metric}: требуется в следующем месяце", level=total.level, scope=total.scope,
                   flow=total.flow, period_start=start, period_end=_next_month(start), as_of=total.as_of,
-                  source=total.source)
+                  source=total.source, segment=total.segment)   # разрез рамки цели не теряется (1.5.0)
     note = f"чтобы окно {k} мес. дало {target:g} в месяц — требуемое, не факт"
     if total.value is None:
         return Number(**common, status=Status.NO_DATA, value=None, missing=note)

@@ -2,12 +2,14 @@
 
 Система денежной модели — роль `economy.money_system`, метрики — роли `economy.money_metrics`, разрез «канал» —
 `economy.channel_breakdown`; поставщик в коде не называется. Порядок прогона:
-1. мосты `economy.bridges` помесячно по кабинетам — сверка систем (страж 2), до расчёта модели;
+1. мосты `economy.bridges` помесячно по кабинетам, с месяца `sum_scopes_from` — по сумме кабинетов: сверка систем
+   (страж 2), до расчёта модели;
 2. денежная модель каждого кабинета: C1 на оплату, средний чек, маржа, AMPPU на оплату, AMPU на New First SQL —
    с кросс-чеком «выручка − себестоимость = прибыль» (страж 2), порогом шума C1 и дозреванием окна (Т6);
 3. по компании — AMPU и маржа из разрешённых сумм (оплаты кабинетов не складываются);
 4. прибыль на New First SQL по каналам — `proxy`, деньги дозревают;
-5. окно цели — среднее последних k месяцев и требуемое в следующем месяце под baseline конфигурации.
+5. окно цели — среднее последних k месяцев и требуемое в следующем месяце под baseline конфигурации; метрика окна —
+   из рамки цели (`goal.system`, `goal.scope`, `goal.segment`), если она задана, иначе — из денежной системы.
 Числа пишутся на лист «Модель — снимки» через контракт хранилища (markdown) и читаются обратно. Любой страж — код возврата 1.
 
 Запуск из Скрипты/:
@@ -36,6 +38,15 @@ from .sources.base import Query, SourceError
 from .storage.selection import add_store_arguments, open_store
 
 ROLES = ("users", "sales", "revenue", "cogs", "profit")
+
+
+def _month_start(text: str) -> date:
+    """«ГГГГ-ММ» → первое число месяца; другой вид — страж 9 с допустимой формой."""
+    try:
+        year, month = (int(part) for part in str(text).split("-"))
+        return date(year, month, 1)
+    except ValueError as exc:
+        raise GuardViolation(9, f"sum_scopes_from = {text!r}: нужен месяц вида ГГГГ-ММ") from exc
 
 
 def _declared(economy: dict, key: str):
@@ -83,12 +94,25 @@ def _run(args, out, systems: dict, today, bridge_factory) -> int:
             out(f"⏭ мост «{name}»: допуска нет — только калибровка командой bridge.py")
             continue
         tolerance = Tolerance(spec["abs_units"], spec["rel"])
-        results = [reconcile(fetch(spec["left"], spec["metric"], scope, month_start, month_end)[0],
-                             fetch(spec["right"], spec["metric"], scope, month_start, month_end)[0],
-                             tolerance, spec.get("max_fetch_gap_days", 0))
-                   for month_start, month_end in windows for scope in raw["sources"][spec["left"]]["scopes"]]
+        bridge_scopes = list(raw["sources"][spec["left"]]["scopes"])
+        # С месяца `sum_scopes_from` системы делят кабинеты по-разному (например, одна — по кабинету учёта, другая —
+        # по полю бренда), и помесячная сверка по кабинетам расходится при совпадающем итоге. С этого месяца мост
+        # сверяет сумму кабинетов; раньше — каждый кабинет, как прежде. Сумма — по правилам стража 3.
+        sum_from = _month_start(spec["sum_scopes_from"]) if spec.get("sum_scopes_from") else None
+
+        def side(system, month_start, month_end, by_sum):
+            parts = [fetch(system, spec["metric"], scope, month_start, month_end)[0] for scope in bridge_scopes]
+            return [add(parts, cfg)] if by_sum and len(parts) > 1 else parts
+
+        results = []
+        for month_start, month_end in windows:
+            by_sum = sum_from is not None and month_start >= sum_from
+            results += [reconcile(left, right, tolerance, spec.get("max_fetch_gap_days", 0))
+                        for left, right in zip(side(spec["left"], month_start, month_end, by_sum),
+                                               side(spec["right"], month_start, month_end, by_sum))]
         require_reconciled(results)
-        out(f"✅ мост «{name}»: окон {len(results)}, все в допуске")
+        note = f"; с {sum_from:%m.%Y} — по сумме кабинетов" if sum_from else ""
+        out(f"✅ мост «{name}»: окон {len(results)}, все в допуске{note}")
 
     numbers, models = [], {}
     for scope in scopes:
@@ -141,12 +165,24 @@ def _run(args, out, systems: dict, today, bridge_factory) -> int:
     if len(windows) >= k:
         goal_months = []
         for month_start, month_end in windows[-k:]:
+            if cfg.goal_system:
+                # Рамка цели из конфигурации: своя система, кабинет и разрез — число берётся как есть, без сложения.
+                # Адаптер с разрезом может вернуть список сегментов: берётся только число нужного разреза, ровно одно.
+                got = [x for x in fetch(cfg.goal_system, cfg.goal_metric, cfg.goal_scope, month_start, month_end,
+                                        cfg.goal_segment or None) if (x.segment or "") == cfg.goal_segment]
+                if len(got) != 1:
+                    raise GuardViolation(9, f"система цели «{cfg.goal_system}» за {month_start:%m.%Y}: чисел разреза "
+                                            f"«{cfg.goal_segment or 'без разреза'}» {len(got)}, нужно ровно одно")
+                goal_months.append(got[0])
+                continue
             parts = [fetch(system, cfg.goal_metric, scope, month_start, month_end)[0] for scope in scopes]
             goal_months.append(add(parts, cfg) if len(parts) > 1 else parts[0])
         average = window_average(goal_months, cfg)
         need = required_last_month(goal_months[1:], cfg.goal_baseline, cfg)
         numbers += goal_months + [average, need]
-        out("Окно цели:")
+        frame = (f" — система «{cfg.goal_system}», кабинет {cfg.goal_scope}"
+                 + (f", разрез {cfg.goal_segment}" if cfg.goal_segment else "")) if cfg.goal_system else ""
+        out(f"Окно цели{frame}:")
         for x in (average, need):
             out("   " + render(x))
 

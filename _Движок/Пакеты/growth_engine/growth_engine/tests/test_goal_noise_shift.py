@@ -52,6 +52,13 @@ def test_required_last_month_known_answer():
     assert (need.period_start, need.period_end) == (date(2026, 9, 1), date(2026, 10, 1))
 
 
+def test_required_last_month_keeps_the_segment_of_the_goal_frame():
+    """Рамка цели с разрезом (1.5.0): «требуется» читается тем же разрезом, что месяцы окна, а не как число целиком."""
+    months = [replace(n("sales_entry", 658, period=JUL), segment="contour=narrow"),
+              replace(n("sales_entry", 630, period=AUG), segment="contour=narrow")]
+    assert required_last_month(months, 850, CFG).segment == "contour=narrow"
+
+
 def test_window_needs_configured_number_of_months():
     with pytest.raises(GuardViolation) as e:
         window_average([n("sales_entry", 658, period=JUL), n("sales_entry", 630, period=AUG)], CFG)

@@ -74,3 +74,31 @@ def test_cohort_horizon_must_be_positive_whole_days(days):
     raw["economy"] = {"cohort_horizon_days": days, "cohort_horizon_proof": "доказательство"}
     with pytest.raises(ValueError):
         parse_config(raw)
+
+
+# Рамка цели: окно цели может считаться в другой системе, кабинете и разрезе, чем денежная модель.
+def test_goal_frame_is_optional():
+    cfg = load_config(FIXTURE)
+    assert cfg.goal_system is None and cfg.goal_scope is None and cfg.goal_segment == ""
+
+
+def test_goal_frame_parsed_with_declared_system():
+    raw = copy.deepcopy(RAW)
+    raw.setdefault("sources", {})["facts"] = {"class": "D"}
+    raw["goal"].update({"system": "facts", "scope": "company", "segment": "contour=digital"})
+    cfg = parse_config(raw)
+    assert (cfg.goal_system, cfg.goal_scope, cfg.goal_segment) == ("facts", "company", "contour=digital")
+
+
+@pytest.mark.parametrize("goal, match", [
+    ({"system": "nowhere", "scope": "company"}, "не объявлена в sources"),
+    ({"system": "facts"}, "нужен кабинет"),
+    ({"system": "facts", "scope": "company", "segment": "digital"}, "измерение=значение"),
+    ({"scope": "company"}, "только вместе с системой"),
+])
+def test_goal_frame_rejects_incomplete(goal, match):
+    raw = copy.deepcopy(RAW)
+    raw.setdefault("sources", {})["facts"] = {"class": "D"}
+    raw["goal"].update(goal)
+    with pytest.raises(ValueError, match=match):
+        parse_config(raw)

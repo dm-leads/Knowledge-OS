@@ -10,6 +10,7 @@ from .core.errors import GuardViolation
 from .sources.amocrm_events import AmocrmEventsAdapter
 from .sources.amocrm_mirror import AmocrmMirrorAdapter
 from .sources.base import load_secrets
+from .sources.datacore import DatacoreAdapter
 from .sources.direct import DirectAdapter
 from .sources.metrika import MetrikaAdapter
 from .sources.moysklad_probe import MoySkladProbe
@@ -30,6 +31,8 @@ FACTORIES = {
         YandexSearchAdapter(section, cfg, secrets, confirm_paid=confirm_paid),
     "speech_analytics": lambda section, cfg, secrets, confirm_paid: SpeechAnalyticsAdapter(section, cfg, secrets),
     "moysklad": lambda section, cfg, secrets, confirm_paid: MoySkladProbe(section),
+    # Хранилище фактов: читает файл публикации или собственную базу только на чтение, секретов не берёт.
+    "datacore": lambda section, cfg, secrets, confirm_paid: DatacoreAdapter(section, cfg),
 }
 
 

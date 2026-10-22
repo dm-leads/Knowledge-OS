@@ -45,6 +45,12 @@ class InstanceConfig:
     cohort_horizon_days: int | None = None   # цикл сделки: горизонт когорты и дозревания окна (П2, Т6)
     cohort_horizon_proof: str = ""
     storage_link_domains: tuple[str, ...] = ()   # страж 12: ссылки в хранилище — только на эти домены
+    # Рамка цели: из какой системы, кабинета и разреза берётся метрика окна цели. Без неё окно цели считается
+    # по денежной системе и её кабинетам. Рамка нужна, когда цель владельца задана в другом определении метрики,
+    # чем денежная модель (например, в узком контуре хранилища фактов), — иначе база сравнивается с чужим числом.
+    goal_system: str | None = None
+    goal_scope: str | None = None
+    goal_segment: str = ""
 
     def rule(self, metric: str) -> MetricRule:
         if metric not in self.metrics:
@@ -91,6 +97,18 @@ def parse_config(raw: dict) -> InstanceConfig:
             raise ValueError("горизонт когорты без доказательства — нужен перцентиль цикла сделки на зрелых когортах")
     if goal["metric"] not in metrics:
         raise ValueError(f"цель: метрика «{goal['metric']}» не объявлена в metrics")
+    goal_system = goal.get("system")
+    goal_scope = goal.get("scope")
+    goal_segment = str(goal.get("segment") or "").strip()
+    if goal_system is not None:
+        if goal_system not in (raw.get("sources") or {}):
+            raise ValueError(f"цель: система «{goal_system}» не объявлена в sources")
+        if not goal_scope:
+            raise ValueError("цель: у системы цели нужен кабинет (goal.scope)")
+        if goal_segment and "=" not in goal_segment:
+            raise ValueError(f"цель: разрез «{goal_segment}» — нужен вид «измерение=значение»")
+    elif goal_scope or goal_segment:
+        raise ValueError("цель: кабинет и разрез цели задаются только вместе с системой цели (goal.system)")
     return InstanceConfig(
         goal_metric=goal["metric"],
         goal_window_months=int(goal["window_months"]),
@@ -104,4 +122,7 @@ def parse_config(raw: dict) -> InstanceConfig:
         storage_link_domains=_link_domains(raw["storage"]),
         cohort_horizon_days=horizon,
         cohort_horizon_proof=horizon_proof,
+        goal_system=goal_system,
+        goal_scope=str(goal_scope) if goal_scope else None,
+        goal_segment=goal_segment,
     )
