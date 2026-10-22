@@ -51,7 +51,7 @@ tags:
 |---|---|---|---|
 | `growth_engine` | 1.0.0 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Growth\Скрипты\growth_engine\` (GitLab компании) | Выпуск 28.09.2026; инстанс — `Скрипты\growth_instance\`; на сервере компании пока нет |
 | `growth_engine` | 1.4.1, ссылкой | viklimat: пакет подключён `pip install -e` из канона, выпуска с паспортом нет; инстанс — `D:\Knowledge-OS\viklimat\06 — Инструменты\scripts\growth_instance\`, документы — `viklimat\02 — Области\Маркетинг\Движок роста\` | Инстанс 10.10.2026. Деньги и разговоры читают адаптеры инстанса; гейт — командой инстанса `ge.py gate`, команда пакета без обёртки зелёной не будет ([BACKLOG Движка роста](<../../Методологии/Движок роста/0 — System Docs/BACKLOG.md>)) |
-| `datacore` | 1.4.0 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Сквозная аналитика\Скрипты\datacore\` (GitLab компании) | Выпуск 1.1.0 — 29.09.2026 (1.0.0 — 28.09, первый, с `--first`); инстанс — `Скрипты\datacore_instance\` (загрузчики, мотивация, витрина, сверка с проектами трекера); сервер Lorentz на новой раскладке с 29.09.2026 |
+| `datacore` | 1.4.1 | Бризекс: `C:\Users\redmi\Breezeks-Git\01 — Проекты\AI Digital Marketing\AI Digital Marketing — Сквозная аналитика\Скрипты\datacore\` (GitLab компании) | Выпуск 1.1.0 — 29.09.2026 (1.0.0 — 28.09, первый, с `--first`); инстанс — `Скрипты\datacore_instance\` (загрузчики, мотивация, витрина, сверка с проектами трекера); сервер Lorentz на новой раскладке с 29.09.2026 |
 
 ## Движок
 

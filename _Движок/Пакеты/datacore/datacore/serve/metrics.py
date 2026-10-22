@@ -1054,7 +1054,7 @@ def _attribution_share(engine, cfg, scope: str, start: date, end: date, as_of: d
     пустой канал входа СДЕЛКИ: определение снято с интерфейса прежней системы сквозной аналитики («Неизвестное значение» в группировке
     по каналу входа) и проверено на фактах 16.09.2026. По пустому маркеру визита их было бы больше чем вдвое — это
     другое число и другой вопрос."""
-    from datacore.serve.contour import contour_clause
+    from datacore.serve.contour import contour_clause, contour_needs_visit
     metric = "source_known" if known else "no_trace"
     segment = "" if contour == "full" else f"contour={contour}"
     clause, clause_params = contour_clause(cfg, contour)
@@ -1072,6 +1072,11 @@ def _attribution_share(engine, cfg, scope: str, start: date, end: date, as_of: d
     state, note = _checked_state(engine, _crm_systems(cfg), as_of, "CRM")
     lo, hi = window(start, end, cfg.timezone)
     join = _own_marker_join(cfg)
+    # Набор с возвратом по площадке перехода смотрит в визиты — как у new_first_sql. Без этого присоединения доля
+    # падала на таком наборе ошибкой SQL (найдено 22.10.2026: digital-контур первого инстанса с 07.10.2026).
+    if contour_needs_visit(cfg, contour):
+        join += (" LEFT JOIN facts.visit v ON v.visit_id = m.visit_id "
+                 "AND v.source_system = m.source_system")
     where = " AND " + clause if clause else ""
     brand_cond = "" if scope == "company" else " AND d.brand = ?"
     brand_args = () if scope == "company" else (scope,)

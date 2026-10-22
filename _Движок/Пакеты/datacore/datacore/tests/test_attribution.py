@@ -80,3 +80,12 @@ def test_contour_can_check_the_counted_channel(engine):
     setup_deals(engine, [deal(1, summary=None, derived="партнёр"), deal(2, summary="партнёр", derived=None)],
                 [marker(1, "seo"), marker(2, "seo")])
     assert new_first_sql(engine, cfg, "b1", *AUG, contour="by_derived").value == 1
+
+
+def test_share_works_on_contour_that_returns_by_referrer(engine):
+    """Набор с возвратом по площадке перехода (keep_referrer) смотрит в визиты: доля обязана их присоединить,
+    иначе падает ошибкой SQL (22.10.2026, digital-контур первого инстанса)."""
+    setup_deals(engine, [deal(1, summary=None), deal(2, summary="звонок")], [marker(1, "seo"), marker(2, "seo")])
+    n = no_trace(engine, CFG, "b1", *AUG, contour="with_content")
+    assert abs(n.value - 1 / 2) < 1e-9
+    assert n.segment == "contour=with_content"
