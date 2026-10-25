@@ -1,0 +1,21 @@
+# Контент-машина — пакет канона Knowledge-OS (ADR-0003). Исходник здесь; проекты подключают его ссылкой
+# (pip install -e) или получают выпуск с паспортом (_Движок/Инструменты/kos_release.py).
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "content_engine"
+version = "1.0.0"
+description = "Контент-машина: реестр «страница ↔ ключи», анти-дубли до модели, очередь тем и гейты без модели"
+requires-python = ">=3.12"
+dependencies = ["pyyaml", "requests", "snowballstemmer", "google-auth"]
+
+[project.scripts]
+content-engine = "content_engine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["content_engine*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.txt", "*.json", "*.md", "*.csv"]

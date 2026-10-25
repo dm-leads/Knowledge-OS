@@ -1,0 +1,133 @@
+# Профиль проекта Контент-машины. Один файл на проект, лежит в каталоге инстанса (рядом — data/, cache/, reports/).
+# Каждое поле обязательно: значений по умолчанию «молча» нет. Неизвестное поле — ошибка с его именем.
+# Секреты — только именами переменных (поля *_env) и путями к ключам; значения секретов сюда не пишутся.
+schema_version: 1
+
+site:
+  domains: [example.ru]               # домены проекта; первый — основной. Кириллический домен пишется как есть
+  article_sections: [blog]            # разделы адреса со статьями: https://example.ru/blog/<slug>
+  sales_sections: [catalog]           # разделы адреса с продающими страницами
+  sales_urls: []                      # продающие страницы списком, если раздела нет
+  sitemap_url: ""                     # карта сайта для сверки корпуса (один GET); пусто — не используется
+  sitemap_file: ""                    # или файл карты сайта / список адресов построчно (путь от каталога инстанса)
+
+search:
+  serp_bases: [msk]                   # базы выдачи Keys.so: msk, spb — Яндекс; gru — Google. Каждая база — объект квоты на фразу
+  commercial_domains: [market.example, shop.example]  # маркетплейсы и магазины: их число в топ-10 делает выдачу коммерческой
+  competitors: []                     # домены конкурентов: их запросы без нашей страницы — кандидаты (Keys.so report/compare)
+
+corpus:
+  toc_marker: "Содержание"            # строка, после которой в тексте идёт оглавление; по нему восстанавливаются разделы
+  folders:                            # папки текстов по порядку; при одинаковом slug побеждает последняя
+    - path: texts                     # путь от каталога инстанса или абсолютный
+      pattern: "*.md"                 # шаблон файлов: "*.md" или "*/article.md"
+      exclude: [README.md]            # имена файлов и папок, которые не читать
+      fields: {id: id, slug: slug, title: title, url: url}  # источник → роль; роли: id, slug, title, url.
+                                      # Источник: поле шапки; "@meta.json:slug" — ключ JSON-файла рядом с текстом;
+                                      # "@row_*.json" — число из имени файла рядом. У роли может быть несколько
+                                      # источников: берётся первый непустой. Нет title — берётся H1 текста
+      url_template: ""                # адрес для папки без поля url: "https://{domain}/{section}/{slug}"
+      section: blog                   # раздел для шаблона адреса
+      index_csv: ""                   # необязательный указатель CSV (разделитель «;») с колонками ролей; пусто — нет
+
+secrets:
+  env_file: ""                        # путь к файлу .env с секретами; пусто — переменная KOS_ENV, затем окружение
+
+sources:
+  window_days: 30                     # окно сбора спроса, дней
+  junk_patterns: ["скачать", "торрент", "реферат"]  # мусорные запросы: регулярные выражения
+  gsc:                                # Google Search Console, сервисный аккаунт (только чтение)
+    enabled: false
+    site_url: ""                      # как в консоли: "sc-domain:example.ru" или "https://example.ru/"
+    key_file: ""                      # путь к JSON-ключу сервисного аккаунта
+  webmaster:                          # Яндекс.Вебмастер, популярные запросы (OAuth)
+    enabled: false
+    user_id: ""
+    host_id: ""
+    token_env: YANDEX_WEBMASTER_TOKEN # имя переменной с токеном
+  keysso:                             # Keys.so: запросы своего домена и конкурентов, выдача
+    enabled: false
+    key_env: KEYSO_API_KEY
+    base: msk                         # база для запросов домена и конкурентов
+    site_keywords_limit: 20000        # строк отчёта по своему домену, не больше
+    competitor_keywords_limit: 5000   # строк на конкурента, не больше
+  demand_file:                        # своё ядро CSV: query;impressions;frequency;source
+    enabled: false
+    path: ""
+  value:                              # ценность страницы — лесенка: file (деньги/заявки по странице), keysso (proxy), none
+    kind: none
+    file: ""                          # CSV: slug;money;leads;period_from;period_to;source;as_of
+    average_check: null               # средний чек: деньги = заявки × чек, если денег в файле нет
+
+thresholds:                           # пороги анти-дублей — стартовые значения, калибруются на своём корпусе
+  key_overlap: 0.70                   # слой 1: доля основ кандидата в ключе записи
+  body_block: 60                      # слой 2, статья целиком: вес ≥ — пересекается
+  body_warn: 25                       # слой 2, статья целиком: вес ≥ — спорно
+  section_block: null                 # слой 2, раздел: калибруется на корпусе (пусто — измеритель только в отчёте)
+  section_warn: null                  # калибруется вместе с section_block
+  serp_common_urls: 3                 # слой 3 и кластеры: общих адресов в топ-10
+  sales_overlap: 0.75                 # слой 5: сходство с ключами продающей страницы
+  head_term_cap: 6                    # слой 6: живых статей с тем же головным термином
+  title_overlap: 0.85                 # слой 7 и гейт статьи: почти-дубль заголовка
+  twin_shingles: 0.015                # гейт статьи: доля общих восьмисловных цепочек
+  commercial_min: 3                   # тип выдачи: магазинов в топ-10 для «коммерческая»
+  serp_cache_days: 45                 # срок кэша выдачи
+  gate_valid_days: 7                  # сколько дней отчёт гейта годен для взятия темы
+  reservation_days: 30                # срок брони кластера
+  money_days: 180                     # окно денег страницы для слоя 4
+  min_impressions: 3                  # порог показов запроса за окно сбора
+
+queue:
+  per_day: 0.57                       # ритм выпуска, статей в день (4 в неделю ≈ 0.57)
+  norm: 8                             # норма запаса, тем с полным гейтом
+  refill_at: 6                        # пополнять при запасе ≤
+  expected_rejection: 0.40            # ожидаемая доля отсева, пока нет истории журнала
+  require_bet: true                   # пустые поля ставки (гипотеза, ожидание, порог провала) — «спорно»
+  max_formulations: 5                 # формулировок на тему
+  lead_words: []                      # слова лид-сигналов: поднимают приоритет
+  commercial_words: [купить, цена, стоимость]  # слова коммерческого интента: поднимают приоритет
+
+budget:
+  reserve: 0                          # объектов квоты Keys.so, которые машина не трогает
+  max_quota: null                     # предел объектов на один прогон; null — весь остаток дня
+
+directions:                           # направления: запрос относится к первому, чьё слово в нём есть
+  - name: пример направления
+    words: [пример]
+    weight: 1                         # вес в приоритете очереди
+    quarter_quota: 0                  # тем на квартал; 0 — без квоты
+
+gate_article:
+  levels:                             # уровень каждой проверки: block — черновик, warn — замечание, off — выключена
+    title_length: block
+    description_length: block
+    slug: block
+    title_duplicate: block
+    structure: block
+    skeleton: warn
+    foreign_keys: block               # title, H1, H2 почти совпадают с целевым ключом чужой страницы
+    foreign_mentions: warn            # целевой ключ чужой страницы (от трёх слов) в тексте без ссылки на неё
+    twin: warn
+    faq: block
+    sales_links: warn
+    sources: warn
+    links_alive: block
+    list_share: warn
+    hygiene: block
+    stop_phrases: warn
+    schema: block
+  fields: {title: title, description: description, slug: slug}  # поле шапки статьи → роль (title, description, slug)
+  title_length: [30, 70]              # длина title, символов
+  description_length: [120, 170]     # длина description
+  faq_questions: [3, 10]              # вопросов в FAQ
+  sales_links: [1, 6]                 # ссылок на продающие страницы
+  min_sources: 2                      # внешних источников не меньше
+  max_list_share: 0.35                # доля текста в списках не больше
+  link_timeout: 10                    # тайм-аут проверки ссылки, секунд
+  faq_heading: "Частые вопросы"       # начало заголовка блока FAQ
+  cta_markers: []                     # строки, по которым узнаётся призыв к действию обычным блоком
+  hygiene_patterns: []                # свои шаблоны служебных приписок (регулярные выражения), к общим пакета
+  stop_phrases: []                    # стоп-лист формулировок
+
+stop_words: []                        # общие слова ниши, которые дают ложные тревоги анти-дублей
+brand_words: []                       # брендовые слова: такие запросы не идут в очередь

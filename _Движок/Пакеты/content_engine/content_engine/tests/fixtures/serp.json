@@ -1,0 +1,29 @@
+{
+ "remaining": 500,
+ "top": {
+  "msk": {
+   "отопление теплицы": [["example.ru/blog/otoplenie-teplicy", 2], ["garden.example/teplica-zimoj", 1], ["dacha.example/otoplenie", 3], ["market.example/obogrevateli", 4], ["shop.example/teplicy", 5], ["forum.example/t/1", 6], ["dacha.example/pech", 7], ["video.example/w/2", 8], ["wiki.example/teplica", 9], ["news.example/zima", 10], ["far.example/x", 14]],
+   "чем отапливать теплицу": [["garden.example/teplica-zimoj", 1], ["example.ru/blog/otoplenie-teplicy", 3], ["dacha.example/otoplenie", 2], ["forum.example/t/1", 4], ["agro.example/a", 5]],
+   "полив теплицы": [["agro.example/poliv", 1], ["garden.example/poliv-teplicy", 2], ["example.ru/blog/otoplenie-teplicy", 6], ["dacha.example/poliv", 3]],
+   "купить теплицу": [["market.example/teplicy", 1], ["shop.example/teplicy", 2], ["store.example/t", 3], ["example.ru/catalog/teplicy", 4], ["market.example/teplicy-2", 5]],
+   "укрытие роз": [["example.ru/blog/ukrytie-roz", 1], ["roses.example/zima", 2], ["garden.example/rozy", 3]],
+   "как укрыть розы на зиму": [["roses.example/zima", 1], ["example.ru/blog/ukrytie-roz", 2], ["garden.example/rozy", 3]],
+   "газон весной": [["example.ru/blog/gazon-vesnoj", 4], ["lawn.example/vesna", 1], ["garden.example/gazon", 2]]
+  }
+ },
+ "site_keywords": {
+  "msk": [
+   {"url": "example.ru/blog/otoplenie-teplicy", "query": "отопление теплицы", "pos": 2, "frequency": 900, "bid": 12.5},
+   {"url": "example.ru/blog/otoplenie-teplicy", "query": "чем отапливать теплицу", "pos": 3, "frequency": 400, "bid": 10.0},
+   {"url": "example.ru/blog/ukrytie-roz", "query": "укрытие роз", "pos": 1, "frequency": 300, "bid": 5.0},
+   {"url": "example.ru/blog/ukrytie-roz", "query": "как укрыть розы на зиму", "pos": 2, "frequency": 250, "bid": null},
+   {"url": "example.ru/blog/gazon-vesnoj", "query": "газон весной", "pos": 4, "frequency": 200, "bid": 3.0}
+  ]
+ },
+ "competitor_keywords": {
+  "garden.example": [
+   {"query": "полив теплицы", "frequency": 700, "bid": 8.0},
+   {"query": "обрезка малины осенью", "frequency": 350, "bid": 2.0}
+  ]
+ }
+}
