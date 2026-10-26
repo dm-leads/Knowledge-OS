@@ -14,8 +14,23 @@
         kind: pair                       # «пересечение живых» в карте спроса ИЛИ «пересекается» в гейте темы
         pages: [<slug A>, <slug B>]
         gate: {topic: "...", formulations: [...], exclude: [<slug A>]}   # необязательно
+      - name: статья доехала
+        kind: publish                    # «доехало» по ответу сайта (Т25.1): адрес или подменённый адрес
+        id: <id темы или slug статьи корпуса>
+        url: https://…
+        expect: доехало                  # или «не доехало»
+      - name: сборка без утверждённого брифа
+        kind: refuse                     # действие должно получить отказ; проверяется без записи вовне
+        action: assemble_unapproved      # assemble_unapproved | second_run_locked | above_rights | no_snapshot
+        area: publish                    # для above_rights: область и ступень, которой у проекта нет
+        level: publish
 Совпадение слоя: слой с этим номером дал «пересекается» на этой странице (первым он быть не обязан). «Спорно»
 пересечением не считается. Печать — «совпало N из M»; любое расхождение — код 1.
+
+`--cases <файл>` — другой файл случаев (по умолчанию `known_answers.yaml`): новые виды у проекта живут отдельным
+файлом, пока прежний выпуск, который падает на незнакомом виде, ещё в работе. «Доехало» в известных ответах только
+читает сайт: день выкладки, снимок и записи не пишутся. Отказы проверяются в песочнице — временном каталоге с копией
+профиля; ни одного запроса записи.
 
 `pending_until: ГГГГ-ММ-ДД` и `pending_reason` — случай ждёт данных (например, статья вышла вчера и её ещё нет в
 источниках). До этой даты расхождение печатается «отложен» с причиной и кода 1 не даёт; ожидание случая не меняется.
@@ -39,8 +54,11 @@ from .gate_topic import OVERLAP, Candidate, gate
 AUDIT_COLUMN = "ложная тревога (да/нет)"
 
 
-def load_cases(instance) -> list[dict]:
+def load_cases(instance, cases: str | None = None) -> list[dict]:
     path = instance.file("known_answers")
+    if cases:
+        path = Path(cases)
+        path = path if path.is_absolute() else instance.root / path
     if not path.is_file():
         raise EngineError(f"известных ответов нет: {path}")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -93,7 +111,73 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
                 return True, f"гейт: слой {hit['layer']} «{hit['name']}» на {b}"
             return False, f"ни пересечения живых, ни «пересекается» на {b}: гейт «{report['verdict']}»" + _why(report)
         return False, "пересечения живых этих страниц в карте спроса нет"
+    if kind == "publish":
+        from .verify import check_page, reference
+        ref = reference(instance, str(case["id"]), case.get("url"))
+        items = check_page(instance, ref, case["url"])["items"]
+        got = "доехало" if all(i["ok"] for i in items) else "не доехало"
+        why = "; ".join(f"{i['check']}: {i['detail']}" for i in items if not i["ok"])
+        return got == case["expect"], f"«{got}», ожидалось «{case['expect']}»" + (f" ({why})" if why else "")
+    if kind == "refuse":
+        return refuse_case(instance, case)
     raise EngineError(f"случай «{case.get('name')}»: неизвестный вид {kind}")
+
+
+REFUSALS = ("assemble_unapproved", "second_run_locked", "above_rights", "no_snapshot")
+
+
+def refuse_case(instance, case: dict) -> tuple[bool, str]:
+    """Действие должно получить отказ кода — проверка в песочнице, без записи вовне (Т25.1)."""
+    import shutil
+    import tempfile
+    from ..core import actions as actions_mod
+    from ..core import locks, rights
+    from ..core.errors import GateRefused, LockBusy, RightsRefused, SnapshotMissing
+    from ..core.instance import Instance
+    action = case.get("action")
+    if action not in REFUSALS:
+        raise EngineError(f"случай «{case.get('name')}»: действие отказа «{action}» не из {REFUSALS}")
+    with tempfile.TemporaryDirectory() as tmp:
+        shutil.copy(instance.profile_path, Path(tmp) / "profile.yaml")
+        box = Instance(Path(tmp) / "profile.yaml", today=instance.today)
+        expected, run = {
+            "assemble_unapproved": (GateRefused, lambda: _assemble_unapproved(box)),
+            "second_run_locked": (LockBusy, lambda: _second_run(box, locks)),
+            "above_rights": (RightsRefused, lambda: rights.require(box, case.get("area", "publish"),
+                                                                    case.get("level", "publish"))),
+            "no_snapshot": (SnapshotMissing, lambda: _no_snapshot(box, actions_mod)),
+        }[action]
+        try:
+            run()
+        except expected as exc:
+            return True, f"отказ: {exc}"
+        except EngineError as exc:
+            return False, f"отказ другого вида: {type(exc).__name__}: {exc}"
+        return False, "отказа нет — действие прошло бы"
+
+
+def _assemble_unapproved(box):
+    from .assemble import build
+    folder = box.brief_dir("KA0001")
+    (folder / "brief.yaml").write_text("h1: проверка\n", encoding="utf-8")
+    build(box, "KA0001")
+
+
+def _second_run(box, locks):
+    with locks.held(box, "KA0001", "publish"):
+        locks.acquire(box, "KA0001", "publish")
+
+
+def _no_snapshot(box, actions_mod):
+    box.profile["records"]["allow"] = "write"        # в песочнице право есть — проверяется именно снимок «до»
+    done = []
+    action = actions_mod.Action("db_row", "база проекта", "POST", "проверка", "read_back", ("records", "write"),
+                                do=lambda: done.append(1), verify=lambda r: (True, ""), snapshot=None)
+    try:
+        actions_mod.run(box, "KA0001", [action], apply=True, echo=lambda s: None)
+    finally:
+        if done:
+            raise EngineError("запись выполнена без снимка «до»")
 
 
 def _why(report) -> str:
@@ -119,6 +203,7 @@ def register(sub):
     add_profile(p)
     p.add_argument("--audit", help="CSV решений гейта с колонкой «ложная тревога (да/нет)»")
     p.add_argument("--offline", action="store_true", help="без запросов к выдаче")
+    p.add_argument("--cases", help="файл случаев вместо known_answers.yaml (путь от каталога инстанса)")
     p.set_defaults(func=run)
 
 
@@ -131,7 +216,7 @@ def run(args) -> int:
         print(f"Ложные тревоги: {out['false']} из {out['alarms']} срабатываний — {share}; выборка {out['sample']} "
               f"решений, размечено {out['marked']}")
         return 0
-    cases = load_cases(instance)
+    cases = load_cases(instance, args.cases)
     lines, ok, pending = [], 0, 0
     for case in cases:
         good, detail = run_case(instance, case, args.offline)

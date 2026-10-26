@@ -74,6 +74,10 @@ def build_map(instance, *, offline: bool = False, max_quota: int | None = None) 
         pages[pg.slug] = {"id": pg.slug, "url": pg.url, "type": ARTICLE, "title": pg.title, "corpus_id": pg.id,
                           "key": item.key.to_list(), "title_key": item.title_key.to_list(), "target_keys": [],
                           "head_queries": [], "status": "live"}
+    # статьи из записей выпуска, которых ещё нет в корпусе, — иначе пересборка стёрла бы их из карты (Т23, Р17)
+    from .records import release_pages
+    for page in release_pages(instance, set(pages)):
+        pages[page["id"]] = page
     sitemap, sitemap_error = [], ""
     try:
         sitemap = sitemap_urls(p, instance.root, transport=instance.transport)
@@ -126,6 +130,10 @@ def build_map(instance, *, offline: bool = False, max_quota: int | None = None) 
         owner = min(positions, key=lambda k: (positions[k]["position"], -positions[k]["impressions"], k),
                     default=None)
         top10 = sorted(k for k, v in positions.items() if v["position"] <= 10)
+        released = next((pid for pid, pg in pages.items() if pg.get("source") == "запись выпуска"
+                         and pg.get("cluster_id") == c["id"]), None)
+        if released and not owner:
+            owner = released
         if c["id"] in frozen:
             status = FROZEN
         elif c["id"] in reserved:
@@ -140,7 +148,7 @@ def build_map(instance, *, offline: bool = False, max_quota: int | None = None) 
             status = FREE
         if len(top10) >= 2:
             live_overlaps.append({"cluster_id": c["id"], "head": c["head"], "pages": top10})
-        if owner and positions[owner]["position"] <= 10:
+        if owner and owner in positions and positions[owner]["position"] <= 10:
             # целевые ключи — только кластеры, которые страница держит в топ-10: владение на 50-й позиции делало
             # целевыми общие запросы, и гейт статьи запрещал их всем (сверка с ручной приёмкой, 25.10.2026)
             pages[owner]["target_keys"].extend(q["query"] for q in c["queries"])

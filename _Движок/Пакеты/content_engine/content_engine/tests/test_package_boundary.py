@@ -54,3 +54,41 @@ def test_detector_catches_planted_lines():
     assert violations("сделок 2 889 вместо 2 893")
     assert violations("выручка 3 млн")
     assert not violations("порог 3000 объектов, домен example.ru, версия 1.0.0, 0.70")
+
+
+# Выпуск уходит в GitLab компании: там у каждого `.md` проверяется шапка документа, а поиск секретов срабатывает на
+# имя файла (урок выпуска 1.0.1). Поэтому в каталоге кода нет `.md` — шаблоны заданий хранятся `.txt` или строками,
+# а фикстуры-статьи тест создаёт во временной папке; в именах файлов нет слов-примет секрета. Слово ищется целиком
+# по частям имени: «keysso» — имя поставщика, а не ключ.
+SECRET_WORDS = {"secret", "secrets", "token", "tokens", "key", "keys", "credential", "credentials", "password",
+                "passwords"}
+
+
+def name_problems(relative: Path) -> list[str]:
+    problems = []
+    if relative.suffix.lower() == ".md":
+        problems.append("файл .md в каталоге кода")
+    parts = {part for part in re.split(r"[^a-z0-9]+", relative.name.lower()) if part}
+    if parts & SECRET_WORDS or relative.suffix.lower() in (".key", ".pem"):
+        problems.append(f"имя похоже на секрет: {sorted(parts & SECRET_WORDS) or relative.suffix}")
+    return problems
+
+
+def all_files():
+    for path in sorted(PACKAGE.rglob("*")):
+        relative = path.relative_to(PACKAGE)
+        if path.is_file() and not SKIPPED_DIRS.intersection(relative.parts):
+            yield relative
+
+
+def test_no_md_and_no_secret_like_names_in_package():
+    found = {str(r): name_problems(r) for r in all_files() if name_problems(r)}
+    assert not found, f"файлы, которые не пройдут проверки GitLab компании: {found}"
+
+
+def test_name_detector_catches_planted_files():
+    assert name_problems(Path("templates/task_brief.md"))
+    assert name_problems(Path("core/token_store.py"))
+    assert name_problems(Path("data/api-key.txt"))
+    assert not name_problems(Path("adapters/keysso.py"))
+    assert not name_problems(Path("steps/known_answers.py"))

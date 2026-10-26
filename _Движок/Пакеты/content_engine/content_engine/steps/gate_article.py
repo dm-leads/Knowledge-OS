@@ -1,8 +1,15 @@
-"""Гейт статьи без модели (В7, Т13): `content-engine gate article <файл.md> [--schema schema.json] [--offline]`.
+"""Гейт статьи без модели (В7, Т13): `content-engine gate article <файл.md> [--schema schema.json | --html страница]
+[--offline]` или `gate article --topic <id>`.
 
 Проверки и их уровень (block — черновик, warn — замечание, off — выключена) — в профиле. Итог: «пропуск» (код 0)
 или «черновик» с перечнем причин (код 1); замечания итог не меняют. Ссылки проверяются HEAD, при отказе GET;
 с `--offline` проверка ссылок пропускается и становится замечанием «ссылки не проверены».
+
+Проверка `schema` сверяет разметку с текстом (Т20.1): `--schema` — JSON-LD файлом, `--html` — JSON-LD из
+`<script type="application/ld+json">` и микроразметка (`itemscope`, `itemprop`) собранной страницы. `--topic <id>` —
+статья машины `data/briefs/<id>/article.md` (Т19.7): поля шапки, которых нет, берутся из брифа, разметка строится
+из текста и брифа и сразу проверяется; отчёт `gate_article.json` с SHA-256 текста — по нему сборка понимает, что
+«пропуск» выдан этому тексту, а не прежнему.
 """
 from __future__ import annotations
 
@@ -60,7 +67,8 @@ def _link_alive(url: str, timeout: int) -> tuple[bool, str]:
 
 
 def check_article(instance, path: Path, *, schema_path: Path | None = None, offline: bool = False,
-                  link_checker=_link_alive) -> dict:
+                  link_checker=_link_alive, schema_data: dict | None = None, html_path: Path | None = None,
+                  brief: dict | None = None) -> dict:
     p, g = instance.p, instance.p["gate_article"]
     norm = instance.norm
     text = Path(path).read_text(encoding="utf-8")
@@ -69,7 +77,10 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
     for source, role in g["fields"].items():
         if not value.get(role):
             value[role] = str(meta.get(source) or "").strip()
-    schema = None
+    for role in ("title", "description", "slug"):           # статья машины: чего нет в шапке — из брифа
+        if brief and not value.get(role):
+            value[role] = str(brief.get(role) or "").strip()
+    schema = schema_data
     if schema_path:
         try:
             schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
@@ -209,27 +220,27 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
     low = body.lower()
     stop = [s for s in g["stop_phrases"] if s.lower() in low]
     add("stop_phrases", not stop, "найдено: " + ", ".join(stop) if stop else "чисто")
-    if schema_path:
-        problems = []
-        if isinstance(schema, Exception):
+    if schema_path or schema_data is not None or html_path:
+        from . import schema as schema_mod
+        faq_text = " ".join(txt for _, _, txt in faq) + " " + " ".join(t2 for _, t2, _ in sections)
+        problems, kind = [], "JSON-LD"
+        if html_path:
+            from ..core.htmldoc import HtmlDoc
+            doc = HtmlDoc(Path(html_path).read_text(encoding="utf-8"))
+            problems += [f"JSON-LD на странице не читается — {b}" for b in doc.json_ld() if isinstance(b, Exception)]
+            nodes = doc.schema_nodes()
+            kind = "JSON-LD и микроразметка страницы" if doc.microdata() else "JSON-LD страницы"
+            schema_slug = slug_of(doc.canonical) if doc.canonical else ""
+        elif isinstance(schema, Exception):
             problems.append(f"JSON не читается — {schema}")
+            nodes, schema_slug = None, ""
         else:
             nodes = schema.get("@graph", [schema]) if isinstance(schema, dict) else []
-            article = next((n for n in nodes if isinstance(n, dict) and n.get("@type") in
-                            ("Article", "BlogPosting", "NewsArticle")), None)
-            faqp = next((n for n in nodes if isinstance(n, dict) and n.get("@type") == "FAQPage"), None)
-            if article is None:
-                problems.append("нет узла Article")
-            elif article.get("headline", "").strip() not in {title.strip(), *(x.strip() for x in h1)}:
-                problems.append("headline не совпадает с заголовком")
-            if isinstance(schema, dict) and schema.get("slug") and slug and schema["slug"] != slug:
-                problems.append("slug разметки не совпадает со статьёй")
-            if faqp is not None:
-                faq_text = " ".join(txt for _, _, txt in faq) + " " + " ".join(t2 for _, t2, _ in sections)
-                lost = [q.get("name", "") for q in faqp.get("mainEntity", []) if q.get("name", "") not in faq_text]
-                if lost:
-                    problems.append(f"вопросов FAQ нет в тексте: {len(lost)}")
-        add("schema", not problems, "; ".join(problems) or "разметка совпадает с текстом")
+            schema_slug = str(schema.get("slug") or "") if isinstance(schema, dict) else ""
+        if nodes is not None:
+            problems += schema_mod.problems(nodes, schema_slug=schema_slug, title=title, h1s=h1, slug=slug,
+                                            faq_text=faq_text)
+        add("schema", not problems, "; ".join(problems) or f"разметка ({kind}) совпадает с текстом")
     reasons = [r for r in results if r["level"] == "block" and not r["ok"]]
     notes = [r for r in results if r["level"] == "warn" and not r["ok"]]
     return {"file": str(path), "verdict": DRAFT if reasons else PASS_, "reasons": reasons, "notes": notes,
@@ -262,8 +273,10 @@ def register_kind(kinds):
     from ..cli import add_profile
     p = kinds.add_parser("article", help="гейт готовой статьи без модели")
     add_profile(p)
-    p.add_argument("file")
+    p.add_argument("file", nargs="?", help="файл статьи (не нужен с --topic)")
+    p.add_argument("--topic", help="id темы: статья машины data/briefs/<id>/article.md, разметка из текста и брифа")
     p.add_argument("--schema", help="schema.json статьи")
+    p.add_argument("--html", help="собранная страница: разметка JSON-LD и микроразметка из HTML")
     p.add_argument("--offline", action="store_true", help="не проверять ссылки")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=run)
@@ -272,9 +285,35 @@ def register_kind(kinds):
 def run(args) -> int:
     from ..cli import open_instance
     instance = open_instance(args)
-    if not Path(args.file).is_file():
-        raise EngineError(f"файл статьи не найден: {args.file}")
-    report = check_article(instance, Path(args.file), schema_path=Path(args.schema) if args.schema else None,
-                           offline=args.offline)
+    if args.topic:
+        report = check_topic(instance, args.topic, offline=args.offline)
+    else:
+        if not args.file or not Path(args.file).is_file():
+            raise EngineError(f"файл статьи не найден: {args.file}")
+        report = check_article(instance, Path(args.file), schema_path=Path(args.schema) if args.schema else None,
+                               html_path=Path(args.html) if args.html else None, offline=args.offline)
     print(json.dumps(report, ensure_ascii=False, indent=1) if args.json else render(report))
     return 0 if report["verdict"] == PASS_ else 1
+
+
+def check_topic(instance, tid: str, *, offline: bool = False, link_checker=_link_alive) -> dict:
+    """Т19.7: статья машины файлом → разметка из текста и брифа → гейт → отчёт с суммой текста."""
+    import hashlib
+    from . import schema as schema_mod
+    from .brief import load_brief
+    folder = instance.brief_dir(tid)
+    article = folder / "article.md"
+    if not article.is_file():
+        raise EngineError(f"тема {tid}: текста нет — положите его файлом {article} (маршрут проекта, Т19.7)")
+    brief = load_brief(instance, tid)
+    text = article.read_text(encoding="utf-8")
+    data = schema_mod.build(text, brief, instance.p, instance.today.isoformat())
+    (folder / "schema.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8",
+                                        newline="\n")
+    report = check_article(instance, article, schema_data=data, brief=brief, offline=offline,
+                           link_checker=link_checker)
+    report.update(id=tid, date=instance.today.isoformat(),
+                  article_sha256=hashlib.sha256(article.read_bytes()).hexdigest())
+    (folder / "gate_article.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8",
+                                              newline="\n")
+    return report

@@ -1,7 +1,8 @@
 """Команда `content-engine`: подкоманды регистрирует каждый шаг сам (`register`).
 
 Коды выхода общие: 0 — успех или «свободно», 1 — найдена проблема (пересечение, черновик, запас на пороге,
-отказ взять тему без гейта), 2 — «спорно», 3 — ошибка входа или источника. Перед любой командой с профилем
+отказ запрета в коде: тема без гейта, ступень прав, блокировка, нет снимка «до»), 2 — «спорно» и отказ бюджет-гейта
+без «да» человека, 3 — ошибка входа или источника, запись без подтверждения. Перед любой командой с профилем
 истёкшие брони освобождаются (Т11.5).
 """
 from __future__ import annotations
@@ -9,10 +10,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .core.errors import EngineError, GateRefused
+from .core.errors import BudgetRefused, EngineError, GateRefused, WriteUnconfirmed
 
 STEPS = ("check", "profile_cmd", "demand", "cluster", "demand_map", "reservations", "gate_topic", "queue",
-         "gate_article", "known_answers")
+         "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +37,12 @@ def main(argv=None) -> int:
     except GateRefused as exc:
         print(f"отказ: {exc}", file=sys.stderr)
         return 1
+    except BudgetRefused as exc:
+        print(f"бюджет-гейт: {exc}", file=sys.stderr)
+        return 2
+    except WriteUnconfirmed as exc:
+        print(f"запись не подтверждена: {exc}", file=sys.stderr)
+        return 3
     except EngineError as exc:
         print(f"ошибка: {exc}", file=sys.stderr)
         return 3

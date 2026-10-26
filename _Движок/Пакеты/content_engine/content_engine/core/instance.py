@@ -1,7 +1,8 @@
 """Инстанс проекта: каталог с профилем, реестрами, кэшем и отчётами. Всё, что знает о проекте команда, — отсюда."""
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, datetime
 from pathlib import Path
 
 from . import profile as profile_mod
@@ -16,20 +17,35 @@ FILES = {
     "reservations": "data/reservations.json", "queue": "data/queue.json", "rejections": "data/rejections.jsonl",
     "whitelist": "data/whitelist.json", "frozen": "data/frozen.json", "page_money": "data/page_money.csv",
     "known_answers": "known_answers.yaml",
+    "publications": "data/publications.jsonl", "spend": "data/spend.jsonl", "bets": "data/bets.json",
 }
 
 
 class Instance:
-    def __init__(self, profile_path, *, today: date | None = None, serp=None, transport=None):
+    def __init__(self, profile_path, *, today: date | None = None, serp=None, transport=None,
+                 now: datetime | None = None):
         self.profile_path = Path(profile_path).resolve()
         self.root = self.profile_path.parent
         self.profile = profile_mod.load(self.profile_path)
-        self.today = today or date.today()
+        self.today = today or (now.date() if now else date.today())
+        self._now = now                     # время в тестах: блокировки, снимки, журнал выпуска
         self.norm = Normalizer(self.profile["stop_words"])
         self.transport = transport          # подмена HTTP в тестах
         self._serp = serp
         self._corpus = None
         self._index = None
+
+    def now(self) -> datetime:
+        """Время действия: день — день инстанса (в тестах задан), время суток — текущее."""
+        return self._now or datetime.combine(self.today, datetime.now().time()).replace(microsecond=0)
+
+    def brief_dir(self, tid: str) -> Path:
+        """Рабочая папка темы: задания агенту, бриф, разбор топа, статья, пакет (Т18–Т21)."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
+            raise EngineError(f"id темы «{tid}»: латиница, цифры, «-» и «_»")
+        path = self.root / "data" / "briefs" / tid
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def p(self) -> dict:

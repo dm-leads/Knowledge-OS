@@ -124,6 +124,7 @@ def test_require_bet_makes_disputed(instance):
     from content_engine.steps.gate_topic import Candidate, gate
     cand = Candidate("посадка чеснока под зиму", ["посадка чеснока под зиму", "когда сажать чеснок",
                                                  "как сажать чеснок осенью"])
+    instance.profile["queue"]["require_bet"] = True          # в шаблоне версии 2 — false (Т15.2)
     assert gate(instance, cand)["verdict"] == "спорно"
     instance.profile["queue"]["require_bet"] = False
     assert gate(instance, cand)["verdict"] == "свободно"
