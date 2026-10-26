@@ -5,7 +5,11 @@
 - `refill [--count N]` — полный гейт темы с бронью по верхним кандидатам, пока запас не дойдёт до нормы или не
   кончится N; подсказка N — по исторической доле отсева из журнала (нет истории — `queue.expected_rejection`).
 - `take <id>` — **запрет в коде** (Т11.4а): тему без отчёта полного гейта за `gate_valid_days` дней взять нельзя;
-  в день взятия выдача формулировок перепроверяется (Т11.4) — без свежей выдачи взять нельзя.
+  в день взятия выдача формулировок перепроверяется (Т11.4) — без свежей выдачи взять нельзя. Выдача дня взятия
+  сохраняется снимком темы `data/briefs/<id>/serp.json` (Т18.2): общий кэш перезаписывается, снимок — нет. Объекты
+  квоты Keys.so, потраченные на взятие, — строкой в `spend.jsonl` из счётчика плана выдачи (Т17.3);
+- `retake <id>` — тема `taken` с живой бронью и годным отчётом гейта берётся снова со свежей выдачей и новым снимком;
+  иначе — полный гейт заново.
 - `status` — запас = темы `gated` с активной бронью; запас в днях = запас / ритм; запас ≤ `refill_at` — код 1.
 - `bet <id>` — поля ставки (гипотеза, ожидание, порог провала); решение по ним — Движок роста, очередь их несёт.
 """
@@ -252,8 +256,11 @@ def take(instance, tid: str, max_quota: int | None = None) -> dict:
         raise GateRefused(f"тема {tid}: бронь кластера не активна — тему нужно снова провести через гейт")
     ctx = dedup.Context(instance, fresh=True, max_quota=max_quota)
     cand = candidate_of(instance, tid)
-    fresh = dedup.run_layers(ctx, cand, {3, 4})
-    kind = dedup.serp_type(ctx, cand)
+    try:
+        fresh = dedup.run_layers(ctx, cand, {3, 4})
+        kind = dedup.serp_type(ctx, cand)
+    finally:
+        _spend_objects(instance, tid, ctx)
     if any(r.outcome in (dedup.SKIPPED, dedup.NO_DATA) for r in fresh) or kind["outcome"] == dedup.SKIPPED:
         raise GateRefused(f"тема {tid}: свежей выдачи на сегодня нет (квота или --offline) — взять нельзя")
     block = next((r for r in fresh if r.outcome == dedup.BLOCK), None)
@@ -265,9 +272,63 @@ def take(instance, tid: str, max_quota: int | None = None) -> dict:
         save(instance, topics)
         _log(instance, topic, block.layer, f"перепроверка выдачи в день взятия: {block.reason}", block.page)
         return {"taken": False, "reason": block.reason}
+    line = save_serp(instance, tid, cand.formulations)    # снимок — до статуса: без снимка тема не «взята»
     topic.update(status=TAKEN, taken=instance.today.isoformat())
     save(instance, topics)
-    return {"taken": True, "reason": "выдача перепроверена сегодня, пересечений нет"}
+    return {"taken": True, "reason": f"выдача перепроверена сегодня, пересечений нет; снимок выдачи темы — {line}"}
+
+
+def _spend_objects(instance, tid: str, ctx):
+    """Объекты Keys.so, потраченные на перепроверку выдачи, — строкой расхода темы (счётчик плана выдачи)."""
+    from ..core import spend
+    from ..core.number import FACT
+    requested = sum(plan.requested for plan in ctx.serp_plans)
+    if requested:
+        spend.add(instance, tid, "queue take", "keysso_objects", requested, FACT, "счётчик плана выдачи")
+
+
+def save_serp(instance, tid: str, formulations: list[str]) -> str:
+    """Снимок выдачи темы дня взятия по всем формулировкам и базам — из кэша, снятого сегодня (Т18.2)."""
+    from ..core.serp_cache import SerpCache
+    cache = SerpCache(instance.root, instance.p["thresholds"]["serp_cache_days"], instance.today)
+    records = []
+    for phrase in formulations:
+        for base in instance.p["search"]["serp_bases"]:
+            hit = cache.get(phrase, base, fresh_only=True)
+            if hit is None:
+                raise EngineError(f"тема {tid}: выдачи дня взятия по «{phrase}» ({base}) в кэше нет — снимок не снят")
+            records.append(hit.to_dict())
+    return store.write_json(instance.brief_dir(tid) / "serp.json", "topic_serp", records,
+                            meta={"id": tid, "as_of": instance.today.isoformat(), "formulations": formulations},
+                            source_count=len(records))
+
+
+def retake(instance, tid: str, max_quota: int | None = None) -> dict:
+    """Т18.2: тема `taken` с живой бронью и годным отчётом гейта снова `gated` — и сразу `take` со свежей выдачей."""
+    from . import reservations
+    topics = load(instance)
+    topic = _find(topics, tid)
+    full = f"тема {tid} идёт через полный гейт заново: `gate topic --from-queue {tid} --reserve`"
+    if topic["status"] != TAKEN:
+        raise GateRefused(f"тема {tid} в статусе {topic['status']}, перевзять можно только taken")
+    active = {r["id"] for r in reservations.active(instance)}
+    if topic.get("reservation_id") not in active:
+        raise GateRefused(f"бронь темы {tid} не активна — {full}")
+    valid = instance.p["thresholds"]["gate_valid_days"]
+    report = _gate_report((topic.get("gate") or {}).get("report", ""))
+    if not report or report.get("date", "") < (instance.today - timedelta(days=valid)).isoformat():
+        raise GateRefused(f"отчёт гейта темы {tid} старше {valid} дней — {full}")
+    topic["status"] = GATED
+    save(instance, topics)
+    try:
+        return take(instance, tid, max_quota)
+    except GateRefused:
+        current = load(instance)
+        back = _find(current, tid)
+        if back["status"] == GATED:
+            back["status"] = TAKEN           # свежей выдачи нет — тема остаётся взятой со старым снимком
+            save(instance, current)
+        raise
 
 
 def _gate_report(path: str) -> dict | None:
@@ -295,19 +356,20 @@ def status(instance) -> tuple[dict, int]:
 
 def register(sub):
     from ..cli import add_profile
-    parser = sub.add_parser("queue", help="очередь тем: build | refill | status | take | bet")
+    parser = sub.add_parser("queue", help="очередь тем: build | refill | status | take | retake | bet")
     actions = parser.add_subparsers(dest="action", required=True)
     for name, text in (("build", "кандидаты карты спроса → темы очереди"), ("refill", "полный гейт до нормы запаса"),
-                       ("status", "запас в днях"), ("take", "взять тему в работу"), ("bet", "поля ставки темы")):
+                       ("status", "запас в днях"), ("take", "взять тему в работу"),
+                       ("retake", "взять заново со свежей выдачей"), ("bet", "поля ставки темы")):
         p = actions.add_parser(name, help=text)
         add_profile(p)
-        if name in ("take", "bet"):
+        if name in ("take", "retake", "bet"):
             p.add_argument("id")
         if name == "refill":
             p.add_argument("--count", type=int, help="тем через полный гейт, не больше")
         if name == "build":
             p.add_argument("--limit", type=int, default=BUILD_LIMIT, help="верхних кандидатов за прогон")
-        if name in ("refill", "take"):
+        if name in ("refill", "take", "retake"):
             p.add_argument("--max-quota", type=int, help="объектов квоты на прогон, не больше")
         if name == "bet":
             p.add_argument("--hypothesis", required=True)
@@ -336,8 +398,8 @@ def run(args) -> int:
                 f"{out['refill_at']})" + (" — НИЖЕ НОРМЫ" if out["below_norm"] else "")
                 + "\nПо статусам: " + ", ".join(f"{k} — {v}" for k, v in out["by_status"].items())
                 + f"\n{out['hint']}")
-    elif args.action == "take":
-        out = take(instance, args.id, args.max_quota)
+    elif args.action in ("take", "retake"):
+        out = (take if args.action == "take" else retake)(instance, args.id, args.max_quota)
         text = f"Тема {args.id}: " + ("взята в работу. " if out["taken"] else "снята. ") + out["reason"]
         code = 0 if out["taken"] else 1
     else:

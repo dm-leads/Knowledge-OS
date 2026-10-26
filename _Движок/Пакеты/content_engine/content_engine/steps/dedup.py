@@ -265,6 +265,14 @@ def layer_key(ctx, cand, skip) -> LayerResult:
         sim = key.similarity(item.key)
         if sim > best[0]:
             best = (sim, item.page.url, f"статья «{item.page.title}»")
+    # страницы из записей выпуска (Т23, Р17): статья вышла, но в корпусе и в данных источников её ещё нет
+    for page in ctx.pages().values():
+        if page.get("source") != "запись выпуска" or _skip(page, skip) or page["id"] in cand.skip_slugs:
+            continue
+        same_cluster = bool(cand.cluster_id) and page.get("cluster_id") == cand.cluster_id
+        sim = 1.0 if same_cluster else key.similarity(Key.from_list(page["key"]))
+        if sim > best[0]:
+            best = (sim, page["url"], f"страница из записи выпуска «{page['title']}»")
     for topic in (ctx.queue_topics if ctx.queue_topics is not None else queue_mod.load(ctx.instance)):
         if topic["id"] == cand.queue_id or topic["status"] in (queue_mod.REJECTED, queue_mod.PUBLISHED):
             continue

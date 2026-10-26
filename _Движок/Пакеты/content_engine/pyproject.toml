@@ -6,10 +6,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "content_engine"
-version = "1.1.0"
-description = "Контент-машина: реестр «страница ↔ ключи», анти-дубли до модели, очередь тем и гейты без модели"
+version = "1.2.0"
+description = "Контент-машина: анти-дубли до модели, очередь тем, гейты; разбор топа, бриф, сборка, публикация, «доехало», индексация"
 requires-python = ">=3.12"
 dependencies = ["pyyaml", "requests", "snowballstemmer", "google-auth"]
+
+[project.optional-dependencies]
+browser = ["playwright"]          # проверка вёрстки (Т22.4); без неё пункт «не подключено»
 
 [project.scripts]
 content-engine = "content_engine.cli:main"
@@ -18,4 +21,4 @@ content-engine = "content_engine.cli:main"
 include = ["content_engine*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.yaml", "*.txt", "*.json", "*.md", "*.csv"]
+"*" = ["*.yaml", "*.txt", "*.json", "*.md", "*.csv", "*.html"]

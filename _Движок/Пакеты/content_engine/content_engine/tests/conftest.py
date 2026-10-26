@@ -19,8 +19,10 @@ def base_profile() -> dict:
         "path": "texts", "pattern": "*.md", "exclude": ["README.md"],
         "fields": {"id": "id", "slug": "slug", "title": "title", "url": "url"},
         "url_template": "https://{domain}/{section}/{slug}", "section": "blog", "index_csv": ""}]
-    data["directions"] = [{"name": "теплицы", "words": ["теплица"], "weight": 2, "quarter_quota": 4},
-                          {"name": "полив", "words": ["полив"], "weight": 1, "quarter_quota": 0}]
+    data["directions"] = [{"name": "теплицы", "words": ["теплица"], "weight": 2, "quarter_quota": 4,
+                           "volume": [6000, 12000]},
+                          {"name": "полив", "words": ["полив"], "weight": 1, "quarter_quota": 0,
+                           "volume": [3000, 8000]}]
     data["thresholds"]["section_block"] = 4
     data["thresholds"]["section_warn"] = 3
     return data
@@ -88,6 +90,16 @@ SNAPSHOT = """Вступление о поливе сада без лишних 
 
 Взрослому дереву нужно ведро воды в неделю.
 """
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Сети в тестах нет: настоящий HTTP-запрос — ошибка соединения, подмены транспорта работают как прежде."""
+    import requests
+
+    def refuse(self, method, url, *args, **kwargs):
+        raise requests.exceptions.ConnectionError(f"сеть в тестах запрещена: {method} {url}")
+    monkeypatch.setattr(requests.Session, "request", refuse)
 
 
 @pytest.fixture

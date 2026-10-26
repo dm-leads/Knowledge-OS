@@ -58,3 +58,10 @@ def is_own(url: str, domains) -> bool:
     host = host_of(url)
     own = {host_unicode(d) for d in domains}
     return host in own or any(host.endswith("." + d) for d in own)
+
+
+def ascii_url(url: str) -> str:
+    """Адрес с хостом в punycode — так его ждут консоли и IndexNow (кириллический домен)."""
+    normal = norm_url(url)
+    host, _, path = normal.partition("/")
+    return "https://" + host.encode("idna").decode("ascii") + ("/" + path if path else "")

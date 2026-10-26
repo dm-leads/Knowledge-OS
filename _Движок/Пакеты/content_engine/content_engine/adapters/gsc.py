@@ -64,6 +64,15 @@ class SearchConsole:
                           impressions=(r.get("impressions", 0), FACT), clicks=(r.get("clicks", 0), FACT),
                           position=(r.get("position"), FACT))
 
+    def first_day(self, page_url: str, period_from: str, period_to: str) -> str | None:
+        """Первый день с показами страницы (разрез «дата» с фильтром по странице) — день выкладки «восстановлен»."""
+        body = {"startDate": period_from, "endDate": period_to, "dimensions": ["date"], "type": "web",
+                "rowLimit": ROW_LIMIT, "dimensionFilterGroups": [{"filters": [
+                    {"dimension": "page", "operator": "equals", "expression": page_url}]}]}
+        rows = self.client.call("POST", self.endpoint, json=body).get("rows") or []
+        days = sorted(r["keys"][0] for r in rows if r.get("impressions", 0) > 0)
+        return days[0] if days else None
+
     def probe(self) -> str:
         data = self.client.call("POST", self.endpoint, json={"startDate": self.as_of, "endDate": self.as_of,
                                                              "dimensions": ["query"], "rowLimit": 1})
