@@ -96,21 +96,21 @@ def checks(instance, package: Package) -> list[dict]:
         if levels[name] != "off":
             results.append({"check": name, "level": levels[name], "ok": bool(ok), "detail": detail})
 
-    broken = sorted({h[1:] for h in doc.links() if h.startswith("#") and len(h) > 1 and h[1:] not in ids})
+    # нативные якоря страницы (окно консультации конструктора и т. п.) объявляет сборщик проекта в манифесте
+    native = set(package.manifest.get("native_anchors") or [])
+    broken = sorted({h[1:] for h in doc.links() if h.startswith("#") and len(h) > 1 and h[1:] not in ids
+                     and h[1:] not in native})
     add("anchors", not broken, "битые якоря: " + ", ".join(broken) if broken else "внутренние якоря на месте")
-    h2_ids = [n.attrs.get("id", "") for n in doc.root.find_all("h2")]
-    toc_nodes = doc.select(".toc") or doc.select("nav")
-    toc = [a.attrs.get("href", "")[1:] for node in toc_nodes[:1] for a in node.find_all("a")
-           if a.attrs.get("href", "").startswith("#")]
-    if toc:
-        add("toc", toc == h2_ids, "оглавление = разделы H2" if toc == h2_ids else
-            f"оглавление {toc} ≠ разделы {h2_ids}")
-    else:
-        add("toc", len(h2_ids) < 2, "оглавления нет" + ("" if len(h2_ids) < 2 else f" при {len(h2_ids)} разделах"))
+    skip = [instance.p["gate_article"]["faq_heading"], *(package.manifest.get("toc_skip") or [])]
+    ok, detail = _toc(doc, instance.p["corpus"]["toc_marker"], skip)
+    add("toc", ok, detail)
     bad = [n for n, rows in enumerate(doc.tables(), 1) if rows and len(set(rows)) > 1]
     add("tables", not bad, f"таблицы с разным числом ячеек в строках: {bad}" if bad else
         f"таблиц {len(doc.tables())}, все целые")
-    missing = [sel for sel in instance.p["assemble"]["required_elements"] if not doc.select(sel)]
+    # элементы, которые ставит сама страница (H1 — заголовок страницы конструктора), сборщик объявляет в манифесте
+    outside = set(package.manifest.get("outside_blocks") or [])
+    missing = [sel for sel in instance.p["assemble"]["required_elements"] if sel not in outside
+               and not doc.select(sel)]
     add("required", not missing, "нет элементов: " + ", ".join(missing) if missing else "обязательные элементы на месте")
     ref = instance.p["thresholds"]["section_length_ref"]
     if ref is None:
@@ -124,6 +124,56 @@ def checks(instance, package: Package) -> list[dict]:
         add("section_borders", not long, "длинные разделы без подзаголовка: " + ", ".join(long) if long else
             f"у каждого раздела длиннее {ref} основ есть подзаголовок")
     return results
+
+
+def _toc_links(doc: HtmlDoc, marker: str) -> list[str] | None:
+    """Ссылки оглавления: блок `.toc` или `nav`, иначе первый список после строки-маркера (`corpus.toc_marker`)."""
+    nodes = doc.select(".toc") or doc.select("nav")
+    if nodes:
+        return [a.attrs.get("href", "")[1:] for a in nodes[0].find_all("a") if a.attrs.get("href", "").startswith("#")]
+    if not marker:
+        return None
+    order = list(doc.root.iter())
+    want = marker.strip().strip(":").lower()
+    start = next((i for i, n in enumerate(order) if n.tag not in ("#root", "html", "body")
+                  and n.text().strip().strip(":").lower() == want), None)
+    if start is None:
+        return None
+    lst = next((n for n in order[start + 1:] if n.tag in ("ul", "ol")), None)
+    if lst is None:
+        return None
+    return [a.attrs.get("href", "")[1:] for a in lst.find_all("a") if a.attrs.get("href", "").startswith("#")]
+
+
+def _toc(doc: HtmlDoc, marker: str, skip: list[str]) -> tuple[bool, str]:
+    """Каждый раздел H2 есть в оглавлении по порядку, кроме частых вопросов (`gate_article.faq_heading`) и разделов,
+    которые сборщик проекта объявил в манифесте (`toc_skip`, начало заголовка — например «Выводы»). id может стоять
+    на H2 или на обёртке раздела: пункт оглавления ведёт на первый H2 от своей цели."""
+    order = list(doc.root.iter())
+    pos = {id(n): i for i, n in enumerate(order)}
+    h2 = [n for n in order if n.tag == "h2"]
+    skipped = [h for h in h2 if any(h.text().lower().startswith(s.lower()) for s in skip if s)]
+    required = [h for h in h2 if h not in skipped]
+    toc = _toc_links(doc, marker)
+    if not toc:
+        return len(required) < 2, "оглавления нет" + ("" if len(required) < 2 else f" при {len(required)} разделах H2")
+    by_id = {n.attrs["id"]: n for n in order if n.attrs.get("id")}
+    mapped = []
+    for anchor in toc:
+        target = by_id.get(anchor)
+        if target is None:
+            return False, f"пункт оглавления «#{anchor}» ведёт в никуда"
+        nxt = next((h for h in h2 if pos[id(h)] >= pos[id(target)]), None)
+        if nxt is None:
+            return False, f"после цели «#{anchor}» нет раздела H2"
+        mapped.append(nxt)
+    if [pos[id(h)] for h in mapped] != sorted(pos[id(h)] for h in mapped) or len(set(map(id, mapped))) != len(mapped):
+        return False, "порядок оглавления не совпадает с разделами"
+    missing = [h.text() for h in required if h not in mapped]
+    if missing:
+        return False, "разделов нет в оглавлении: " + "; ".join(missing)
+    return True, f"оглавление = {len(required)} разделов H2" + (
+        f"; вне оглавления: {', '.join(h.text() for h in skipped)}" if skipped else "")
 
 
 def _sections(doc: HtmlDoc, instance):

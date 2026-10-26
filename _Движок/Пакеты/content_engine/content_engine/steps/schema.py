@@ -42,8 +42,13 @@ def h1_of(body: str) -> str:
                  and m.group(1) == "#"), "")
 
 
+def _ascii_domain(profile: dict) -> str:
+    """Домен в punycode: так адрес пишут разметка, консоли и страницы сайта на кириллическом домене."""
+    return profile["site"]["domains"][0].encode("idna").decode("ascii")
+
+
 def canonical(profile: dict, slug: str) -> str:
-    domain = profile["site"]["domains"][0]
+    domain = _ascii_domain(profile)
     section = profile["site"]["article_sections"][0] if profile["site"]["article_sections"] else ""
     return f"https://{domain}/{section}/{slug}" if section else f"https://{domain}/{slug}"
 
@@ -53,13 +58,17 @@ def build(article_text: str, brief: dict, profile: dict, day: str) -> dict:
     h1 = h1_of(body) or str(brief.get("h1") or "")
     slug = str(brief.get("slug") or meta.get("slug") or "")
     url = canonical(profile, slug)
-    domain = profile["site"]["domains"][0]
+    domain = _ascii_domain(profile)
     section = profile["site"]["article_sections"][0] if profile["site"]["article_sections"] else ""
     author = brief.get("author")
     author = author.get("name", "") if isinstance(author, dict) else str(author or "")
     graph = [{"@type": "Article", "headline": h1, "description": str(brief.get("description") or ""),
               "author": {"@type": "Person", "name": author}, "datePublished": day, "dateModified": day,
               "mainEntityOfPage": url}]
+    # обложка — полем шапки текста: она появляется после утверждения брифа, а правка брифа сняла бы утверждение
+    cover = str(meta.get("image") or meta.get("cover") or "").strip()
+    if cover:
+        graph[0]["image"] = cover
     pairs = faq_pairs(body, profile["gate_article"]["faq_heading"])
     if pairs:
         graph.append({"@type": "FAQPage", "mainEntity": [

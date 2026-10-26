@@ -148,7 +148,7 @@ class HtmlDoc:
         faq = any(re.search(r"вопрос|faq|q&a", h, re.IGNORECASE) for h in h2 + h3) or \
             any(n.get("@type") == "FAQPage" for n in self.schema_nodes())
         return {"main": how, "h2": h2, "h3": h3, "chars": len(re.sub(r"\s+", "", text)),
-                "tables": len(node.find_all("table")), "images": len(node.find_all("img")),
+                "tables": len(node.find_all("table")), "images": _content_images(node),
                 "lists": len(node.find_all("ul", "ol")), "faq": faq, "text": text}
 
     def ids(self) -> set[str]:
@@ -217,6 +217,31 @@ def _nested(item: dict) -> list[dict]:
             if isinstance(v, dict) and v.get("@type"):
                 out += _nested(v)
     return out
+
+
+def _content_images(node: Node) -> int:
+    """Картинки тела статьи: внутри общего предка разделов H2 (обложка над статьёй, баннеры и меню — вне его), без
+    значков (ширина или высота до 64), векторных логотипов и встроенных data:-картинок."""
+    heads = node.find_all("h2")
+    root = node
+    if len(heads) >= 2:
+        chains = []
+        for h in heads:
+            chain, a = [], h.parent
+            while a is not None:
+                chain.append(a)
+                a = a.parent
+            chains.append(chain)
+        common = [a for a in chains[0] if all(any(a is b for b in c) for c in chains[1:])]
+        root = common[0] if common else node
+    count = 0
+    for img in root.find_all("img"):
+        src = img.attrs.get("src", "").lower()
+        sizes = [int(v) for v in (img.attrs.get("width", ""), img.attrs.get("height", "")) if v.isdigit()]
+        if src.startswith("data:") or src.endswith(".svg") or (sizes and min(sizes) <= 64):
+            continue
+        count += 1
+    return count
 
 
 def flatten(block) -> list[dict]:

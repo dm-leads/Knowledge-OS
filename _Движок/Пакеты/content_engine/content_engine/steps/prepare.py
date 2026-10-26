@@ -32,6 +32,9 @@ from . import queue as queue_mod
 
 LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
 GAP_SHARE = 0.5                 # заголовок — пробел, если больше половины его основ нет в наших заголовках
+TINY_SHARE = 0.1                # страница короче 10 % самой длинной разобранной — «не разобрано», в числа не идёт
+REDIRECTS = (301, 302, 307, 308)
+SERVICE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{2,4}|^(обновл|опубликов|дата|автор|время чтения)", re.IGNORECASE)
 _EN = snowballstemmer.stemmer("english")
 
 
@@ -113,8 +116,11 @@ def gaps(instance, pages: list[dict], formulations: list[str]) -> tuple[list[dic
     for h in heads:
         ours |= instance.norm.key(h).variants
     out, seen = [], set()
+    marker = instance.p["corpus"]["toc_marker"].strip().strip(":").lower()
     for page in pages:
         for heading in page["h2"] + page["h3"]:
+            if heading.strip().strip(":").lower() == marker or SERVICE.search(heading.strip()):
+                continue                         # «Содержание», «Обновлено: 15.10.2026» — служебные строки, не разделы
             key = instance.norm.key(heading)
             if not key or key.canonical() in seen:
                 continue
@@ -148,7 +154,7 @@ def top(instance, tid: str) -> dict:
         if len(pages) >= pr["top_n"]:
             break
         try:
-            got = fetcher.get(url, use_cache=True)
+            got = _get_same_site(fetcher, url)
         except SourceError as exc:
             skipped.append({"url": url, "why": str(exc)})
             continue
@@ -163,6 +169,8 @@ def top(instance, tid: str) -> dict:
         pages.append({"url": url, "fetched": instance.today.isoformat(), "main": m["main"], "h2": m["h2"],
                       "h3": m["h3"], "chars": m["chars"], "tables": m["tables"], "images": m["images"],
                       "lists": m["lists"], "faq": m["faq"], "stems": _top_stems(instance, m["text"])})
+        pages, tiny = _drop_tiny(pages)
+        skipped += tiny
     complete = len(pages) >= pr["top_n"]
     numbers = _numbers(instance, topic, pages) if pages else {}
     gap_list, our = gaps(instance, pages, topic["formulations"]) if pages else ([], [])
@@ -192,6 +200,32 @@ def top(instance, tid: str) -> dict:
     report["write"] = line
     report["pages"] = pages
     return report
+
+
+def _get_same_site(fetcher, url: str):
+    """Перенаправление внутри того же сайта (www, слеш в конце, http → https) выполняется один раз; на чужой сайт — нет."""
+    from urllib.parse import urljoin
+    got = fetcher.get(url, use_cache=True)
+    if got.status in REDIRECTS and got.location:
+        target = urljoin("https://" + norm_url(url) + "/", got.location)
+        if host_of(norm_url(target)) == host_of(norm_url(url)):
+            fetcher.allowed_urls.add(norm_url(target))
+            again = fetcher.get(target, use_cache=True)
+            if again.status == 200:
+                again.url = url
+                return again
+    return got
+
+
+def _drop_tiny(pages: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Страница с извлечённым текстом меньше доли самой длинной — не статья для разбора (вёрстка без текста)."""
+    if not pages:
+        return pages, []
+    longest = max(p["chars"] for p in pages)
+    keep = [p for p in pages if p["chars"] >= TINY_SHARE * longest]
+    drop = [{"url": p["url"], "why": f"не разобрано: текста почти нет ({p['chars']} знаков при {longest} у самой "
+                                     f"длинной страницы)"} for p in pages if p not in keep]
+    return keep, drop
 
 
 def _top_stems(instance, text: str, n: int = 15) -> list[str]:
