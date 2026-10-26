@@ -80,3 +80,48 @@ def test_fewer_than_three_formulations_refused(project):
     from content_engine.core.errors import EngineError
     with pytest.raises(EngineError, match="не меньше 3"):
         gate(Instance(project, today=TODAY), Candidate("тема", ["тема", "тема"]), offline=True, layers={2})
+
+
+
+def _review(project, repeats):
+    filler = " ".join(f"характеристика{i} модели" for i in range(500))
+    text = ("# Обзор обогревателя\n\nОбзор одним разделом. " + "Полив теплицы. " * repeats + filler + "\n")
+    write_article(project.parent / "texts", "obzor-obogrevatelya", "Обзор обогревателя", text)
+
+
+def _top_section(project, body_ref, section_ref):
+    from .conftest import set_profile
+    set_profile(project, lambda d: d["thresholds"].update(body_length_ref=body_ref, section_length_ref=section_ref))
+    report = gate(Instance(project, today=TODAY), Candidate("полив теплицы", ["полив теплицы", "как поливать теплицу",
+                                                                             "полив в теплице"]),
+                  offline=True, layers={2})
+    return report["layers"][0]
+
+
+def test_long_review_loses_lead_after_scaling(project):
+    """Длинный обзор одним разделом набирает упоминания длиной: без нормирования он первый, с нормированием — нет."""
+    _review(project, repeats=12)
+    raw = _top_section(project, None, None)
+    assert raw["numbers"]["section_top"][0]["slug"] == "obzor-obogrevatelya"
+    scaled = _top_section(project, 1000, 400)
+    top = scaled["numbers"]["section_top"][0]
+    assert top["slug"] == "otoplenie-teplicy" and scaled["section"] == "Полив теплицы зимой"
+    review = next(h for h in scaled["numbers"]["section_top"] if h["slug"] == "obzor-obogrevatelya")
+    assert review["length"] > 400 and abs(review["weight"] - review["raw"] * 400 / review["length"]) < 1e-9
+
+
+def test_threshold_compares_exact_weight():
+    from content_engine.steps.dedup import _scaled
+    assert _scaled(25, 1001, 1000) < 25                     # 24.975 не дотягивает до порога 25, хоть и «≈ 25.0»
+    assert _scaled(25, 1000, 1000) == 25 and _scaled(25, 5000, None) == 25
+
+
+def test_length_ref_must_be_positive():
+    import pytest
+    from content_engine.core import profile as profile_mod
+    from content_engine.core.errors import ProfileError
+    from .conftest import base_profile
+    data = base_profile()
+    data["thresholds"]["section_length_ref"] = 0
+    with pytest.raises(ProfileError, match="section_length_ref"):
+        profile_mod.validate(data)

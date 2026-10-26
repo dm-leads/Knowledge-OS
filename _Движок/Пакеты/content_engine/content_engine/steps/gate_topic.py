@@ -101,9 +101,9 @@ def render(report: dict) -> str:
                          "(у остальных слой 3 не проверен — она снимается по квоте)")
         if r["layer"] == 2:
             for hit in r["numbers"].get("body_top", [])[:3]:
-                lines.append(f"       статья: вес {hit['weight']} — {hit['title']} ({hit['slug']}) {hit['hits']}")
+                lines.append(f"       статья: вес {hit['weight']:.2f} — {hit['title']} ({hit['slug']}) {hit['hits']}")
             for hit in r["numbers"].get("section_top", [])[:3]:
-                lines.append(f"       раздел: вес {hit['weight']} — «{hit['section']}» в {hit['slug']} "
+                lines.append(f"       раздел: вес {hit['weight']:.2f} — «{hit['section']}» в {hit['slug']} "
                              f"(формулировка «{hit['formulation']}»)")
             if r["numbers"].get("section_note"):
                 lines.append(f"       {r['numbers']['section_note']}")

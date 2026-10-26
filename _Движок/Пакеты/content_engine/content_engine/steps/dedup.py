@@ -74,6 +74,11 @@ def layer_texts(index, formulations: list[str], thresholds: dict, *, skip_slugs=
     подзаголовков, а раздел, который тему закрывает, говорит о каждой её основе и обычно называет её в подзаголовке
     (ранний замер на корпусе первого потребителя). Бонус за подзаголовок — половина: целый перевешивал, когда в
     подзаголовке общие слова, а отличительное слово темы встречалось в разделе один раз. Отчёт называет статью и раздел.
+
+    Нормирование по длине (`body_length_ref`, `section_length_ref`, пусто — без нормирования): вес текста длиннее
+    опорной длины умножается на «опорная длина / длина», в основах. Длинный текст набирает упоминания просто потому,
+    что длинный: обзор прибора одним разделом на тысячи слов цеплял темы словами из характеристик — это была главная
+    часть ложных тревог на выборке решений первого потребителя, а разделы, которые тему закрывают, короткие.
     """
     norm = index.normalizer
     pairs = [(f, norm.key(f)) for f in formulations]
@@ -81,14 +86,16 @@ def layer_texts(index, formulations: list[str], thresholds: dict, *, skip_slugs=
     keys = [k for _, k in pairs]
     concepts = concepts_of(keys)
     body_hits, section_hits = [], []
+    body_ref, section_ref = thresholds["body_length_ref"], thresholds["section_length_ref"]
     for item in index.pages:
         if item.page.slug in skip_slugs:
             continue
         counts = [index.count(item.counts, part) for part in concepts]
         if concepts and all(counts):
-            weight = sum(min(c, BODY_CAP) for c in counts)
+            raw = sum(min(c, BODY_CAP) for c in counts)
+            length = sum(item.counts.values())
             body_hits.append({"slug": item.page.slug, "url": item.page.url, "title": item.page.title,
-                              "weight": weight,
+                              "weight": _scaled(raw, length, body_ref), "raw": raw, "length": length,
                               "hits": {_label(p): c for p, c in zip(concepts, counts)}})
         for section in item.sections:
             for formulation, key in pairs:
@@ -96,10 +103,13 @@ def layer_texts(index, formulations: list[str], thresholds: dict, *, skip_slugs=
                 if all(section_counts):
                     heading = norm_counts(norm, section.heading)
                     in_heading = sum(1 for p in key.parts if index.count(heading, p))
+                    raw = min(section_counts) + HEADING_BONUS * in_heading
+                    length = sum(section.counts.values())
                     section_hits.append({
                         "slug": item.page.slug, "url": item.page.url, "title": item.page.title,
                         "section": section.heading or "(вступление)", "formulation": formulation,
-                        "weight": min(section_counts) + HEADING_BONUS * in_heading, "least": min(section_counts),
+                        "weight": _scaled(raw, length, section_ref), "raw": raw, "length": length,
+                        "least": min(section_counts),
                         "in_heading": in_heading, "total": sum(section_counts),
                         "hits": {_label(p): c for p, c in zip(key.parts, section_counts)}})
     body_hits.sort(key=lambda h: (-h["weight"], h["slug"]))
@@ -110,18 +120,18 @@ def layer_texts(index, formulations: list[str], thresholds: dict, *, skip_slugs=
     if body_hits:
         top = body_hits[0]
         if top["weight"] >= t["body_block"]:
-            verdicts.append((BLOCK, f"статья целиком: вес {top['weight']} ≥ {t['body_block']}", top, ""))
+            verdicts.append((BLOCK, f"статья целиком: вес {_w(top['weight'])} ≥ {t['body_block']}", top, ""))
         elif top["weight"] >= t["body_warn"]:
-            verdicts.append((WARN, f"статья целиком: вес {top['weight']} ≥ {t['body_warn']}", top, ""))
+            verdicts.append((WARN, f"статья целиком: вес {_w(top['weight'])} ≥ {t['body_warn']}", top, ""))
     if section_hits:
         top = section_hits[0]
         if t["section_block"] is None:
             numbers["section_note"] = "пороги раздела не заданы — измеритель только в отчёте"
         elif top["weight"] >= t["section_block"]:
-            verdicts.append((BLOCK, f"раздел: вес {top['weight']} ≥ {t['section_block']} "
+            verdicts.append((BLOCK, f"раздел: вес {_w(top['weight'])} ≥ {t['section_block']} "
                                     f"по формулировке «{top['formulation']}»", top, top["section"]))
         elif top["weight"] >= t["section_warn"]:
-            verdicts.append((WARN, f"раздел: вес {top['weight']} ≥ {t['section_warn']} "
+            verdicts.append((WARN, f"раздел: вес {_w(top['weight'])} ≥ {t['section_warn']} "
                                    f"по формулировке «{top['formulation']}»", top, top["section"]))
     for outcome in (BLOCK, WARN):
         chosen = [v for v in verdicts if v[0] == outcome]
@@ -132,6 +142,20 @@ def layer_texts(index, formulations: list[str], thresholds: dict, *, skip_slugs=
                 reason = "; ".join(v[1] for v in chosen)
             return LayerResult(2, outcome, reason, hit["url"], section, numbers)
     return LayerResult(2, PASS, "в текстах статей тема не закрыта", numbers=numbers)
+
+
+def _scaled(raw: float, length: int, ref) -> float:
+    """Вес текста длиннее опорной длины уменьшается пропорционально; ref пусто — вес как есть.
+
+    Вес точный: сортировка и сравнение с порогом идут по нему, округление — только в тексте отчёта.
+    """
+    if ref is None or length <= ref:
+        return raw
+    return raw * ref / length
+
+
+def _w(weight: float) -> str:
+    return f"{weight:.2f}".rstrip("0").rstrip(".")
 
 
 class Context:

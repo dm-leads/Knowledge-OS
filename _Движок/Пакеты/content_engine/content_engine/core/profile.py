@@ -58,6 +58,7 @@ SCHEMA = S(
     thresholds=S(
         key_overlap=F("number"), body_block=F("number"), body_warn=F("number"),
         section_block=F("number", nullable=True), section_warn=F("number", nullable=True),
+        body_length_ref=F("int", nullable=True), section_length_ref=F("int", nullable=True),
         serp_common_urls=F("int"), sales_overlap=F("number"), head_term_cap=F("int"), title_overlap=F("number"),
         twin_shingles=F("number"), commercial_min=F("int"), serp_cache_days=F("int"), gate_valid_days=F("int"),
         reservation_days=F("int"), money_days=F("int"), min_impressions=F("number")),
@@ -155,6 +156,9 @@ def _semantics(data: dict):
     t = data["thresholds"]
     if (t["section_block"] is None) != (t["section_warn"] is None):
         raise ProfileError("поля «thresholds.section_block» и «section_warn» задаются вместе")
+    for name in ("body_length_ref", "section_length_ref"):
+        if t[name] is not None and t[name] <= 0:
+            raise ProfileError(f"поле «thresholds.{name}»: положительное число основ или null (без нормирования)")
     if data["queue"]["refill_at"] > data["queue"]["norm"]:
         raise ProfileError("поле «queue.refill_at»: порог пополнения не выше нормы запаса")
 
