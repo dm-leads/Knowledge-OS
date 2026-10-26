@@ -13,7 +13,7 @@ from ..adapters.demand import FileDemand, value_of
 from ..core import store
 from ..core.errors import EngineError, SourceError
 from ..core.number import ESTIMATE, FACT, Number
-from ..core.secrets import secret
+from ..core.env_file import secret
 
 
 def period(instance) -> tuple[str, str]:

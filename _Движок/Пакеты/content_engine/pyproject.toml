@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "content_engine"
-version = "1.0.0"
+version = "1.0.1"
 description = "Контент-машина: реестр «страница ↔ ключи», анти-дубли до модели, очередь тем и гейты без модели"
 requires-python = ">=3.12"
 dependencies = ["pyyaml", "requests", "snowballstemmer", "google-auth"]

@@ -11,7 +11,7 @@ from datetime import date
 
 from ..core import store
 from ..core.errors import AccessDenied, EngineError, QuotaExhausted, SourceError
-from ..core.secrets import has_secret, secret
+from ..core.env_file import has_secret, secret
 
 GREEN, YELLOW, RED, OFF = "зелёный", "жёлтый", "красный", "не подключено"
 

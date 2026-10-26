@@ -7,7 +7,7 @@ from pathlib import Path
 from . import profile as profile_mod
 from .errors import EngineError
 from .normalize import Normalizer
-from .secrets import secret
+from .env_file import secret
 from .textindex import TextIndex
 
 DATA = "data"
