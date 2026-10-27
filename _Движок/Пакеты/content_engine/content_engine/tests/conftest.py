@@ -102,6 +102,8 @@ def no_network(monkeypatch):
     monkeypatch.setattr(requests.Session, "request", refuse)
     from content_engine.steps import verify as verify_mod
     monkeypatch.setattr(verify_mod, "SLEEP", lambda seconds: None)     # повтор «доехало» без настоящей паузы (О1)
+    from content_engine.core import drift as drift_mod
+    monkeypatch.setattr(drift_mod, "SLEEP", lambda seconds: None)      # обход своего сайта без паузы
 
 
 @pytest.fixture

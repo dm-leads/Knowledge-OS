@@ -826,3 +826,37 @@ operations:
     proof: [test_status_writes_nothing]
     exit_codes: {"0": напечатано}
     next: []
+
+  # --- доказательство (волна 3) ---
+  pulse run:
+    operation_id: pulse.run
+    name: пульс дня — вердикт и панель
+    phrases: [пульс машины, что с сайтом сегодня, панель машины, вердикт дня]
+    module: Д1
+    requires: профиль версии 4; для позиций — консоли и карта спроса
+    produces: data/pulse/<дата>.json, reports/<дата>/panel.html, data/positions.jsonl; эталоны страниц без эталона
+    side_writes: освобождает истёкшие брони; эталонные снимки data/snapshots/live/ для страниц корпуса без эталона
+    effects: [{type: external_read, when: сайт, Search Console, Вебмастер — без --no-network}, {type: filesystem_write}]
+    human: ""
+    secrets: [YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    proof: [test_verdict_rules_first_match, test_silence_depends_on_rhythm, test_panel_not_connected_not_zero, test_failed_source_is_not_zero_and_does_not_stop_other]
+    exit_codes: {"0": собрано (вердикт любой — в выводе), "3": профиль или реестры не читаются}
+    note: по расписанию — с --unattended; платных вызовов нет
+    next: [pulse notify]
+  pulse notify:
+    operation_id: pulse.notify
+    name: сводка пульса в мессенджер
+    phrases: [пришли сводку пульса, отправь пульс в ларк]
+    module: Д1
+    requires: пульс за сегодня
+    produces: сообщение — разница со вчера и что сделать; событие notify в журнале выпуска
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони и событие notify}]
+    write: {right: notify.allow = write, apply: true, snapshot: не нужен (сообщение), rollback: —}
+    human: ""
+    secrets: [NOTIFY_LARK_WEBHOOK]
+    repeatable: false
+    proof: [test_notify_needs_right_and_apply, test_notify_confirmed_by_code_and_once_a_day]
+    exit_codes: {"0": "отправлено и подтверждено, план без --apply или сводка не подключена", "1": нет права notify.allow с --apply, "3": пульса за сегодня нет или ответ сервиса не подтвердил}
+    next: []
