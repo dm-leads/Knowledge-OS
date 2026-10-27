@@ -78,11 +78,25 @@ class Instance:
         return self._index
 
     def serp(self):
-        """Источник выдачи из профиля; в тестах — подменённый."""
+        """Источник выдачи по `sources.serp_order` (Н6): следующий — при отказе предыдущего; в тестах — подменённый."""
         if self._serp is None:
             keysso = self.profile["sources"]["keysso"]
-            if not keysso["enabled"]:
-                raise EngineError("источник выдачи не подключён: sources.keysso.enabled = false")
-            from ..adapters.keysso import KeyssoSerp
-            self._serp = KeyssoSerp(secret(self.profile, keysso["key_env"]), transport=self.transport)
+            order = self.profile["sources"]["serp_order"]
+            factories = []
+            for name in order:
+                if name == "keysso" and keysso["enabled"]:
+                    from ..adapters.keysso import KeyssoSerp
+                    factories.append(("keysso", lambda: KeyssoSerp(secret(self.profile, keysso["key_env"]),
+                                                                   transport=self.transport)))
+                elif name == "yandex_search":
+                    from ..adapters.yandex_search import YandexSearchSerp
+                    factories.append(("yandex_search", lambda: YandexSearchSerp(self)))
+            if not factories:
+                raise EngineError("источник выдачи не подключён: sources.keysso.enabled = false и в "
+                                  "sources.serp_order нет yandex_search")
+            if len(factories) == 1:
+                self._serp = factories[0][1]()
+            else:
+                from ..adapters.yandex_search import FallbackSerp
+                self._serp = FallbackSerp(factories)
         return self._serp

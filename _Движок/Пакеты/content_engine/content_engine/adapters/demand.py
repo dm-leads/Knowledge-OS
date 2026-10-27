@@ -13,7 +13,7 @@ from typing import Protocol
 from ..core.errors import SourceError
 from ..core.number import ESTIMATE, FACT, Number
 
-METRICS = ("impressions", "clicks", "position", "frequency")
+METRICS = ("impressions", "clicks", "position", "frequency", "asks")   # asks — обращения клиентов (Т31.1)
 
 
 class DemandSource(Protocol):

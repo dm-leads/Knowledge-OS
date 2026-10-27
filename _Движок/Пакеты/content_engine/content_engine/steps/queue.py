@@ -292,7 +292,8 @@ def _spend_objects(instance, tid: str, ctx):
     """Объекты Keys.so, потраченные на перепроверку выдачи, — строкой расхода темы (счётчик плана выдачи)."""
     from ..core import spend
     from ..core.number import FACT
-    requested = sum(plan.requested for plan in ctx.serp_plans)
+    # объекты Keys.so — только за ответы Keys.so; запасной источник платит рублями через бюджет-гейт (Н6)
+    requested = sum(plan.requested for plan in ctx.serp_plans if plan.source != "yandex_search")
     if requested:
         spend.add(instance, tid, "queue take", "keysso_objects", requested, FACT, "счётчик плана выдачи")
 

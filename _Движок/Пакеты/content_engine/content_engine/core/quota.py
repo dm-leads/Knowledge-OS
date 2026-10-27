@@ -25,6 +25,7 @@ class SerpPlan:
     got: int = 0
     left_for_tomorrow: int = 0
     stopped_by_quota: bool = False
+    source: str = ""                # кто ответил: keysso или запасной yandex_search (Н6)
     notes: list[str] = field(default_factory=list)
 
     def line(self) -> str:
@@ -81,6 +82,8 @@ def fetch_serp(instance, phrases: list[str], *, max_quota: int | None = None, fr
                 plan.left_for_tomorrow = len(need) - done
                 return out, plan
             plan.requested += len(part)
+            plan.source = getattr(serp, "last_source", "") or getattr(serp, "name", "")
+            plan.notes += [n for n in getattr(serp, "notes", []) if n not in plan.notes]
             for phrase, result in results.items():
                 cache.put(result)
                 out[base][phrase] = result

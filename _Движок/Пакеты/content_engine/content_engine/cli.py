@@ -59,6 +59,9 @@ def open_instance(args, **kwargs):
     from .core.instance import Instance
     from .steps.reservations import expire
     instance = Instance(args.profile, **kwargs)
+    # платный запасной источник выдачи (Н6) берёт «да» человека из флагов команды
+    instance.confirm_spend = getattr(args, "confirm_spend", None)
+    instance.unattended = getattr(args, "unattended", False)
     released = expire(instance)
     if released:
         print(f"брони истекли и освобождены: {released}")
