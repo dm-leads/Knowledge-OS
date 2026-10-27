@@ -1,0 +1,33 @@
+# Технический чек-лист проекта (Т35.1–Т35.3) — основа аудита недели `content-engine audit run`.
+# Кладётся в инстанс командой `content-engine audit checklist --apply` (путь — audit.checklist профиля) и правится
+# проектом. Уровни: critical, high, medium, low; off — проверка выключена. Код проверки — в пакете, здесь — уровень и
+# параметры. Директивы эксперта — проверки expert_*.
+schema_version: 1
+checks:
+  http_error: {level: critical}                 # адрес карты сайта отвечает 4xx или 5xx
+  noindex_in_sitemap: {level: critical}         # страница в карте сайта закрыта от индексации
+  redirect_in_sitemap: {level: medium}          # адрес карты сайта отвечает перенаправлением
+  redirect_chain: {level: high, max: 1}         # больше max перенаправлений подряд
+  title_empty: {level: critical}
+  title_length: {level: medium, range: [30, 70]}
+  title_duplicate: {level: high}                # один title у разных страниц
+  description_empty: {level: high}
+  description_length: {level: low, range: [70, 170]}
+  description_duplicate: {level: medium}
+  h1_missing: {level: high}
+  canonical_missing: {level: medium}
+  canonical_foreign: {level: critical}          # canonical ведёт на чужой домен
+  canonical_broken: {level: critical}           # цель canonical не отвечает 200
+  canonical_noindex: {level: critical}          # цель canonical закрыта от индексации
+  canonical_chain: {level: high}                # у цели canonical свой canonical на третий адрес
+  schema_type: {level: medium, article: [Article, BlogPosting, NewsArticle]}   # тип разметки статьи
+  sitemap: {level: critical}                    # карта сайта отдаётся и не пуста
+  robots: {level: critical}                     # robots.txt отдаётся и не закрывает весь сайт
+  orphan: {level: medium}                       # статья без входящих внутренних ссылок
+  expertise: {level: low, min_score: 4, weights: {author: 1, date: 1, internal_links: 1, sources: 1, volume: 1, faq: 1}, min_chars: 3000}
+  text_cleanliness: {level: low}                # штампы и оценочный тон по шаблонам gate_article — копится, не блокирует
+  expert_own_sites: {level: high, own_sites: []}   # свои сайты между собой не ссылаются (домены других проектов)
+  expert_cta_heading: {level: medium}           # призыв к действию не заголовком (маркеры gate_article.cta_markers)
+  expert_faq_schema: {level: medium}            # раздел FAQ есть — есть и разметка FAQPage
+  expert_link_params: {level: low}              # внутренние ссылки без параметров (?utm=…)
+  expert_slug: {level: medium}                  # слаг латиницей в нижнем регистре, без пробелов

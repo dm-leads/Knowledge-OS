@@ -924,3 +924,135 @@ operations:
     exit_codes: {"0": предложения записаны, "1": принятых итогов нет}
     note: в реестр Движка машина не пишет — число и замер заводит Движок своими командами
     next: []
+  economics:
+    operation_id: economics.report
+    name: экономика статей и направлений
+    phrases: [экономика статей, окупилась ли статья, окупаемость направлений, закрыть ли направление]
+    module: Д2
+    requires: книга ставок с замерами; учёт расхода
+    produces: reports/<дата>/economics.md — цена статьи против денег за 180 дней, окупаемость, предложения закрыть направление
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_incomplete_cost_named, test_direction_without_leads_proposed_to_close, test_proxy_direction_not_proposed]
+    exit_codes: {"0": отчёт собран}
+    note: закрытие направления решают Движок роста и человек
+    next: []
+  audit run:
+    operation_id: audit.run
+    name: аудит недели по техническому чек-листу
+    phrases: [аудит недели машины, проверь сайт целиком, технический аудит сайта, пересечения живых страниц]
+    module: Д3
+    requires: tech_checklist.yaml в инстансе; карта сайта
+    produces: data/audit/<дата>.json, data/link_graph.json, data/overlaps.json, reports/<дата>/audit.md (дельта), задание советов роли cheap
+    side_writes: освобождает истёкшие брони; суммы страниц и состояние индекса в data/audit/
+    effects: [{type: external_read, when: свой сайт (GET с паузой), проверка адреса Search Console, выборка Вебмастера}, {type: filesystem_write}, {type: agent_task_required, when: есть слабые, сироты или выпавшие}]
+    agent_step: reports/<дата>/task_audit_advice.md → агент роли cheap кладёт advice.json → `audit advice <файл>`
+    human: ""
+    secrets: [YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    proof: [test_planted_errors_found_with_levels, test_second_run_reports_only_delta, test_pair_found_by_audit_and_gate_alike, test_merge_tasks_only_below_threshold, test_dropped_page_in_plan_and_limit_before_request]
+    exit_codes: {"0": аудит собран (находки — в отчёте), "3": чек-листа нет или карта сайта не читается}
+    note: по расписанию — с --unattended; платных вызовов нет
+    next: [audit accept, week plan]
+  audit checklist:
+    operation_id: audit.checklist
+    name: шаблон технического чек-листа в инстанс
+    phrases: [заведи технический чек-лист, чек-лист аудита]
+    module: Основание
+    requires: ""
+    produces: tech_checklist.yaml в инстансе (существующий не перезаписывается)
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write, when: истёкшие брони освобождаются}, {type: filesystem_write, when: файл чек-листа в инстансе, requires_apply: true}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": план или записано}
+    next: [audit run]
+  audit advice:
+    operation_id: audit.advice
+    name: проверить советы агента по находкам аудита
+    phrases: [проверь советы аудита]
+    module: Д3
+    requires: advice.json по заданию аудита
+    produces: «советы приняты» или список ошибок
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    proof: [test_advice_checked_against_audit]
+    exit_codes: {"0": советы приняты, "1": находка не из аудита или кандидат связи не из списка кода}
+    next: []
+  audit accept:
+    operation_id: audit.accept
+    name: «утверждаю» правку выпавшей страницы или склейку
+    phrases: [утверждаю правку страницы, утверждаю склейку, не утверждаю склейку]
+    module: Д3
+    requires: находка в последнем аудите
+    produces: строка data/audit/decisions.jsonl; утверждённое идёт в план недели
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: правка выпавшей страницы и склейка пересечения — решение человека; --who — его имя
+    repeatable: true
+    proof: [test_merge_tasks_only_below_threshold]
+    exit_codes: {"0": записано, "1": находки нет или задачи на склейку не выдаются (доля ложных тревог)}
+    next: [week plan]
+  schedule install:
+    operation_id: schedule.install
+    name: поставить расписание машины
+    phrases: [поставь расписание, расписание машины, запускай машину по расписанию]
+    module: Основание
+    requires: schedule.jobs в профиле; право schedule.allow = write
+    produces: задания планировщика KOS-content-engine-<id>-<job>, каждое с --unattended
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true, when: планировщик Windows или cron}, {type: filesystem_write}]
+    write: {right: schedule.allow = write, apply: true, snapshot: что стоит в планировщике до записи, rollback: schedule remove}
+    human: ""
+    repeatable: true
+    proof: [test_install_without_right_or_apply_is_plan_only, test_install_confirmed_by_read_back, test_xml_has_start_when_available_and_cyrillic_path]
+    exit_codes: {"0": поставлено и подтверждено или план, "1": нет права schedule.allow, "3": планировщик не подтвердил}
+    next: [schedule list]
+  schedule list:
+    operation_id: schedule.list
+    name: что стоит в расписании и когда отработало
+    phrases: [что в расписании, когда машина запускалась]
+    module: Основание
+    requires: ""
+    produces: свои задания и последний запуск по журналу data/schedule_runs.jsonl
+    side_writes: ""
+    effects: [{type: filesystem_read}, {type: external_read, when: планировщик}]
+    human: ""
+    repeatable: true
+    proof: [test_list_reads_only]
+    exit_codes: {"0": напечатано}
+    note: только чтение — истёкшие брони не освобождаются
+    next: []
+  schedule remove:
+    operation_id: schedule.remove
+    name: снять своё расписание
+    phrases: [сними расписание машины, убери задания машины]
+    module: Основание
+    requires: право schedule.allow = write
+    produces: свои задания сняты; чужие не тронуты
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true}, {type: filesystem_write}]
+    write: {right: schedule.allow = write, apply: true, snapshot: задание до снятия, rollback: schedule install}
+    human: ""
+    repeatable: true
+    proof: [test_remove_takes_only_own]
+    exit_codes: {"0": снято или план, "1": нет права, "3": планировщик не подтвердил}
+    next: []
+  week plan:
+    operation_id: week.plan
+    name: план работ на неделю
+    phrases: [план недели машины, что делать на этой неделе с машиной, план работ контент-машины]
+    module: Основание
+    requires: пульс, книга ставок, аудит — что есть
+    produces: reports/<дата>/week_plan.md — 5–8 задач, у каждой число-основание и файл
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects: [{type: filesystem_read}, {type: external_read, when: самопроверка источников}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_week_plan_five_to_eight_with_basis, test_week_plan_fewer_marked]
+    exit_codes: {"0": план собран}
+    next: []

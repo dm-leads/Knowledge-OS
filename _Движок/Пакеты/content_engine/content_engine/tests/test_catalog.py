@@ -71,7 +71,7 @@ def test_rollback_right_is_profile_keys_from_code():
 
 def test_profile_commands_name_reservation_release():
     """Команда с профилем открывает инстанс с записью — истёкшие брони освобождаются; исключения названы с причиной."""
-    read_only = {"status"}                                  # open_instance(read_only=True)
+    read_only = {"status", "schedule list"}                 # open_instance(read_only=True)
     own_open = {"profile check", "profile migrate"}         # профиль читается сам, инстанс не открывается
     parsers = dict(contract.leaves(build_parser()))
     for op in contract.catalog()["operations"]:
