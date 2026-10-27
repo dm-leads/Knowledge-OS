@@ -860,3 +860,67 @@ operations:
     proof: [test_notify_needs_right_and_apply, test_notify_confirmed_by_code_and_once_a_day]
     exit_codes: {"0": "отправлено и подтверждено, план без --apply или сводка не подключена", "1": нет права notify.allow с --apply, "3": пульса за сегодня нет или ответ сервиса не подтвердил}
     next: []
+  bet backfill:
+    operation_id: bet.backfill
+    name: книга ставок задним числом для статей корпуса
+    phrases: [заведи старые статьи в книгу ставок, книга ставок задним числом]
+    module: Д2
+    requires: корпус; для дня выкладки без шапки — Search Console
+    produces: записи data/bets.json (origin corpus, «ставки нет»), источник дня выкладки у каждой
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_read, when: день выкладки из Search Console}, {type: filesystem_write, when: истёкшие брони освобождаются}, {type: filesystem_write, when: data/bets.json — файл инстанса, requires_apply: true}]
+    human: ""
+    secrets: []
+    repeatable: true
+    locks: bets/write
+    proof: [test_backfill_plan_writes_nothing_and_repeat_adds_nothing, test_backfill_day_sources, test_machine_article_gets_no_second_record]
+    exit_codes: {"0": план или записано, "1": книгу пишет другой прогон, "3": корпус не читается}
+    note: --apply здесь пишет только в файл инстанса (ступень files) — права не нужно
+    next: [bet measure]
+  bet measure:
+    operation_id: bet.measure
+    name: замер ставок на 90-й и 180-й день
+    phrases: [замерь ставки, замер ставки, книга ставок, что сыграло в деньгах]
+    module: Д2
+    requires: книга ставок с днём выкладки; деньги по окну (bets.money)
+    produces: measures окон в data/bets.json — деньги, заявки, ступень, предложенный итог; reports/<дата>/bets.md
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_read, when: адаптер денег проекта (module:…)}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    locks: bets/write
+    proof: [test_measure_from_publication_day_not_build, test_proxy_is_low_data, test_window_not_yet_with_date, test_missing_row_is_no_data_not_failure, test_between_threshold_and_expectation_is_low_data]
+    exit_codes: {"0": замерено (итоги — предложение), "1": книгу пишет другой прогон, "3": источник денег не читается}
+    note: итог ставит человек — `bet accept`; по расписанию — с --unattended
+    next: [bet accept]
+  bet accept:
+    operation_id: bet.accept
+    name: принять итог ставки
+    phrases: [принимаю итог ставки, итог ставки, ставка сыграла, ставка провалилась]
+    module: Д2
+    requires: замер окна
+    produces: result окна, кто и когда принял
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: итог ставки — решение человека; --who — его имя; свой итог — с --reason
+    repeatable: true
+    locks: bets/write
+    proof: [test_result_needs_human_before_proposal]
+    exit_codes: {"0": принят, "1": замера нет или книгу пишет другой прогон, "3": неверный итог или нет причины}
+    next: [bet propose]
+  bet propose:
+    operation_id: bet.propose
+    name: предложение итогов в Движок роста
+    phrases: [передай итоги ставок в движок роста, предложение по гипотезе]
+    module: Б1
+    requires: принятые итоги ставок из гипотез
+    produces: файлы bets.proposal_dir/<дата>-<гипотеза>-<окно>.yaml в формате листа чисел Движка
+    side_writes: освобождает истёкшие брони; отметка proposed_file в книге ставок
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: false
+    locks: bets/write
+    proof: [test_result_needs_human_before_proposal, test_proposal_in_engine_format_no_engine_calls]
+    exit_codes: {"0": предложения записаны, "1": принятых итогов нет}
+    note: в реестр Движка машина не пишет — число и замер заводит Движок своими командами
+    next: []

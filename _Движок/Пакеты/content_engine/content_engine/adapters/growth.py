@@ -11,6 +11,10 @@
   направление из нескольких статей: поэтому в карточке `unit` и `planned_count`, а числа, выписанные агентом из
   формулировки, — со статусом «оценка» и источником.
 Ни одного запроса записи: Движок роста меняет статусы сам, машина держит зеркало ставки в очереди и книге ставок.
+
+Решение по гипотезе (волна 3, Б1): `decision()` читает решение Движка — `scale`, `iterate`, `kill`, `research` (его
+закрытие цикла пишет поле `decision` строки гипотезы). У карточки файлом — необязательные поля `decision` и
+`decided_at`; карточка старше 30 дней решения не даёт (устарела — выгрузить заново).
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ CARD_REQUIRED = ("id", "formulation", "status", "exported_at", "exported_by", "u
                  "expectation", "fail_threshold", "windows", "expectation_numbers")
 NUMBER_REQUIRED = ("value", "unit", "cabinet", "period", "denominator", "source", "as_of", "status")
 CARD_MAX_AGE = 30
+DECISIONS = ("scale", "iterate", "kill", "research")
 _ENTITIES = (("&", "&amp;"), ("|", "&#124;"), ("\n", "&#10;"), ("\r", "&#13;"))
 HYPOTHESES, NUMBERS = "Гипотезы", "Модель — снимки"
 
@@ -109,6 +114,16 @@ class MarkdownGrowth:
                 "notes": []}
 
 
+    def decision(self, hid: str) -> dict:
+        self.reads += 1
+        row = next((r for r in read_sheet(self.folder / f"{HYPOTHESES}.md") if r.get("id") == hid), None)
+        if row is None:
+            raise EngineError(f"гипотезы {hid} нет на листе «{HYPOTHESES}» ({self.folder})")
+        value = (row.get("decision") or "").strip().lower()
+        return {"decision": value if value in DECISIONS else "", "decided_at": (row.get("updated_at") or "")[:10],
+                "note": ""}
+
+
 def validate_card(card: dict, name: str) -> None:
     if not isinstance(card, dict):
         raise EngineError(f"карточка {name}: верхний уровень — не раздел")
@@ -129,6 +144,9 @@ def validate_card(card: dict, name: str) -> None:
             raise EngineError(f"карточка {name}: expectation_numbers[{i}] без полей {lost}")
         if n["status"] not in NUMBER_STATUSES:
             raise EngineError(f"карточка {name}: expectation_numbers[{i}].status — одно из {NUMBER_STATUSES}")
+    decision = str(card.get("decision") or "").strip().lower()
+    if decision and decision not in DECISIONS:
+        raise EngineError(f"карточка {name}: decision — одно из {DECISIONS} или пусто")
 
 
 class FileGrowth:
@@ -159,6 +177,22 @@ class FileGrowth:
                 "expectation_numbers": card["expectation_numbers"] or [], "fail_threshold": str(card["fail_threshold"]),
                 "windows": card["windows"], "unit": card["unit"], "planned_count": card["planned_count"],
                 "notes": notes}
+
+
+    def decision(self, hid: str) -> dict:
+        """Решение Движка из карточки; устаревшая карточка решения не даёт — его нельзя применять вслепую."""
+        self.reads += 1
+        path = self.folder / f"{hid}.yaml"
+        if not path.is_file():
+            raise EngineError(f"карточки гипотезы нет: {path}")
+        card = yaml.safe_load(path.read_text(encoding="utf-8"))
+        validate_card(card, path.name)
+        exported = date.fromisoformat(str(card["exported_at"])[:10])
+        if (self.today - exported).days > CARD_MAX_AGE:
+            return {"decision": "", "decided_at": "",
+                    "note": f"карточка {hid} выгружена {exported} — старше {CARD_MAX_AGE} дней, решение не применяется"}
+        return {"decision": str(card.get("decision") or "").strip().lower(),
+                "decided_at": str(card.get("decided_at") or ""), "note": ""}
 
 
 def source(instance):

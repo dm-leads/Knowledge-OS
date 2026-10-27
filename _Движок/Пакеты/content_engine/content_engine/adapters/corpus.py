@@ -42,6 +42,7 @@ class Page:
     sections: list[Section] = field(default_factory=list)
     split: str = "none"                # headings | toc | none — как найдены разделы
     path: str = ""                     # файл текста
+    date: str = ""                     # день публикации из шапки (роль date), ГГГГ-ММ-ДД; пусто — не указан
 
     @property
     def section(self) -> str:
@@ -54,6 +55,16 @@ class Page:
     @property
     def text(self) -> str:
         return "\n".join(f"{s.heading}\n{s.text}" for s in self.sections)
+
+
+def iso_day(value) -> str:
+    """День публикации из шапки: ГГГГ-ММ-ДД (в том числе с временем) или ДД.ММ.ГГГГ; иначе пусто."""
+    text = str(value or "").strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})", text)
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else ""
 
 
 def _clean(line: str) -> str:
@@ -212,7 +223,7 @@ def markdown_folder(profile: dict, root: Path) -> tuple[list[Page], dict]:
             if slug in by_slug:
                 report["replaced"] += 1
             by_slug[slug] = Page(slug=slug, url=url, title=title, id=value.get("id", ""), sections=sections,
-                                 split=how, path=str(path))
+                                 split=how, path=str(path), date=iso_day(value.get("date", "")))
             read += 1
         report["folders"].append({"path": str(folder), "read": read})
     pages = list(by_slug.values())
