@@ -21,7 +21,7 @@ from pathlib import Path
 from ..assemblers.base import MANIFEST, Package, check_manifest, load_assembler, write_manifest
 from ..core import approval
 from ..core.errors import GateRefused
-from ..core.htmldoc import HtmlDoc
+from ..core.htmldoc import HtmlDoc, comments_left, strip_comments
 from ..core.markdown_html import convert
 
 CONTRACT_ARTICLE = """---
@@ -67,7 +67,7 @@ def _gate_ok(instance, tid: str) -> dict:
     folder = instance.brief_dir(tid)
     article, report_path = folder / "article.md", folder / "gate_article.json"
     if not article.is_file():
-        raise GateRefused(f"тема {tid}: текста нет — `data/briefs/{tid}/article.md`")
+        raise GateRefused(f"тема {tid}: текста нет — `{article}`")
     if not report_path.is_file():
         raise GateRefused(f"тема {tid}: гейта статьи нет — `gate article --topic {tid}`")
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -104,6 +104,11 @@ def checks(instance, package: Package) -> list[dict]:
     skip = [instance.p["gate_article"]["faq_heading"], *(package.manifest.get("toc_skip") or [])]
     ok, detail = _toc(doc, instance.p["corpus"]["toc_marker"], skip)
     add("toc", ok, detail)
+    if "comments" in levels:                     # Н5: публикуемый HTML пакета без комментариев
+        left = {name: n for name in package.manifest["files"] if name.endswith((".html", ".htm"))
+                and (n := comments_left((package.folder / name).read_text(encoding="utf-8")))}
+        add("comments", not left, "комментарии в публикуемом HTML: " + ", ".join(f"{k} — {v}" for k, v in left.items())
+            if left else "комментариев в HTML пакета нет")
     bad = [n for n, rows in enumerate(doc.tables(), 1) if rows and len(set(rows)) > 1]
     add("tables", not bad, f"таблицы с разным числом ячеек в строках: {bad}" if bad else
         f"таблиц {len(doc.tables())}, все целые")
@@ -220,13 +225,32 @@ def build(instance, tid: str) -> tuple[Package, list[dict]]:
     brief = {**load_brief(instance, tid), "id": tid}
     assembler = load_assembler(instance)(instance, out)
     package = assembler.build(folder / "article.md", json.loads(schema_path.read_text(encoding="utf-8")), [], brief)
+    notes = strip_package_comments(package)
+    package = write_manifest(out, {k: v for k, v in package.manifest.items()
+                                   if k not in ("files", "schema_version", "kind")}, list(package.manifest["files"]))
     results = checks(instance, package)
     ready = not any(r["level"] == "block" and not r["ok"] for r in results)
     meta = {k: v for k, v in package.manifest.items() if k not in ("files", "schema_version", "kind")}
-    meta.update(checks=results, ready=ready, brief_sha256=approval.digest(folder / "brief.yaml"),
+    meta.update(checks=results, ready=ready, notes=notes, brief_sha256=approval.digest(folder / "brief.yaml"),
                 article_sha256=approval.digest(folder / "article.md"))
     package = write_manifest(out, meta, list(package.manifest["files"]))
     return package, results
+
+
+def strip_package_comments(package: Package) -> list[dict]:
+    """Н5: снять комментарии со всех HTML-файлов пакета, которые идут на сайт; их текст — в манифест (`notes`).
+
+    Пояснения сборки нужны агентам и человеку — они попадают в манифест и в `paste.md`, а не в код страницы."""
+    notes = []
+    for name in package.manifest["files"]:
+        if not name.endswith((".html", ".htm")):
+            continue
+        path = package.folder / name
+        clean, removed = strip_comments(path.read_text(encoding="utf-8"))
+        if removed:
+            path.write_text(clean, encoding="utf-8", newline="\n")
+            notes += [{"file": name, "comment": text[:300]} for text in removed]
+    return notes
 
 
 def contract(instance) -> list[str]:

@@ -22,7 +22,7 @@ def period(instance) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def build_sources(instance) -> list:
+def build_sources(instance, *, confirm=None, unattended=False) -> list:
     """Подключённые источники спроса. Ошибка сборки источника — в отчёт, не в остановку."""
     cfg, as_of = instance.p["sources"], instance.today.isoformat()
     out = []
@@ -52,13 +52,23 @@ def build_sources(instance) -> list:
             path = instance.root / cfg["demand_file"]["path"]
             return FileDemand(path, as_of)
         out.append(("demand_file", demand_file))
+    if cfg["client_questions"]["enabled"]:
+        def client_questions():
+            from ..adapters.client_questions import ClientQuestions, answered_by_corpus
+            return ClientQuestions(instance.root / cfg["client_questions"]["path"], as_of, answered_by_corpus(instance))
+        out.append(("client_questions", client_questions))
+    if cfg["wordstat"]["order"]:
+        def wordstat():
+            from ..adapters.wordstat import WordstatDemand
+            return WordstatDemand(instance, confirm=confirm, unattended=unattended, suggest=cfg["suggest"]["enabled"])
+        out.append(("wordstat", wordstat))
     return out
 
 
-def collect(instance, sources=None) -> dict:
+def collect(instance, sources=None, *, confirm=None, unattended=False) -> dict:
     """Собрать, склеить, отсеять, записать. `sources` — [(имя, фабрика)] для тестов."""
     period_from, period_to = period(instance)
-    sources = sources if sources is not None else build_sources(instance)
+    sources = sources if sources is not None else build_sources(instance, confirm=confirm, unattended=unattended)
     if not sources:
         raise EngineError("источники спроса не подключены: sources.*.enabled = false")
     raw, report = [], {"period": [period_from, period_to], "sources": {}, "dropped": {}}
@@ -69,6 +79,11 @@ def collect(instance, sources=None) -> dict:
             if hasattr(source, "fetch_pages"):
                 rows += source.fetch_pages(period_from, period_to)
             report["sources"][name] = {"status": "ок", "rows": len(rows)}
+            extra = getattr(source, "report", None)
+            if isinstance(extra, dict):              # Wordstat: кто ответил, отказы, примеры по подстроке (Т31.3)
+                report["sources"][name].update(extra)
+            if getattr(source, "already", None):     # вопросы клиентов, на которые корпус уже отвечает
+                report["sources"][name]["already"] = [{"question": q, "page": p} for q, p in source.already]
             raw += rows
         except SourceError as exc:
             report["sources"][name] = {"status": "нет данных", "rows": 0, "reason": str(exc)}
@@ -111,6 +126,10 @@ def merge(instance, rows: list[dict], period_from: str, period_to: str) -> list[
                                    "frequency": value_of(row, "frequency", None), "bid": row.get("bid")})
         if row.get("competitor") and row["competitor"] not in group["competitors"]:
             group["competitors"].append(row["competitor"])
+        if row.get("history"):
+            group["history"] = row["history"]
+        if "asks" in row["numbers"]:
+            group["_asks"] = group.get("_asks", 0.0) + value_of(row, "asks")
     out = []
     for group in groups.values():
         consoles = "+".join(s for s in group["sources"] if s in ("gsc", "webmaster")) or "консоли"
@@ -118,8 +137,11 @@ def merge(instance, rows: list[dict], period_from: str, period_to: str) -> list[
                if group["_imp_known"] else None)
         freq = (Number(group["_freq"], period_from, period_to, "keysso:wsk", ESTIMATE, as_of).to_dict()
                 if group["_freq"] is not None else None)
+        asks = (Number(group["_asks"], period_from, period_to, "client_questions:обращения", FACT, as_of).to_dict()
+                if "_asks" in group else None)
         out.append({k: v for k, v in group.items() if not k.startswith("_")} | {"impressions": imp,
-                                                                              "frequency": freq})
+                                                                              "frequency": freq}
+                   | ({"asks": asks} if asks else {}))
     return out
 
 
@@ -160,7 +182,17 @@ def render(report: dict) -> str:
     lines = [f"Сбор спроса за {report['period'][0]} — {report['period'][1]}"]
     for name, item in report["sources"].items():
         lines.append(f"  {name}: {item['status']}, строк {item['rows']}"
-                     + (f" — {item['reason']}" if item.get("reason") else ""))
+                     + (f" — {item['reason']}" if item.get("reason") else "")
+                     + (f"; ответил {item['source']}" if item.get("source") else "")
+                     + (f"; запросов {item['requests']}" if item.get("requests") else ""))
+        for note in item.get("fallback", []):
+            lines.append(f"    отказ: {note}")
+        if item.get("dropped_no_frequency"):
+            lines.append(f"    подсказок без частоты — отброшено {item['dropped_no_frequency']}")
+        for seed, sample in (item.get("samples") or {}).items():
+            lines.append(f"    «{seed}» — число по подстроке; примеры для проверки чтением: " + "; ".join(sample))
+        for row in item.get("already", [])[:20]:
+            lines.append(f"    уже отвечено: «{row['question']}» → {row['page']}")
     lines.append(f"склеено одинаковых: {report['glued']}, запросов после склейки: {report['merged']}")
     lines.append("отсеяно: " + ", ".join(f"{k} — {v}" for k, v in report["dropped"].items()))
     lines.append(f"в спросе: {report['kept']}; {report['write']}")
@@ -173,13 +205,15 @@ def register(sub):
     actions = parser.add_subparsers(dest="action", required=True)
     p = actions.add_parser("collect", help="собрать спрос из подключённых источников")
     add_profile(p)
+    from ..core.budget import add_flags
+    add_flags(p)
     p.set_defaults(func=run)
 
 
 def run(args) -> int:
     from ..cli import open_instance
     instance = open_instance(args)
-    report = collect(instance)
+    report = collect(instance, confirm=args.confirm_spend, unattended=args.unattended)
     text = render(report)
     (instance.reports_dir() / "Сбор спроса.md").write_text(text + "\n", encoding="utf-8", newline="\n")
     print(text)

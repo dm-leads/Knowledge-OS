@@ -120,10 +120,31 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
         return got == case["expect"], f"«{got}», ожидалось «{case['expect']}»" + (f" ({why})" if why else "")
     if kind == "refuse":
         return refuse_case(instance, case)
+    if kind == "judge":                         # Т33.2: ответ судьи вне пятёрки или с чужой цитатой не принят
+        from .judge import validate
+        problems, _ = validate(case["sections"], case["answer"])
+        got = "не принят" if problems else "принят"
+        return got == case["expect"], f"ответ судьи {got}, ожидалось «{case['expect']}»" + (
+            f" ({'; '.join(problems)})" if problems else "")
+    if kind == "review":                        # Т33.2: блокер вычитки держит черновик
+        from .review import open_claims
+        left = open_claims(case["claims"], case.get("decisions") or {})
+        got = "черновик" if left else "пропуск"
+        return got == case["expect"], f"вычитка: «{got}», ожидалось «{case['expect']}»" + (
+            f" ({'; '.join(left)})" if left else "")
+    if kind == "facts":                         # Т33.2: число, совпавшее с просроченным фактом, — черновик
+        from datetime import date
+        from ..core.facts import valid
+        fact = case["fact"]
+        stale = not valid(fact, date.fromisoformat(case.get("today") or instance.today.isoformat()))
+        hit = str(fact["value"]) in case["text"]
+        got = "черновик" if stale and hit else "пропуск"
+        return got == case["expect"], f"факт «{fact['fact']}»: «{got}», ожидалось «{case['expect']}»"
     raise EngineError(f"случай «{case.get('name')}»: неизвестный вид {kind}")
 
 
-REFUSALS = ("assemble_unapproved", "second_run_locked", "above_rights", "no_snapshot")
+REFUSALS = ("assemble_unapproved", "second_run_locked", "above_rights", "no_snapshot",
+            "writer_without_brief", "paid_without_budget", "factcheck_with_context")
 
 
 def refuse_case(instance, case: dict) -> tuple[bool, str]:
@@ -132,7 +153,7 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
     import tempfile
     from ..core import actions as actions_mod
     from ..core import locks, rights
-    from ..core.errors import GateRefused, LockBusy, RightsRefused, SnapshotMissing
+    from ..core.errors import BudgetRefused, GateRefused, LockBusy, RightsRefused, SnapshotMissing
     from ..core.instance import Instance
     action = case.get("action")
     if action not in REFUSALS:
@@ -141,6 +162,9 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
         shutil.copy(instance.profile_path, Path(tmp) / "profile.yaml")
         box = Instance(Path(tmp) / "profile.yaml", today=instance.today)
         expected, run = {
+            "writer_without_brief": (GateRefused, lambda: _writer_without_brief(box)),
+            "paid_without_budget": (BudgetRefused, lambda: _paid_without_budget(box)),
+            "factcheck_with_context": (EngineError, lambda: _factcheck_with_context(box)),
             "assemble_unapproved": (GateRefused, lambda: _assemble_unapproved(box)),
             "second_run_locked": (LockBusy, lambda: _second_run(box, locks)),
             "above_rights": (RightsRefused, lambda: rights.require(box, case.get("area", "publish"),
@@ -154,6 +178,30 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
         except EngineError as exc:
             return False, f"отказ другого вида: {type(exc).__name__}: {exc}"
         return False, "отказа нет — действие прошло бы"
+
+
+def _writer_without_brief(box):
+    """Т28.1: задание писателю без утверждённого брифа — отказ до чтения темы."""
+    from .write import make_tasks
+    make_tasks(box, "KA-WRITE")
+
+
+def _paid_without_budget(box):
+    """Т17.2: платный вызов без «да» человека — отказ, ноль вызовов (вызова в песочнице нет вовсе)."""
+    from ..core import budget
+    calls = []
+    budget.paid_call(box, "KA-PAID", "известный ответ", 1.0, lambda: calls.append(1), confirm=None,
+                     unattended=False, what="платный вызов без «да»", source="известный ответ")
+    if calls:
+        raise AssertionError("платный вызов ушёл без «да»")
+
+
+def _factcheck_with_context(box):
+    """Т29.1: задание вычитки с путём к контексту автора не пишется."""
+    from .review import factcheck_task
+    folder = box.brief_dir("KA-FACT")
+    (folder / "article.md").write_text("# Статья\n\nСм. brief.yaml и task_write.md.\n", encoding="utf-8")
+    factcheck_task(box, "KA-FACT")
 
 
 def _assemble_unapproved(box):

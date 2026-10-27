@@ -150,6 +150,9 @@ def status(instance, *, transport=None, all_days: bool = False) -> dict:
                 y = f"{OFF} — {exc}"
         lines.append(f"{row['id']} {url}: день {age} от выкладки {row['day']}; заявки: {sent}; Google: {g}; "
                      f"Яндекс: {y}")
+        # для совета по темпу (Т32.1): доля новых адресов в индексе к 7-му дню
+        publications.log(instance, "index_status", id=row["id"], url=row["url"], age=age,
+                         google_in=g.startswith("в индексе"), yandex_in=y.startswith("в поиске"))
         if age >= max(days) and (g.startswith("нет") or y.startswith("нет")):
             notes.append(f"{row['id']} {slug_of(url)}: не в индексе к {age}-му дню — разобрать")
     return {"lines": lines, "notes": notes}

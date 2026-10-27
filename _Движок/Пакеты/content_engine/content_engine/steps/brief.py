@@ -65,7 +65,7 @@ def _month_load(instance) -> Counter:
     """Сколько утверждённых брифов у каждого автора в текущем месяце."""
     month = instance.today.isoformat()[:7]
     counts = Counter()
-    base = instance.root / "data" / "briefs"
+    base = instance.topics_root()
     for mark in base.glob(f"*/{approval.APPROVAL}"):
         record = json.loads(mark.read_text(encoding="utf-8"))
         if not str(record.get("at", "")).startswith(month):
@@ -129,6 +129,9 @@ def make_task(instance, tid: str) -> dict:
     authors, author_notes = author_candidates(instance, topic.get("direction", ""))
     links = link_candidates(instance, topic, queries)
     g = instance.p["gate_article"]
+    from ..core.bets import NO_BET, bet_missing
+    if bet_missing(topic):
+        author_notes.append(NO_BET.replace("<id>", tid))
     context = {"id": tid, "date": instance.today.isoformat(), "queries": queries, "authors": authors,
                "author_notes": author_notes, "links": links}
     (instance.brief_dir(tid) / CONTEXT).write_text(json.dumps(context, ensure_ascii=False, indent=1),
@@ -219,16 +222,17 @@ def check(instance, tid: str) -> dict:
     t = p["thresholds"]["title_overlap"]
     path = instance.file("demand_map")
     if path.is_file():
+        from ..core.foreign import foreign_hits
+        pages = store.read_json(path, "demand_map")["records"]
         heads = [(h, norm.key(h)) for h in [b["title"], b["h1"], *h2]]
-        for page in store.read_json(path, "demand_map")["records"]:
-            for target in page["target_keys"]:
-                tk = norm.key(target)
-                if len(tk) < 2:
-                    continue
-                hit = next((h for h, hk in heads if title_similarity(tk, hk) >= t), None)
-                if hit:
-                    errors.append(f"заголовок «{hit}» таргетирует ключ «{target}» страницы {page['url']}")
-                    break
+        phrases = [(h, norm.key(h)) for h in [b["h1"], *h2, *h3]]
+        taken, mentioned = foreign_hits(pages, heads, phrases, set(), norm, t, b["slug"])
+        seen = set()
+        for h in taken:
+            if h.page["id"] not in seen:
+                seen.add(h.page["id"])
+                errors.append(f"заголовок «{h.phrase}» таргетирует ключ «{h.target}» страницы {h.page['url']}")
+        _add_heading_links(instance, tid, [h for h in mentioned if h.page["id"] not in seen], warnings)
     else:
         warnings.append("карты спроса нет — чужие целевые ключи не проверены (`map build`)")
     for head in (b["title"], b["h1"]):
@@ -282,6 +286,30 @@ def check(instance, tid: str) -> dict:
     elif cta.startswith("#") or cta in h2 + h3:
         errors.append("cta_place — заголовок: призыв к действию ставится обычным блоком")
     return {"errors": errors, "warnings": warnings}
+
+
+def _add_heading_links(instance, tid: str, hits, warnings: list[str]):
+    """Н2: страницы, чей целевой ключ задевает подзаголовок брифа, — в кандидаты перелинковки «по подзаголовку».
+
+    Гейт статьи потом потребует ссылку на них (`foreign_mentions`) — значит, она должна быть среди кандидатов. Это
+    побочная запись проверки брифа (и `prepare approve`, который её вызывает) в `brief_context.json`."""
+    if not hits:
+        return
+    path = instance.brief_dir(tid) / CONTEXT
+    context = _context(instance, tid)
+    links = context.setdefault("links", [])
+    known = {c["url"] for c in links}
+    added = 0
+    for h in hits:
+        warnings.append(f"нужна ссылка на {h.page['url']} — подзаголовок «{h.phrase}» задевает её ключ «{h.target}»")
+        if h.page["url"] not in known:
+            known.add(h.page["url"])
+            links.append({"url": h.page["url"], "slug": h.page["id"], "title": h.page.get("title", ""), "weight": 0,
+                          "kind": "по подзаголовку", "matched": 0})
+            added += 1
+    if added:
+        path.write_text(json.dumps(context, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+        warnings.append(f"кандидатов перелинковки «по подзаголовку» добавлено {added} → {CONTEXT}")
 
 
 def _context(instance, tid: str) -> dict:

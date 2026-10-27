@@ -68,7 +68,7 @@ def _link_alive(url: str, timeout: int) -> tuple[bool, str]:
 
 def check_article(instance, path: Path, *, schema_path: Path | None = None, offline: bool = False,
                   link_checker=_link_alive, schema_data: dict | None = None, html_path: Path | None = None,
-                  brief: dict | None = None) -> dict:
+                  brief: dict | None = None, topic_id: str | None = None, direction: str | None = None) -> dict:
     p, g = instance.p, instance.p["gate_article"]
     norm = instance.norm
     text = Path(path).read_text(encoding="utf-8")
@@ -147,27 +147,14 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
     if data_path.is_file():
         from ..core import store
         pages = store.read_json(data_path, "demand_map")["records"]
+        from ..core.foreign import foreign_hits
         heads = [title] + h1 + h2
         head_keys = [(h, norm.key(h)) for h in heads]
         links = {norm_url(u) for u in _links(body)}
         sentences = [(s, norm.key(s)) for s in re.split(r"(?<=[.!?])\s+", body)]
-        taken, mentioned = [], []
-        for page in pages:
-            if page["id"] == slug or not page["target_keys"]:
-                continue
-            linked = any(page["url"] in link or slug_of(link) == page["id"] for link in links)
-            for target in page["target_keys"]:
-                tk = norm.key(target)
-                if len(tk) < 2:
-                    continue
-                # заголовок «таргетирует» чужой ключ, когда почти совпадает с ним в обе стороны: короткий общий ключ
-                # внутри длинного подзаголовка о другом предмете — не захват
-                hit = next((h for h, hk in head_keys if title_similarity(tk, hk) >= t), None)
-                if hit:
-                    taken.append(f"заголовок «{hit}» таргетирует «{target}» страницы {page['url']}")
-                elif len(tk) >= 3 and not linked and any(
-                        sk and tk.similarity(sk) == 1.0 and len(sk) <= 3 * len(tk) for _, sk in sentences):
-                    mentioned.append(f"«{target}» упомянут без ссылки на {page['url']}")
+        hits_taken, hits_mentioned = foreign_hits(pages, head_keys, sentences, links, norm, t, slug)
+        taken = [f"заголовок «{h.phrase}» таргетирует «{h.target}» страницы {h.page['url']}" for h in hits_taken]
+        mentioned = [f"«{h.target}» упомянут без ссылки на {h.page['url']}" for h in hits_mentioned]
         add("foreign_keys", not taken, "; ".join(taken[:5]) or "чужие целевые ключи заголовками не взяты")
         add("foreign_mentions", not mentioned, "; ".join(mentioned[:5]) or "чужие ключи упомянуты со ссылкой")
     else:
@@ -241,6 +228,12 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
             problems += schema_mod.problems(nodes, schema_slug=schema_slug, title=title, h1s=h1, slug=slug,
                                             faq_text=faq_text)
         add("schema", not problems, "; ".join(problems) or f"разметка ({kind}) совпадает с текстом")
+    if "rhythm" in g["levels"]:                 # часть 2 (профиль версии 3): текст, вычитка, ниша, картинки
+        import hashlib
+        from . import text_checks
+        text_checks.run(instance, add, results, body=body, sections=sections, faq=faq, brief=brief,
+                        topic_id=topic_id, direction=direction, links=_links(body),
+                        article_sha=hashlib.sha256(Path(path).read_bytes()).hexdigest())
     reasons = [r for r in results if r["level"] == "block" and not r["ok"]]
     notes = [r for r in results if r["level"] == "warn" and not r["ok"]]
     return {"file": str(path), "verdict": DRAFT if reasons else PASS_, "reasons": reasons, "notes": notes,
@@ -310,8 +303,13 @@ def check_topic(instance, tid: str, *, offline: bool = False, link_checker=_link
     data = schema_mod.build(text, brief, instance.p, instance.today.isoformat())
     (folder / "schema.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8",
                                         newline="\n")
+    try:
+        from .queue import _find, load
+        direction = _find(load(instance), tid).get("direction")
+    except Exception:                                   # тема не из очереди — объём не меряется
+        direction = None
     report = check_article(instance, article, schema_data=data, brief=brief, offline=offline,
-                           link_checker=link_checker)
+                           link_checker=link_checker, topic_id=tid, direction=direction)
     report.update(id=tid, date=instance.today.isoformat(),
                   article_sha256=hashlib.sha256(article.read_bytes()).hexdigest())
     (folder / "gate_article.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8",

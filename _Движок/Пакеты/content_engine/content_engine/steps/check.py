@@ -49,7 +49,12 @@ def run_check(instance) -> list[dict]:
             items.append(_item(f"секрет {source}", RED, f"переменной {env} нет", "добавить её в файл секретов"))
 
     def keysso():
-        left = instance.serp().remaining()
+        serp = instance.serp()
+        left = serp.remaining()
+        if left >= 10 ** 9:                      # ответил запасной источник: суточной квоты нет, предел — деньги
+            return _item("Keys.so", YELLOW, f"Keys.so не ответил — выдача из запасного источника "
+                         f"({getattr(serp, 'last_source', '') or 'yandex_search'}), платно через бюджет-гейт",
+                         "проверить ключ и подписку Keys.so")
         reserve = p["budget"]["reserve"]
         light = GREEN if left > reserve else YELLOW
         return _item("Keys.so", light, f"остаток суточной квоты {left} (резерв {reserve})",
@@ -146,7 +151,98 @@ def wave2_items(instance) -> list[dict]:
     items.append(_item("роли моделей", GREEN, ", ".join(f"{r}: {p['models'][r]['primary']} / "
                                                         f"{p['models'][r]['fallback']}" for r in ROLES)))
     items.append(_ignored(instance))
+    items.append(_stale_packages(instance))
+    items.append(_growth(instance))
+    items += part2_items(instance)
     return items
+
+
+def part2_items(instance) -> list[dict]:
+    """Пункты части 2 (Т33): роли текста и вычитки, вторая модель на вычитке, судья, картинки, бюджет, спрос, папка
+    выпущенных статей."""
+    p = instance.p
+    items = []
+    fc = p["models"]["fact_checker"]["primary"]
+    critic = p["models"]["critic"]["primary"]
+    writer = p["models"]["writer"]["primary"]
+    if p["facts"]["mode"] == "human":
+        items.append(_item("вычитка фактов", GREEN, "вычитывает человек (facts.mode: human)"))
+    elif fc == writer:
+        items.append(_item("вычитка фактов", YELLOW, f"вычитка той же моделью, что автор ({fc})",
+                           "models.fact_checker — вторая модель (codex-latest) или facts.mode: human"))
+    else:
+        items.append(_item("вычитка фактов", GREEN, f"вычитка — {fc}, автор — {writer}, критик — {critic}"))
+    emb = p["judge"]["embeddings"]
+    items.append(_item("судья", GREEN, f"пятёрка разделов: {'эмбеддинги API' if emb['kind'] == 'api' else 'лексическая'}"
+                                       f", роль judge — {p['models']['judge']['primary']}"))
+    im = p["images"]
+    paid = [k for k, v in im["providers"].items() if v.startswith("module:")]
+    limits = p["budget"]["run_limit_rub"], p["budget"]["month_limit_rub"]
+    light = GREEN if not paid or limits[0] > 0 else YELLOW
+    items.append(_item("картинки", light, "провайдеры: " + ", ".join(f"{k} — {v}" for k, v in im["providers"].items())
+                       + f"; загрузка: {im['upload']} (images.allow {im['allow']})"
+                       + (f"; платные вызовы запрещены профилем (потолки {limits[0]}/{limits[1]} ₽)"
+                          if paid and limits[0] <= 0 else ""),
+                       "budget.run_limit_rub и month_limit_rub — потолки на картинки" if light != GREEN else ""))
+    src = p["sources"]
+    demand = [n for n in ("client_questions", "suggest") if src[n]["enabled"]]
+    demand += ["wordstat (" + "→".join(src["wordstat"]["order"]) + ")"] if src["wordstat"]["order"] else []
+    items.append(_item("спрос части 2", GREEN if demand else OFF, ", ".join(demand) or "вопросы клиентов, Wordstat и "
+                       "подсказки не подключены", "" if demand else "sources.client_questions, wordstat, suggest"))
+    items.append(_item("источники выдачи", GREEN, " → ".join(src["serp_order"])))
+    if p["paths"]["published_dir"]:
+        base = p["paths"]["published_dir"].replace("\\", "/").split("{")[0].rstrip("/")
+        there = (instance.root / base).is_dir()
+        items.append(_item("папка выпущенных статей", GREEN if there else RED,
+                           f"{instance.root / base} — " + ("есть" if there else "нет") +
+                           f"; передача — paths.allow {p['paths']['allow']}"))
+    else:
+        items.append(_item("папка выпущенных статей", OFF, "статью в корпус проекта кладёт человек",
+                           "paths.published_dir и paths.allow: write по разрешению"))
+    return items
+
+
+def _growth(instance):
+    """Т26: связь с реестром гипотез; `require_bet: true` без неё — запас останется нулём."""
+    from pathlib import Path
+    g = instance.p["sources"]["growth"]
+    if g["kind"] == "none":
+        if instance.p["queue"]["require_bet"]:
+            return _item("ставки из гипотез", YELLOW, "sources.growth выключен, а queue.require_bet: true — темы без "
+                         "ставки «спорно», запас очереди останется нулём", "sources.growth или require_bet: false")
+        return _item("ставки из гипотез", OFF, "источник гипотез не подключён — ставка вручную `queue bet`",
+                     "sources.growth.kind: file (карточки) или markdown (хранилище Движка роста)")
+    folder = Path(g["path"])
+    folder = folder if folder.is_absolute() else instance.root / folder
+    if not folder.is_dir():
+        return _item("ставки из гипотез", RED, f"папки {folder} нет", "sources.growth.path")
+    found = sorted(folder.glob("*.yaml" if g["kind"] == "file" else "Гипотезы.md"))
+    return _item("ставки из гипотез", GREEN if found else YELLOW,
+                 f"{g['kind']}: {folder} — " + (f"карточек {len(found)}" if g["kind"] == "file" else
+                                                ("лист гипотез есть" if found else "листа гипотез нет")))
+
+
+def _stale_packages(instance):
+    """Н3: пакет готов больше суток, а «доехало» не проверено — день выкладки запишется днём проверки."""
+    import json
+    from datetime import date
+    from ..core import publications
+    stale = []
+    root = instance.topics_root()
+    for manifest in sorted(root.glob("*/package/manifest.json")) if root.is_dir() else []:
+        try:
+            m = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        tid = manifest.parent.parent.name
+        built = str(m.get("built") or "")
+        if m.get("ready") and built and (instance.today - date.fromisoformat(built)).days >= 1 \
+                and publications.published(instance, tid=tid) is None:
+            stale.append(f"{tid} (собран {built})")
+    if not stale:
+        return _item("пакеты без «доехало»", GREEN, "готовых пакетов старше суток без проверки нет")
+    return _item("пакеты без «доехало»", YELLOW, "готовы, но не проверены: " + ", ".join(stale),
+                 "после вставки — `publish verify` в тот же день или `--inserted-on ГГГГ-ММ-ДД --who <имя>`")
 
 
 def _publisher(instance):

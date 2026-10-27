@@ -42,10 +42,10 @@ def digest(path: Path) -> str:
 
 
 def test_template_is_version_2_without_required_bet():
-    data = yaml.safe_load(profile_mod.template_text())
+    data = yaml.safe_load(profile_mod.template_text(2))
     assert data["schema_version"] == 2
     assert data["queue"]["require_bet"] is False
-    profile_mod.validate(data)
+    profile_mod.validate(data, 2)
 
 
 def test_v1_profile_refused_by_any_command_with_migrate_hint(tmp_path, capsys):
@@ -74,9 +74,10 @@ def test_migrate_apply_keeps_calibration_and_comments(tmp_path, capsys):
     assert main(["profile", "migrate", "--profile", str(path), "--apply"]) == 0
     out = capsys.readouterr().out
     assert re.search(r"записано строк \d+ — прочитано \d+", out)
-    assert main(["profile", "check", "--profile", str(path)]) == 0
+    assert "повторите `profile migrate`" in out             # перевод — на одну версию за запуск (Т15.3)
     text = path.read_text(encoding="utf-8")
     new = yaml.safe_load(text)
+    profile_mod.validate(new, 2)
     assert new["schema_version"] == 2
     assert new["thresholds"]["body_warn"] == 30 and new["queue"]["require_bet"] is True
     assert len(re.findall(r"^budget:", text, re.M)) == 1
@@ -97,13 +98,17 @@ def test_migrate_keeps_crlf(tmp_path):
     migrate.apply(path, migrate.plan(path))
     raw = path.read_bytes()
     assert raw.count(b"\r\n") == raw.count(b"\n")
+    migrate.apply(path, migrate.plan(path))                  # 2 → 3
+    raw = path.read_bytes()
+    assert raw.count(b"\r\n") == raw.count(b"\n")
     profile_mod.load(path)
 
 
 def test_migrate_twice_refused(tmp_path):
     path = calibrated_v1(tmp_path)
     migrate.apply(path, migrate.plan(path))
-    with pytest.raises(ProfileError, match="уже версии 2"):
+    migrate.apply(path, migrate.plan(path))
+    with pytest.raises(ProfileError, match="уже версии 3"):
         migrate.plan(path)
 
 

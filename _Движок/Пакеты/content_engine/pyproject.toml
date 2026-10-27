@@ -6,13 +6,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "content_engine"
-version = "1.2.1"
-description = "Контент-машина: анти-дубли до модели, очередь тем, гейты; разбор топа, бриф, сборка, публикация, «доехало», индексация"
+version = "1.3.0"
+description = "Контент-машина: анти-дубли до модели, очередь тем, гейты; разбор топа, бриф, сборка, публикация, «доехало», индексация; ставка из гипотезы, судья, текст и вычитка, картинки, спрос"
 requires-python = ">=3.12"
 dependencies = ["pyyaml", "requests", "snowballstemmer", "google-auth"]
 
 [project.optional-dependencies]
 browser = ["playwright"]          # проверка вёрстки (Т22.4); без неё пункт «не подключено»
+images = ["pillow"]               # сжатие картинок (Т30.2); без него замечание «не сжато»
 
 [project.scripts]
 content-engine = "content_engine.cli:main"

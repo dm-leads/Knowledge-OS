@@ -124,6 +124,7 @@ def _record(instance, tid: str, *, apply: bool = False) -> dict:
     new += added
     lines.append(text)
     lines.append(_records_db(instance, tid, url, apply))
+    lines.append(_transfer(instance, tid, url, apply))
     added, text = _journal(instance, tid, url, day)
     new += added
     lines.append(text)
@@ -159,12 +160,37 @@ def _records_db(instance, tid: str, url: str, apply: bool) -> str:
     return "база проекта: " + "; ".join(out)
 
 
+def _transfer(instance, tid: str, url: str, apply: bool) -> str:
+    """Н1: текст и разметка — в папку выпущенной статьи проекта (ступень `paths.allow`, план без `--apply`)."""
+    from ..core import transfer
+    p = instance.p["paths"]
+    if p["transfer"] == "builtin" and not p["published_dir"]:
+        return "папка проекта: не подключено (paths.published_dir пуст) — статью в корпус проекта кладёт человек"
+    try:
+        adapter = transfer.load(instance)
+        if adapter.exists(tid, url):
+            return "папка проекта: статья уже лежит там с теми же файлами"
+        planned = adapter.plan(tid, url)
+    except GateRefused as exc:
+        return f"папка проекта: ✗ {exc}"
+    allowed, refused = rights.split(instance, planned)
+    out = [f"не в плане — {r}" for r in refused]
+    if apply and refused and not allowed:
+        out.append("ОТКАЗ: передача с --apply не выполнена — нет права")
+    if apply and allowed:
+        result = actions_mod.run(instance, tid, allowed, apply=True, echo=lambda s: out.append(s.strip()))
+        out.append(f"передача: {result.line()}; откат — `publish rollback {tid} --apply`")
+    else:
+        actions_mod.run(instance, tid, allowed, apply=False, echo=lambda s: out.append(s.strip()))
+    return "папка проекта: " + "; ".join(out)
+
+
 def run_records(instance, tid: str, *, apply: bool = False) -> int:
     out = record(instance, tid, apply=apply)
     print(f"Записи дня выкладки {tid} ({out['day']}, {out['url']}): новых {out['new']}")
     for line in out["lines"]:
         print(f"  {line}")
-    return 0
+    return 1 if apply and any("ОТКАЗ:" in line for line in out["lines"]) else 0
 
 
 def release_pages(instance, known: set[str]) -> list[dict]:

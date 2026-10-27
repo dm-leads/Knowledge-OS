@@ -19,6 +19,37 @@ BLOCK = {"p", "div", "section", "article", "main", "li", "ul", "ol", "table", "t
          "h5", "h6", "br", "blockquote", "figure", "figcaption", "dd", "dt", "pre", "header", "footer"}
 
 
+COMMENT = re.compile(r"<!--.*?-->", re.S)
+RAW = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.S | re.I)
+
+
+def strip_comments(html: str) -> tuple[str, list[str]]:
+    """Публикуемый HTML без комментариев (Н5): `<!-- … -->` вне `<script>` и `<style>`, условные IE — тоже.
+
+    Возвращает очищенный текст и снятые комментарии (их текст — пояснения сборки для агентов и человека)."""
+    out, removed, pos = [], [], 0
+    for raw in RAW.finditer(html):
+        out.append(_strip(html[pos:raw.start()], removed))
+        out.append(raw.group(0))
+        pos = raw.end()
+    out.append(_strip(html[pos:], removed))
+    return "".join(out), removed
+
+
+def _strip(part: str, removed: list[str]) -> str:
+    def cut(m):
+        text = m.group(0)[4:-3].strip()
+        if text:
+            removed.append(text)
+        return ""
+    return COMMENT.sub(cut, part)
+
+
+def comments_left(html: str) -> int:
+    """Сколько комментариев осталось вне `<script>` и `<style>`."""
+    return len(COMMENT.findall(RAW.sub("", html)))
+
+
 class Node:
     __slots__ = ("tag", "attrs", "children", "parent")
 

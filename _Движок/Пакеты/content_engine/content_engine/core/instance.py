@@ -18,6 +18,7 @@ FILES = {
     "whitelist": "data/whitelist.json", "frozen": "data/frozen.json", "page_money": "data/page_money.csv",
     "known_answers": "known_answers.yaml",
     "publications": "data/publications.jsonl", "spend": "data/spend.jsonl", "bets": "data/bets.json",
+    "judgements": "data/judgements.jsonl", "facts": "data/facts.jsonl",
 }
 
 
@@ -39,13 +40,18 @@ class Instance:
         """Время действия: день — день инстанса (в тестах задан), время суток — текущее."""
         return self._now or datetime.combine(self.today, datetime.now().time()).replace(microsecond=0)
 
-    def brief_dir(self, tid: str) -> Path:
-        """Рабочая папка темы: задания агенту, бриф, разбор топа, статья, пакет (Т18–Т21)."""
+    def brief_dir(self, tid: str, *, create: bool = True) -> Path:
+        """Рабочая папка темы по `paths.topic_dir` (Н1): задания агенту, бриф, разбор топа, статья, пакет (Т18–Т21)."""
         if not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
             raise EngineError(f"id темы «{tid}»: латиница, цифры, «-» и «_»")
-        path = self.root / "data" / "briefs" / tid
-        path.mkdir(parents=True, exist_ok=True)
+        path = self.root / self.profile["paths"]["topic_dir"].replace("{id}", tid)
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def topics_root(self) -> Path:
+        """Папка, в которой лежат папки тем (`topic_dir` без последнего «{id}»)."""
+        return self.root / self.profile["paths"]["topic_dir"].rstrip("/").rsplit("{id}", 1)[0]
 
     @property
     def p(self) -> dict:
@@ -72,11 +78,25 @@ class Instance:
         return self._index
 
     def serp(self):
-        """Источник выдачи из профиля; в тестах — подменённый."""
+        """Источник выдачи по `sources.serp_order` (Н6): следующий — при отказе предыдущего; в тестах — подменённый."""
         if self._serp is None:
             keysso = self.profile["sources"]["keysso"]
-            if not keysso["enabled"]:
-                raise EngineError("источник выдачи не подключён: sources.keysso.enabled = false")
-            from ..adapters.keysso import KeyssoSerp
-            self._serp = KeyssoSerp(secret(self.profile, keysso["key_env"]), transport=self.transport)
+            order = self.profile["sources"]["serp_order"]
+            factories = []
+            for name in order:
+                if name == "keysso" and keysso["enabled"]:
+                    from ..adapters.keysso import KeyssoSerp
+                    factories.append(("keysso", lambda: KeyssoSerp(secret(self.profile, keysso["key_env"]),
+                                                                   transport=self.transport)))
+                elif name == "yandex_search":
+                    from ..adapters.yandex_search import YandexSearchSerp
+                    factories.append(("yandex_search", lambda: YandexSearchSerp(self)))
+            if not factories:
+                raise EngineError("источник выдачи не подключён: sources.keysso.enabled = false и в "
+                                  "sources.serp_order нет yandex_search")
+            if len(factories) == 1:
+                self._serp = factories[0][1]()
+            else:
+                from ..adapters.yandex_search import FallbackSerp
+                self._serp = FallbackSerp(factories)
         return self._serp

@@ -13,7 +13,7 @@ import sys
 from .core.errors import BudgetRefused, EngineError, GateRefused, WriteUnconfirmed
 
 STEPS = ("check", "profile_cmd", "demand", "cluster", "demand_map", "reservations", "gate_topic", "queue",
-         "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing")
+         "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing", "judge", "write", "review", "images", "onboard")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +59,9 @@ def open_instance(args, **kwargs):
     from .core.instance import Instance
     from .steps.reservations import expire
     instance = Instance(args.profile, **kwargs)
+    # платный запасной источник выдачи (Н6) берёт «да» человека из флагов команды
+    instance.confirm_spend = getattr(args, "confirm_spend", None)
+    instance.unattended = getattr(args, "unattended", False)
     released = expire(instance)
     if released:
         print(f"брони истекли и освобождены: {released}")
