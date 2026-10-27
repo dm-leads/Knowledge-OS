@@ -28,7 +28,7 @@ from ..core.number import NO_DATA
 TYPES = ("number", "norm", "law", "product")
 RESULTS = ("confirmed", "blocker", "clarify", "unverified")
 FORBIDDEN = ("brief.yaml", "task_write", "task_plan", "task_critique", "critique.md", "brief_context", "judge.json",
-             "approval.json")
+             "approval.json", "transcript", "переписка с автором")   # переписка автора с агентом — тоже контекст
 CLAIMS_SCHEMA = """# claims.jsonl — одна строка JSON на утверждение
 {"n": 1, "claim": "<утверждение из текста дословно>", "type": "number | norm | law | product",
  "source": "<адрес или документ первоисточника; нет — пусто>", "result": "confirmed | blocker | clarify | unverified",

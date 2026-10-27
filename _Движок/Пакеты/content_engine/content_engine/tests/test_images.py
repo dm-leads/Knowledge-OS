@@ -145,6 +145,9 @@ def test_paid_provider_needs_yes_and_failure_is_stub(inst, project):  # noqa: F8
     assert any(i["status"].startswith("отказ") for i in plan) and any(i["status"] == "готово" for i in plan)
     rub = [r for r in spend.rows(instance) if r["kind"] == "rub"]
     assert rub and rub[0]["value"] == 4.0 and rub[0]["status"] == "оценка"
+    from content_engine.steps import assemble
+    package, _ = assemble.build(Instance(project, today=TODAY), TID)   # кадр не вернулся — сборка не падает
+    assert package.manifest["ready"]
 
 
 def test_usd_price_needs_rate(project):

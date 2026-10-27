@@ -86,6 +86,9 @@ def test_bet_from_card_written_to_queue_without_breaking_old_fields(inst, projec
     assert isinstance(bet["expectation"], str) and bet["expectation"].startswith("около 20 заявок")
     assert bet["hypothesis_id"] == "H-13" and bet["unit"] == "direction" and bet["planned_count"] == 5
     assert bet["fail_threshold"] and bet["expectation_numbers"][0]["status"] == "оценка"
+    src = growth.FileGrowth(instance.root / "data" / "growth", TODAY)
+    src.bet("H-13")
+    assert src.writes == 0 and src.reads == 1                 # карточка только читается
 
 
 def test_card_rules(inst, project, tmp_path):  # noqa: F811

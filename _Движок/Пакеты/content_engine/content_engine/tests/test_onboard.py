@@ -36,6 +36,7 @@ def test_onboard_asks_two_decisions_and_writes_only_with_answers(project, capsys
     out = capsys.readouterr().out
     assert "Режим вычитки" in out and "Ритм выпуска" in out
     assert "спрос: не подключено" in out                       # Wordstat нет — не «годна»
+    assert "светофор:" in out and "очередь:" in out
     assert hashlib.sha256(project.read_bytes()).hexdigest() == before
     assert main(["onboard", "--answer", "vychitka=human", "--answer", "rhythm=0,43", "--profile", str(project)]) == 0
     data = yaml.safe_load(project.read_text(encoding="utf-8"))
@@ -47,3 +48,4 @@ def test_niche_numbers_carry_status(project):
     rows = onboard.niche_fitness(Instance(project, today=TODAY))
     assert {r["what"] for r in rows} == {"спрос", "кто в топе", "цена заявки", "регион"}
     assert all(r["status"] in ("факт", "оценка", "proxy", "нет данных") for r in rows)
+    assert all(str(r["why"]).strip() for r in rows)           # у каждого числа — источник или причина

@@ -111,7 +111,7 @@ def test_factcheck_task_has_no_author_context(inst):  # noqa: F811
     path = review.factcheck_task(inst, TID)
     text = path.read_text(encoding="utf-8")
     assert path.parent == inst.root / "data" / "factcheck" / TID
-    for word in ("brief.yaml", "task_write", "brief_context", str(inst.brief_dir(TID))):
+    for word in ("brief.yaml", "task_write", "brief_context", "transcript", str(inst.brief_dir(TID))):
         assert word not in text
     assert "Озимый чеснок сажают осенью" in text and "Роль: fact_checker" in text and "codex" in text.lower()
     (inst.brief_dir(TID) / "article.md").write_text(CLEAN + "\nСм. brief.yaml\n", encoding="utf-8")
