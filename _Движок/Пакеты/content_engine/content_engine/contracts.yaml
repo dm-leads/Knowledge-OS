@@ -705,8 +705,8 @@ operations:
     write: {right: [records.allow = write, paths.allow = write], apply: true, snapshot: строка базы и папка до записи, rollback: publish rollback <id>}
     human: ""
     repeatable: true
-    proof: [test_all_records_after_verify, test_transfer_needs_right_and_apply_then_corpus_sees_article, test_inserted_on_is_publication_day_with_source]
-    exit_codes: {"0": доехало и записи сделаны, "1": не доехало — причины по пунктам или отказ права с --apply, "3": ошибка входа или запись не подтверждена}
+    proof: [test_all_records_after_verify, test_transfer_needs_right_and_apply_then_corpus_sees_article, test_inserted_on_is_publication_day_with_source, test_never_answers_is_unverified_not_failed, test_timeout_then_answer_arrives]
+    exit_codes: {"0": доехало и записи сделаны, "1": не доехало — причины по пунктам или отказ права с --apply, "3": "не проверено (сеть не ответила после повторов — день выкладки не записан, повторить позже), ошибка входа или запись не подтверждена"}
     note: в тот же день после вставки; позже — --inserted-on вместе с --who
     next: [index submit]
   publish record:
