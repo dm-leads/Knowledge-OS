@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..core import actions as actions_mod
 from ..core import approval, locks, publications, rights, snapshots
-from ..core.errors import EngineError, GateRefused, RightsRefused
+from ..core.errors import EngineError, GateRefused, RightsRefused, SnapshotMissing
 
 
 def package_of(instance, tid: str, *, ready: bool = False):
@@ -33,18 +33,34 @@ def package_of(instance, tid: str, *, ready: bool = False):
 
 
 def rollback(instance, tid: str | None, run_id: str | None, apply: bool, transport=None) -> int:
+    """Откат по виду снимка (З36): передача статьи и загрузка картинок — своими восстановителями, и в ручном режиме;
+    публикатору — только его снимки; страницу, вставленную человеком, снимает человек по `rollback.md`."""
+    from ..core import restore
     from ..publishers.base import load_publisher
     publisher = load_publisher(instance, transport)
-    if publisher is None:
-        manual = instance.brief_dir(tid) / "package" / "rollback.md" if tid else None
+    manual = instance.brief_dir(tid, create=False) / "package" / "rollback.md" if tid else None
+    try:
+        snaps = snapshots.load(instance, tid=None if run_id else tid, run_id=run_id)
+    except SnapshotMissing:
+        if publisher is not None:
+            raise
+        snaps = []
+    own, rest = restore.split(snaps)
+    steps = restore.actions(instance, own)
+    by_hand = []
+    if rest and publisher is not None:
+        steps += publisher.restore(rest)
+    elif rest:
+        by_hand = [f"откатить вручную: {s['action']} → {s['target']}" for s in rest]
+    if publisher is None and not steps:
+        for line in by_hand:
+            print(f"  {line}")
         if manual and manual.is_file():
             print("Ручной режим: страницу снимает человек по инструкции пакета\n")
             print(manual.read_text(encoding="utf-8"))
             return 0
         raise EngineError("ручной режим без публикатора: откат — инструкция пакета `rollback.md` "
                           "(сначала `publish prepare <id>`)")
-    snaps = snapshots.load(instance, tid=None if run_id else tid, run_id=run_id)
-    steps = publisher.restore(snaps)
     allowed, refused = rights.split(instance, steps)
     for line in refused:
         print(f"  не в плане — {line}")
@@ -57,6 +73,11 @@ def rollback(instance, tid: str | None, run_id: str | None, apply: bool, transpo
     if apply:
         publications.log(instance, "rollback", id=owner, run=run_id or snaps[0]["run_id"], written=out.written,
                          confirmed=out.confirmed)
+    for line in by_hand:
+        print(f"  {line}")
+    if publisher is None and manual and manual.is_file():
+        print("\nСтраницу снимает человек по инструкции пакета:\n")
+        print(manual.read_text(encoding="utf-8"))
     return 0
 
 
@@ -118,9 +139,15 @@ def prepare_manual(instance, tid: str) -> dict:
     lines += ["", "## Картинки"]
     lines += [f"- {img.get('url') or img.get('file')}: alt «{img.get('alt', '')}»" for img in images] or \
         ["- в блоках страницы (alt — в разметке блоков)"]
-    lines += ["", "## После вставки",
+    notes = m.get("notes") or []
+    if notes:
+        lines += ["", "## Пояснения сборки — в код страницы не вставлять",
+                  "Комментарии сняты из блоков (Н5: публикуемый HTML без комментариев); их текст — для справки."]
+        lines += [f"- `{n['file']}`: {n['comment']}" for n in notes[:40]]
+    lines += ["", "## После вставки — в тот же день",
               f"`content-engine publish verify {tid} --url {m['canonical']} --profile <профиль>` — «доехало» по "
-              "ответу сайта и записи дня выкладки."]
+              "ответу сайта и записи дня выкладки. День выкладки — день первого «доехало»: запустите в день вставки "
+              f"или укажите его: `--inserted-on ГГГГ-ММ-ДД --who <имя>`."]
     rollback_lines = [f"# Снять статью {tid} вручную", "",
                       f"1. Открыть страницу {m['canonical']} в редакторе сайта.",
                       "2. Снять страницу с публикации (или вернуть прежние блоки, если страница была).",
@@ -208,7 +235,10 @@ def register(sub):
     p.add_argument("id")
     p.add_argument("--url", help="адрес страницы; без него — поиск по slug в карте сайта")
     p.add_argument("--no-browser", action="store_true", help="не проверять вёрстку браузером")
-    p.add_argument("--apply", action="store_true", help="записи в базу проекта (по ступени records.allow)")
+    p.add_argument("--apply", action="store_true", help="записи в базу проекта и передача статьи в папку проекта "
+                                                         "(по ступеням records.allow и paths.allow)")
+    p.add_argument("--inserted-on", help="день вставки страницы ГГГГ-ММ-ДД, если проверка идёт позже (Н3)")
+    p.add_argument("--who", help="кто вставил страницу — со слов кого записан день вставки")
     p.set_defaults(func=run)
     p = actions.add_parser("record", help="записи дня выкладки повтором (без дублей)")
     add_profile(p)
@@ -230,6 +260,8 @@ def run(args) -> int:
         out = prepare_manual(instance, args.id)
         print(f"Пакет для вставки: {out['folder']} — блоки {', '.join(out['blocks'])}; адрес {out['url']}; "
               "инструкции: paste.md, rollback.md")
+        print(f"После вставки запустите `publish verify {args.id}` в тот же день или укажите день вставки "
+              "`--inserted-on ГГГГ-ММ-ДД --who <имя>` (Н3)")
         return 0
     if args.action == "next":
         out = next_topic(instance)
@@ -238,7 +270,10 @@ def run(args) -> int:
         return 0
     if args.action == "verify":
         from .verify import run_verify
-        return run_verify(instance, args.id, args.url, browser=not args.no_browser, apply=args.apply)
+        if bool(args.inserted_on) != bool(args.who):
+            raise EngineError("--inserted-on и --who задаются вместе: день вставки — со слов человека")
+        return run_verify(instance, args.id, args.url, browser=not args.no_browser, apply=args.apply,
+                          inserted_on=args.inserted_on, who=args.who)
     if args.action == "record":
         from .records import run_records
         return run_records(instance, args.id, apply=args.apply)

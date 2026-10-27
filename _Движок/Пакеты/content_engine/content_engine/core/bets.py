@@ -22,9 +22,21 @@ def add(instance, topic: dict, url: str, day: str) -> tuple[bool, str]:
         return False, "книга ставок: запись уже есть"
     bet = topic.get("bet") or {}
     published = date.fromisoformat(day)
+    missing = bet_missing(topic)
     records.append({"id": topic["id"], "topic": topic["topic"], "url": url, "hypothesis": bet.get("hypothesis", ""),
                     "hypothesis_id": bet.get("hypothesis_id", ""), "expectation": bet.get("expectation", ""),
                     "fail_threshold": bet.get("fail_threshold", ""), "published": day,
                     "measure": {str(w): (published + timedelta(days=w)).isoformat() for w in WINDOWS},
-                    "result": None})
-    return True, store.write_json(instance.file("bets"), "bets", records)
+                    "result": None, "bet_missing": missing,
+                    **{k: bet[k] for k in ("expectation_numbers", "unit", "planned_count") if k in bet}})
+    text = store.write_json(instance.file("bets"), "bets", records)
+    return True, text + (f"; {NO_BET}" if missing else "")
+
+
+NO_BET = "ставки нет — замер через 90 дней не с чем сравнить: `queue bet <id> --hypothesis-id …`"
+
+
+def bet_missing(topic: dict) -> bool:
+    """Н4: тема без ставки — книга ставок замерит деньги, но сравнить их будет не с чем."""
+    bet = topic.get("bet") or {}
+    return not (str(bet.get("hypothesis") or "").strip() and str(bet.get("expectation") or "").strip())

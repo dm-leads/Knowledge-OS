@@ -39,13 +39,18 @@ class Instance:
         """Время действия: день — день инстанса (в тестах задан), время суток — текущее."""
         return self._now or datetime.combine(self.today, datetime.now().time()).replace(microsecond=0)
 
-    def brief_dir(self, tid: str) -> Path:
-        """Рабочая папка темы: задания агенту, бриф, разбор топа, статья, пакет (Т18–Т21)."""
+    def brief_dir(self, tid: str, *, create: bool = True) -> Path:
+        """Рабочая папка темы по `paths.topic_dir` (Н1): задания агенту, бриф, разбор топа, статья, пакет (Т18–Т21)."""
         if not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
             raise EngineError(f"id темы «{tid}»: латиница, цифры, «-» и «_»")
-        path = self.root / "data" / "briefs" / tid
-        path.mkdir(parents=True, exist_ok=True)
+        path = self.root / self.profile["paths"]["topic_dir"].replace("{id}", tid)
+        if create:
+            path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def topics_root(self) -> Path:
+        """Папка, в которой лежат папки тем (`topic_dir` без последнего «{id}»)."""
+        return self.root / self.profile["paths"]["topic_dir"].rstrip("/").rsplit("{id}", 1)[0]
 
     @property
     def p(self) -> dict:

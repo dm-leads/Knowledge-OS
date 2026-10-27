@@ -146,7 +146,31 @@ def wave2_items(instance) -> list[dict]:
     items.append(_item("роли моделей", GREEN, ", ".join(f"{r}: {p['models'][r]['primary']} / "
                                                         f"{p['models'][r]['fallback']}" for r in ROLES)))
     items.append(_ignored(instance))
+    items.append(_stale_packages(instance))
     return items
+
+
+def _stale_packages(instance):
+    """Н3: пакет готов больше суток, а «доехало» не проверено — день выкладки запишется днём проверки."""
+    import json
+    from datetime import date
+    from ..core import publications
+    stale = []
+    root = instance.topics_root()
+    for manifest in sorted(root.glob("*/package/manifest.json")) if root.is_dir() else []:
+        try:
+            m = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        tid = manifest.parent.parent.name
+        built = str(m.get("built") or "")
+        if m.get("ready") and built and (instance.today - date.fromisoformat(built)).days >= 1 \
+                and publications.published(instance, tid=tid) is None:
+            stale.append(f"{tid} (собран {built})")
+    if not stale:
+        return _item("пакеты без «доехало»", GREEN, "готовых пакетов старше суток без проверки нет")
+    return _item("пакеты без «доехало»", YELLOW, "готовы, но не проверены: " + ", ".join(stale),
+                 "после вставки — `publish verify` в тот же день или `--inserted-on ГГГГ-ММ-ДД --who <имя>`")
 
 
 def _publisher(instance):

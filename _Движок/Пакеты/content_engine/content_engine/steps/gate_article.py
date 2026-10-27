@@ -147,27 +147,14 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
     if data_path.is_file():
         from ..core import store
         pages = store.read_json(data_path, "demand_map")["records"]
+        from ..core.foreign import foreign_hits
         heads = [title] + h1 + h2
         head_keys = [(h, norm.key(h)) for h in heads]
         links = {norm_url(u) for u in _links(body)}
         sentences = [(s, norm.key(s)) for s in re.split(r"(?<=[.!?])\s+", body)]
-        taken, mentioned = [], []
-        for page in pages:
-            if page["id"] == slug or not page["target_keys"]:
-                continue
-            linked = any(page["url"] in link or slug_of(link) == page["id"] for link in links)
-            for target in page["target_keys"]:
-                tk = norm.key(target)
-                if len(tk) < 2:
-                    continue
-                # заголовок «таргетирует» чужой ключ, когда почти совпадает с ним в обе стороны: короткий общий ключ
-                # внутри длинного подзаголовка о другом предмете — не захват
-                hit = next((h for h, hk in head_keys if title_similarity(tk, hk) >= t), None)
-                if hit:
-                    taken.append(f"заголовок «{hit}» таргетирует «{target}» страницы {page['url']}")
-                elif len(tk) >= 3 and not linked and any(
-                        sk and tk.similarity(sk) == 1.0 and len(sk) <= 3 * len(tk) for _, sk in sentences):
-                    mentioned.append(f"«{target}» упомянут без ссылки на {page['url']}")
+        hits_taken, hits_mentioned = foreign_hits(pages, head_keys, sentences, links, norm, t, slug)
+        taken = [f"заголовок «{h.phrase}» таргетирует «{h.target}» страницы {h.page['url']}" for h in hits_taken]
+        mentioned = [f"«{h.target}» упомянут без ссылки на {h.page['url']}" for h in hits_mentioned]
         add("foreign_keys", not taken, "; ".join(taken[:5]) or "чужие целевые ключи заголовками не взяты")
         add("foreign_mentions", not mentioned, "; ".join(mentioned[:5]) or "чужие ключи упомянуты со ссылкой")
     else:

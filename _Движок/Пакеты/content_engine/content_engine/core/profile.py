@@ -332,8 +332,8 @@ def _template_subs(name: str, value: str, allowed: tuple):
 
 def _semantics_v3(data: dict):
     p = data["paths"]
-    if "{id}" not in p["topic_dir"]:
-        raise ProfileError("поле «paths.topic_dir»: нужна подстановка {id} — у каждой темы своя папка")
+    if p["topic_dir"].rstrip("/").split("/")[-1] != "{id}":
+        raise ProfileError("поле «paths.topic_dir»: последняя часть пути — {id} (у каждой темы своя папка)")
     _template_subs("paths.topic_dir", p["topic_dir"], TOPIC_SUBS)
     _template_subs("paths.published_dir", p["published_dir"], PUBLISHED_SUBS)
     for name in ("topic_dir", "published_dir"):

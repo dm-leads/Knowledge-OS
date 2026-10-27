@@ -40,8 +40,8 @@ def _same_title(page: str, ref: str) -> bool:
 
 
 def reference(instance, tid: str, url: str | None) -> dict:
-    folder = instance.root / "data" / "briefs" / tid / "package"
-    if (folder / "manifest.json").is_file():
+    folder = instance.brief_dir(tid, create=False) / "package" if re.fullmatch(r"[A-Za-z0-9_-]+", tid) else None
+    if folder is not None and (folder / "manifest.json").is_file():
         from ..assemblers.base import Package
         m = Package.load(folder).manifest
         return {"kind": "манифест", "id": tid, "title": m["title"], "description": m["description"], "h1": m["h1"],
@@ -51,8 +51,8 @@ def reference(instance, tid: str, url: str | None) -> dict:
     wanted = {tid, slug_of(url)} if url else {tid}
     page = next((p for p in pages if p.slug in wanted), None)
     if page is None:
-        raise EngineError(f"эталона для «{tid}» нет: ни пакета data/briefs/{tid}/package, ни статьи корпуса "
-                          "с таким slug")
+        raise EngineError(f"эталона для «{tid}» нет: ни пакета темы ({instance.p['paths']['topic_dir']}/package), "
+                          "ни статьи корпуса с таким slug")
     return {"kind": "корпус", "id": tid, "title": page.title, "description": None, "h1": None, "slug": page.slug,
             "canonical": "", "text": page.text, "built": None}
 
@@ -145,7 +145,8 @@ def restore_day(instance, url: str) -> tuple[str | None, str]:
     return None, "не установлен"
 
 
-def verify(instance, tid: str, url: str | None, *, browser: bool = True, transport=None) -> dict:
+def verify(instance, tid: str, url: str | None, *, browser: bool = True, transport=None,
+           inserted_on: str | None = None, who: str | None = None) -> dict:
     ref = reference(instance, tid, url)
     if not url:
         if instance.p["publish"]["mode"] != "manual":
@@ -166,7 +167,7 @@ def verify(instance, tid: str, url: str | None, *, browser: bool = True, transpo
     if ref["kind"] == "корпус":
         report["notes"].append("description и H1 не сверялись: у страницы нет манифеста, эталон — запись корпуса")
     if arrived:
-        report.update(_day(instance, tid, ref, url, doc, report["notes"]))
+        report.update(_day(instance, tid, ref, url, doc, report["notes"], inserted_on, who))
         live = {"url": url, "date": instance.today.isoformat(), "status": 200, "canonical": doc.canonical,
                 "robots": doc.robots, "title": doc.title, "description": doc.description, "h1": doc.headings(1),
                 "schema": sorted({str(n.get("@type")) for n in doc.schema_nodes()}), "og_image": doc.og_image,
@@ -175,21 +176,41 @@ def verify(instance, tid: str, url: str | None, *, browser: bool = True, transpo
     return report
 
 
-def _day(instance, tid, ref, url, doc, notes) -> dict:
+def inserted_day(instance, ref: dict, inserted_on: str) -> str:
+    """Н3: день вставки со слов человека — не раньше дня сборки и не позже сегодня."""
+    from datetime import date
+    try:
+        day = date.fromisoformat(inserted_on)
+    except ValueError as exc:
+        raise EngineError(f"--inserted-on «{inserted_on}»: дата ГГГГ-ММ-ДД") from exc
+    if day > instance.today:
+        raise EngineError(f"--inserted-on {inserted_on}: позже сегодняшнего дня")
+    if ref.get("built") and day < date.fromisoformat(ref["built"]):
+        raise EngineError(f"--inserted-on {inserted_on}: раньше дня сборки пакета {ref['built']}")
+    return day.isoformat()
+
+
+def _day(instance, tid, ref, url, doc, notes, inserted_on=None, who=None) -> dict:
     if ref["kind"] == "манифест":
         first = publications.published(instance, tid=tid)
         if first is None:
             from .records import release_fields
-            publications.log(instance, "published", id=tid, url=norm_url(url), day=instance.today.isoformat(),
-                             built=ref["built"], **release_fields(instance, tid, ref))
+            day = inserted_day(instance, ref, inserted_on) if inserted_on else instance.today.isoformat()
+            source = {"published_source": f"со слов: {who}"} if inserted_on else {}
+            publications.log(instance, "published", id=tid, url=norm_url(url), day=day,
+                             built=ref["built"], **source, **release_fields(instance, tid, ref))
             first = publications.published(instance, tid=tid)
+        elif inserted_on:
+            notes.append(f"день выкладки уже записан — {first['day']}; --inserted-on его не меняет")
         day = first["day"]
         dates = set(re.findall(r"\d{4}-\d{2}-\d{2}", doc.root.text() + json.dumps(doc.schema_nodes(), ensure_ascii=False)))
         stale = sorted(d for d in dates if d != day and d == ref["built"])
         if stale:
             notes.append(f"дата сборки {ref['built']} на странице или в разметке ≠ день выкладки {day}: поправить "
                          "дату в тексте и datePublished/dateModified и вставить заново")
-        return {"publication_day": day, "built": first.get("built"), "day_source": "журнал выпуска"}
+        return {"publication_day": day, "built": first.get("built"),
+                "day_source": "журнал выпуска" + (f", {first['published_source']}" if first.get("published_source")
+                                                  else "")}
     first = publications.published(instance, url=norm_url(url))
     if first:
         return {"publication_day": first["day"], "built": None, "day_source": "журнал выпуска"}
@@ -215,8 +236,9 @@ def render(report: dict) -> str:
     return "\n".join(lines)
 
 
-def run_verify(instance, tid: str, url: str | None, *, browser: bool = True, apply: bool = False) -> int:
-    report = verify(instance, tid, url, browser=browser)
+def run_verify(instance, tid: str, url: str | None, *, browser: bool = True, apply: bool = False,
+               inserted_on: str | None = None, who: str | None = None) -> int:
+    report = verify(instance, tid, url, browser=browser, inserted_on=inserted_on, who=who)
     folder = instance.reports_dir()
     (folder / f"Доехало — {tid}.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8",
                                                   newline="\n")
