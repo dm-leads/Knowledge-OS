@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
 from ..core import store
 from ..core.errors import AccessDenied, EngineError, QuotaExhausted, SourceError
@@ -154,6 +155,70 @@ def wave2_items(instance) -> list[dict]:
     items.append(_stale_packages(instance))
     items.append(_growth(instance))
     items += part2_items(instance)
+    items += wave3_items(instance)
+    return items
+
+
+def wave3_items(instance) -> list[dict]:
+    """Пункты волны 3 (Т42.4): позиции, сводка, деньги по окну, чек-лист аудита, расписание и последний запуск,
+    свежесть пульса и аудита. Без источника — «не подключено» с заданием, как подключить."""
+    import json as _json
+    from ..core import audit_store
+    p, items = instance.p, []
+    src = p["sources"]
+    engines = [n for n, on in (("Google — Search Console", src["gsc"]["enabled"]),
+                               ("Яндекс — Вебмастер", src["webmaster"]["enabled"])) if on]
+    if p["monitor"]["positions"] == "none" or not engines:
+        items.append(_item("позиции пульса", OFF, "консоли не подключены", "sources.gsc, sources.webmaster"))
+    else:
+        items.append(_item("позиции пульса", GREEN, ", ".join(engines)))
+    n = p["notify"]
+    items.append(_item("сводка пульса", OFF if n["kind"] == "none" else GREEN,
+                       "не подключена — панель только файлом" if n["kind"] == "none"
+                       else f"{n['kind']}, переменная {n['url_env']}; notify.allow {n['allow']}",
+                       "notify.kind: lark_webhook и notify.url_env; отправка — notify.allow: write" if n["kind"] == "none" else ""))
+    m = p["bets"]["money"]
+    if m["kind"] == "none":
+        items.append(_item("деньги за окно ставки", OFF, "замер ставки даст «нет данных»",
+                           "bets.money: file (CSV с периодом на строку) или module:… адаптер выгрузки"))
+    elif m["kind"] == "file":
+        path = Path(m["file"]) if Path(m["file"]).is_absolute() else instance.root / m["file"]
+        items.append(_item("деньги за окно ставки", GREEN if path.is_file() else RED, str(path)))
+    else:
+        items.append(_item("деньги за окно ставки", GREEN, f"адаптер {m['kind']}"))
+    from .audit import load_checklist
+    try:
+        checks = load_checklist(instance)
+        items.append(_item("технический чек-лист", GREEN if checks else OFF,
+                           f"проверок {len(checks)}" if checks else "нет — аудит недели не подключён",
+                           "" if checks else "`content-engine audit checklist --apply`"))
+    except EngineError as exc:
+        items.append(_item("технический чек-лист", RED, str(exc)))
+    snap = audit_store.latest(instance)
+    age = audit_store.age_days(instance, snap)
+    stale = p["monitor"]["audit_stale_days"]
+    items.append(_item("свежесть аудита", OFF if snap is None else GREEN if age <= stale else YELLOW,
+                       "аудита ещё не было" if snap is None else f"{snap['date']}, {age} дн. назад",
+                       "`content-engine audit run`" if snap is None or age > stale else ""))
+    pulse_dir = instance.root / "data" / "pulse"
+    last = sorted(pulse_dir.glob("????-??-??.json")) if pulse_dir.is_dir() else []
+    if last:
+        v = _json.loads(last[-1].read_text(encoding="utf-8"))["verdict"]
+        items.append(_item("пульс", GREEN, f"{last[-1].stem}: {v['color']} — {v['why']}"))
+    else:
+        items.append(_item("пульс", OFF, "пульса ещё не было", "`content-engine pulse run`"))
+    runs = store.read_jsonl(instance.root / "data" / "schedule_runs.jsonl", missing_ok=True)
+    jobs = p["schedule"]["jobs"]
+    if not jobs:
+        items.append(_item("расписание", OFF, "заданий в профиле нет", "schedule.jobs и `schedule install`"))
+    else:
+        tail = "; ".join(f"{j['name']}: " + next((f"{r['start']} код {r['code']}" for r in reversed(runs)
+                                                   if r.get("command") == j["command"]), "запусков нет")
+                          for j in jobs)
+        items.append(_item("расписание", GREEN if runs else YELLOW,
+                           f"заданий {len(jobs)} (schedule.allow {p['schedule']['allow']}); последний запуск — {tail}",
+                           "" if runs else "`schedule install --apply` по разрешению; запуски пишутся в "
+                                         "data/schedule_runs.jsonl"))
     return items
 
 
@@ -284,6 +349,9 @@ def _ignored(instance):
     if checker.root is None:
         return _item("правила игнорирования", OFF, "инстанс не в репозитории git")
     wanted = [instance.profile_path, *root.glob("known_answers*.yaml"), *(root / "adapters").glob("*.py")]
+    checklist = root / instance.p["audit"]["checklist"]
+    if checklist.is_file():
+        wanted.append(checklist)                     # технический чек-лист проекта — решение проекта, в git
     wanted += [instance.file(n) for n in ("queue", "reservations", "rejections", "whitelist", "frozen", "bets",
                                           "publications", "spend") if instance.file(n).is_file()]
     passport = Path(content_engine.__file__).parent / "_паспорт_выпуска.json"
@@ -347,12 +415,18 @@ def register(sub):
     p = sub.add_parser("check", help="самопроверка: светофор по профилю, секретам, источникам, корпусу, очереди")
     add_profile(p)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--contours", action="store_true", help="приёмка на контур: признак работы каждого контура (Т42.5)")
     p.set_defaults(func=run)
 
 
 def run(args) -> int:
     from ..cli import open_instance
     instance = open_instance(args)
+    if args.contours:
+        from ..core import contours
+        rows = contours.table(instance)
+        print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else contours.render(rows))
+        return 0
     items = run_check(instance)
     print(json.dumps(items, ensure_ascii=False, indent=1) if args.json else render(items))
     return 1 if any(i["light"] == RED for i in items) else 0

@@ -373,7 +373,11 @@ schedule:                             # расписание (Т42.1) — зап
   kind: windows                       # windows (планировщик), cron, module:…
   python: "py -3"                     # чем запускать Python
   on_boot: true                       # пропущенный запуск — один раз при включении
-  jobs: []                            # {name, command, every: day|week, at: "ЧЧ:ММ", weekday: mon…sun или ""}; у команды — --unattended
+  jobs:                               # {name, command, every: day|week, at: "ЧЧ:ММ", weekday: mon…sun или ""}; у команды — --unattended
+    - {name: pulse, command: pulse run, every: day, at: "09:00", weekday: ""}
+    - {name: measure, command: bet measure, every: day, at: "09:10", weekday: ""}
+    - {name: audit, command: audit run, every: week, at: "09:20", weekday: mon}
+    - {name: week, command: week plan, every: week, at: "10:00", weekday: mon}
 
 week_plan:                            # план работ на неделю (Т42.3)
   min: 5

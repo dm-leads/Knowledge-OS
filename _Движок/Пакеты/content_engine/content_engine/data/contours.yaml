@@ -1,0 +1,40 @@
+# Приёмка на контур (Т42.5): у каждого контура карты — признак работы (словами карты), его проверка кодом по реестрам
+# инстанса (имя функции в core/contours.py), виды известных ответов контура и тесты пакета, которые его держат.
+# Данных проектов здесь нет.
+contours:
+  А:
+    name: Спрос
+    sign: карта спроса свежая и в ней есть новые кластеры без страницы
+    check: demand_fresh
+    known: [pair]
+    tests: [test_owner_live_overlap_statuses, test_answered_questions_go_to_report_others_become_demand]
+  Б:
+    name: Решение
+    sign: ни одна тема не доходит до текста без брони; запас тем не ниже нормы
+    check: stock_norm
+    known: [gate, refuse]
+    tests: [test_take_without_gate_refused_with_gate_taken, test_build_prefilters_and_refill_fills_stock]
+  В:
+    name: Производство
+    sign: в блог не попадает статья без утверждённого брифа и с блокирующими находками гейта статьи
+    check: packages_verified
+    known: [refuse, judge, facts]
+    tests: [test_build_without_approval_refused, test_write_task_refused_without_approved_brief]
+  Г:
+    name: Выпуск
+    sign: у каждой выпущенной статьи — день выкладки и записи дня выкладки в книге ставок
+    check: releases_recorded
+    known: [publish]
+    tests: [test_all_records_after_verify, test_never_answers_is_unverified_not_failed]
+  Д:
+    name: Доказательство
+    sign: пульс свежий; по каждой ставке с наступившим окном есть замер; итоги меняют приоритет направлений
+    check: proof_running
+    known: [pulse, bet, audit]
+    tests: [test_verdict_rules_first_match, test_measure_from_publication_day_not_build, test_kill_closes_direction_and_scale_raises_weight]
+  Основание:
+    name: Основание
+    sign: профиль текущей версии; запуски по расписанию идут; запись вовне — только с правом и --apply
+    check: foundation
+    known: [refuse]
+    tests: [test_install_without_right_or_apply_is_plan_only, test_paid_serp_needs_yes, test_rollback_without_right_writes_nothing]
