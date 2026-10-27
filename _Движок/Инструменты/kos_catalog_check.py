@@ -51,6 +51,8 @@ def _version(code: Path) -> str:
     passport = read_passport(code)
     if passport is not None:
         return passport["version"]
+    if not (Path(code) / "cli.py").is_file():
+        raise ReleaseError(f"{code} — не каталог кода (нет cli.py): укажите папку кода пакета, а не папку с pyproject.toml")
     return package_version(Path(code).resolve().parent)[1]
 
 
