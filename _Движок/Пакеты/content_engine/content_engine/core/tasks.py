@@ -11,9 +11,11 @@ from pathlib import Path
 from . import roles
 
 
-def write_task(instance, topic_id: str, role: str, name: str, body: str, *, result: str, schema: str) -> Path:
+def write_task(instance, topic_id: str, role: str, name: str, body: str, *, result: str, schema: str,
+               folder: Path | None = None) -> Path:
+    """`folder` — своя папка задания: вычитке фактов не дают рабочую папку темы с брифом и заданиями автора (Т29.1)."""
     primary, fallback = roles.models(instance, role)
-    folder = instance.brief_dir(topic_id)
+    folder = folder or instance.brief_dir(topic_id)
     head = [
         f"# Задание: {name}, тема {topic_id}",
         "",
