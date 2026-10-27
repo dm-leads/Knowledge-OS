@@ -13,6 +13,7 @@ dependencies = ["pyyaml", "requests", "snowballstemmer", "google-auth"]
 
 [project.optional-dependencies]
 browser = ["playwright"]          # проверка вёрстки (Т22.4); без неё пункт «не подключено»
+images = ["pillow"]               # сжатие картинок (Т30.2); без него замечание «не сжато»
 
 [project.scripts]
 content-engine = "content_engine.cli:main"

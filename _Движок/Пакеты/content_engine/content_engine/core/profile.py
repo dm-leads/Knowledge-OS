@@ -4,9 +4,10 @@
 умолчанию «молча» нет: всё, что машина использует, записано в профиле. Секреты — только именами переменных
 (поля `*_env`) и путями к ключам; значение секрета в профиле — ошибка.
 
-Версия профиля поднимается с каждым выпуском, который добавляет поля (Т15.1): 1.2.0 — версия 2. Схема версии 1
-осталась в коде (`SCHEMA_V1`) только для перевода `profile migrate`; профиль старой версии в любой другой команде —
-ошибка с названием команды перевода.
+Версия профиля поднимается с каждым выпуском, который добавляет поля (Т15.1): 1.2.0 — версия 2, 1.3.0 — версия 3.
+Схемы прошлых версий (`SCHEMA_V1`, `SCHEMA_V2`) и их наборы проверок остались в коде только для перевода `profile
+migrate`: общие разделы и списки проверок разведены по версиям, иначе поле новой версии сломало бы проверку старого
+профиля перед переводом. Профиль старой версии в любой другой команде — ошибка с названием команды перевода.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import yaml
 
 from .errors import ProfileError
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
@@ -84,12 +85,18 @@ SCHEMA_V1 = S(**COMMON, budget=S(reserve=F("int"), max_quota=F("int", nullable=T
 ROLES = ("planner", "writer", "critic", "fact_checker", "judge", "cheap")
 ROLE = S(primary=F("str"), fallback=F("str"))
 AUTHOR = L(name=F("str"), role=F("str"), experience=F("str"), directions=F("list"), month_limit=F("int"))
-ASSEMBLE_CHECKS = ("anchors", "toc", "tables", "required", "section_borders")
+ASSEMBLE_CHECKS_V2 = ("anchors", "toc", "tables", "required", "section_borders")
+ASSEMBLE_CHECKS = ASSEMBLE_CHECKS_V2 + ("comments",)       # Н5: публикуемый HTML без комментариев
+ASSEMBLE_BY_VERSION = {2: ASSEMBLE_CHECKS_V2, 3: ASSEMBLE_CHECKS}
+GROWTH_KINDS = ("none", "markdown", "file")
+WORDSTAT_SOURCES = ("keysso", "cloud")
+SERP_SOURCES = ("keysso", "yandex_search")
+TEXT_LEVELS = ("обычный", "усиленный")
+IMAGE_KINDS = ("cover", "illustration", "scheme", "product")
+TOPIC_SUBS = ("id",)
+PUBLISHED_SUBS = ("slug", "h1", "id")
 
-SCHEMA = S(
-    **COMMON,
-    budget=S(reserve=F("int"), max_quota=F("int", nullable=True), run_limit_rub=F("number"),
-             month_limit_rub=F("number")),
+PART1 = dict(
     directions=L(name=F("str"), words=F("list"), weight=F("number"), quarter_quota=F("int"), volume=F("list")),
     models=S(**{role: ROLE for role in ROLES}),
     prepare=S(top_n=F("int"), serp_max_age_days=F("int"), volume_rule=F("str"), images_margin=F("number"),
@@ -107,15 +114,61 @@ SCHEMA = S(
                webmaster=S(enabled=F("bool")), status_days=F("list")),
     records=S(allow=F("str"), adapter=F("str")),
 )
-SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA}
+BUDGET_V2 = dict(reserve=F("int"), max_quota=F("int", nullable=True), run_limit_rub=F("number"),
+                 month_limit_rub=F("number"))
+SCHEMA_V2 = S(**COMMON, budget=S(**BUDGET_V2), **PART1)
 
-GATE_ARTICLE_CHECKS = (
+# Версия 3 (часть 2 волны 2, выпуск 1.3.0): общие разделы sources, queue, gate_article получают новые поля — они
+# строятся заново из полей версии 2, а не правкой COMMON, чтобы схемы версий 1 и 2 не менялись.
+SOURCES_V3 = dict(COMMON["sources"])
+SOURCES_V3.update(
+    growth=S(kind=F("str"), path=F("str")),
+    client_questions=S(enabled=F("bool"), path=F("str")),
+    wordstat=S(order=F("list"), region=F("str"), cloud_key_env=F("str"), cloud_folder_env=F("str"),
+               cloud_price_rub=F("number")),
+    suggest=S(enabled=F("bool"), limit=F("int")),
+    serp_order=F("list"),
+    yandex_search=S(key_env=F("str"), folder_env=F("str"), price_rub=F("number"), regions=F("strmap")))
+QUEUE_V3 = dict(COMMON["queue"])
+QUEUE_V3["pace"] = S(domain_since=F("str"), new_domain_days=F("int"), new_domain_max_per_day=F("number"))
+GATE_ARTICLE_V3 = dict(GATE_ARTICLE)
+GATE_ARTICLE_V3.update(rhythm_min_cv=F("number"), ai_tone_patterns=F("list"), norm_patterns=F("list"),
+                       answer_words=F("int"))
+COMMON_V3 = dict(COMMON, sources=SOURCES_V3, queue=QUEUE_V3, gate_article=GATE_ARTICLE_V3)
+
+SCHEMA = S(
+    **COMMON_V3,
+    budget=S(**BUDGET_V2, usd_rub=F("number"), usd_rub_source=F("str")),
+    **PART1,
+    paths=S(allow=F("str"), transfer=F("str"), topic_dir=F("str"), published_dir=F("str"),
+            published_files=F("strmap")),
+    judge=S(top=F("int"), embeddings=S(kind=F("str"), model=F("str"), key_env=F("str"),
+                                       price_per_1k_rub=F("number"))),
+    write=S(rules=F("list"), level=F("str")),
+    facts=S(enabled=F("bool"), ttl_days=F("int"), mode=F("str")),
+    niche=S(kind=F("str"), min_sources=F("int"), disclaimer=F("str"), level=F("str")),
+    images=S(allow=F("str"), providers=F("strmap"), library=S(index=F("str")), fill_rule=F("str"),
+             upload=F("str"), template=F("str"), after_h2=F("list"), max_kb=F("int"), stop_categories=F("list"),
+             cover=F("bool")),
+    onboard=S(min_cluster_frequency=F("int"), sample_pages=F("int"), answers=F("strmap")),
+)
+SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA}
+
+GATE_ARTICLE_CHECKS_V2 = (
     "title_length", "description_length", "slug", "title_duplicate", "structure", "skeleton", "foreign_keys",
     "foreign_mentions", "twin", "faq", "sales_links", "sources", "links_alive", "list_share", "hygiene", "stop_phrases", "schema")
+# Часть 2: текст (Т28.2), вычитка и ниша (Т29.3–Т29.4), картинки (Т30)
+GATE_ARTICLE_CHECKS = GATE_ARTICLE_CHECKS_V2 + (
+    "rhythm", "ai_tone", "volume", "norm_links", "internal_links", "ai_answers", "facts", "niche", "image_alt",
+    "image_credits")
+GATE_CHECKS_BY_VERSION = {1: GATE_ARTICLE_CHECKS_V2, 2: GATE_ARTICLE_CHECKS_V2, 3: GATE_ARTICLE_CHECKS}
 LEVELS = ("block", "warn", "off")
 VALUE_KINDS = ("file", "keysso", "none")
 # Ступени прав (Т16.1): выше `files` — только строкой профиля по разрешению владельца.
-ALLOW = {"publish": ("files", "commit", "publish"), "indexing": ("files", "write"), "records": ("files", "write")}
+ALLOW_V2 = {"publish": ("files", "commit", "publish"), "indexing": ("files", "write"), "records": ("files", "write")}
+# Часть 2: загрузка картинок (Т30) и передача статьи в папку проекта (Н1) — свои ступени
+ALLOW = dict(ALLOW_V2, images=("files", "write"), paths=("files", "write"))
+ALLOW_BY_VERSION = {2: ALLOW_V2, 3: ALLOW}
 MIGRATE_HINT = "content-engine profile migrate --profile {path}"
 
 
@@ -192,17 +245,18 @@ def _adapter(name: str, value: str, builtin: tuple):
                        f"получено «{value}»")
 
 
-def _semantics_v1(data: dict):
+def _semantics_v1(data: dict, version: int = 1):
     if not data["site"]["domains"]:
         raise ProfileError("поле «site.domains»: нужен хотя бы один домен")
     if data["sources"]["value"]["kind"] not in VALUE_KINDS:
         raise ProfileError(f"поле «sources.value.kind»: одно из {VALUE_KINDS}")
+    checks = GATE_CHECKS_BY_VERSION[version]
     for name, level in data["gate_article"]["levels"].items():
-        if name not in GATE_ARTICLE_CHECKS:
+        if name not in checks:
             raise ProfileError(f"неизвестное поле «gate_article.levels.{name}»")
         if level not in LEVELS:
             raise ProfileError(f"поле «gate_article.levels.{name}»: одно из {LEVELS}")
-    for name in GATE_ARTICLE_CHECKS:
+    for name in checks:
         if name not in data["gate_article"]["levels"]:
             raise ProfileError(f"пропущено обязательное поле «gate_article.levels.{name}»")
     for name in ("title_length", "description_length", "faq_questions", "sales_links"):
@@ -217,7 +271,7 @@ def _semantics_v1(data: dict):
         raise ProfileError("поле «queue.refill_at»: порог пополнения не выше нормы запаса")
 
 
-def _semantics_v2(data: dict):
+def _semantics_v2(data: dict, version: int = 2):
     for role in ROLES:
         for kind in ("primary", "fallback"):
             if not data["models"][role][kind].strip():
@@ -241,11 +295,12 @@ def _semantics_v2(data: dict):
     a = data["assemble"]
     _adapter("assemble.adapter", a["adapter"], ("html", "markdown"))
     _one_of("assemble.schema_format", a["schema_format"], ("json-ld", "microdata"))
-    for name in ASSEMBLE_CHECKS:
+    assemble_checks = ASSEMBLE_BY_VERSION[version]
+    for name in assemble_checks:
         if name not in a["levels"]:
             raise ProfileError(f"пропущено обязательное поле «assemble.levels.{name}»")
     for name, level in a["levels"].items():
-        _one_of(f"assemble.levels.{name}", name, ASSEMBLE_CHECKS)
+        _one_of(f"assemble.levels.{name}", name, assemble_checks)
         _one_of(f"assemble.levels.{name}", level, LEVELS)
     pub = data["publish"]
     _one_of("publish.mode", pub["mode"], ("manual", "direct"))
@@ -257,14 +312,98 @@ def _semantics_v2(data: dict):
         raise ProfileError("поле «publish.text_match»: доля от 0 до 1")
     if len(pub["window"]) != 2 or not all(re.fullmatch(r"\d\d:\d\d", str(x)) for x in pub["window"]):
         raise ProfileError("поле «publish.window»: пара [\"ЧЧ:ММ\", \"ЧЧ:ММ\"]")
-    for area in ALLOW:
-        _one_of(f"{area}.allow", data[area]["allow"], ALLOW[area])
+    allow = ALLOW_BY_VERSION[version]
+    for area in allow:
+        _one_of(f"{area}.allow", data[area]["allow"], allow[area])
     _adapter("records.adapter", data["records"]["adapter"], ("none",))
     b = data["budget"]
     if b["run_limit_rub"] < 0 or b["month_limit_rub"] < 0:
         raise ProfileError("поля «budget.run_limit_rub», «month_limit_rub»: не меньше нуля (0 — платные вызовы запрещены)")
     if b["run_limit_rub"] > b["month_limit_rub"]:
         raise ProfileError("поле «budget.run_limit_rub»: предел прогона не выше месячного")
+
+
+def _template_subs(name: str, value: str, allowed: tuple):
+    for sub in re.findall(r"\{([^}]*)\}", value):
+        if sub not in allowed:
+            names = ", ".join("{" + a + "}" for a in allowed)
+            raise ProfileError(f"поле «{name}»: подстановка {{{sub}}} не из {names}")
+
+
+def _semantics_v3(data: dict):
+    p = data["paths"]
+    if "{id}" not in p["topic_dir"]:
+        raise ProfileError("поле «paths.topic_dir»: нужна подстановка {id} — у каждой темы своя папка")
+    _template_subs("paths.topic_dir", p["topic_dir"], TOPIC_SUBS)
+    _template_subs("paths.published_dir", p["published_dir"], PUBLISHED_SUBS)
+    for name in ("topic_dir", "published_dir"):
+        if p[name] and re.match(r"^([A-Za-z]:|[/\\])", p[name]):
+            raise ProfileError(f"поле «paths.{name}»: путь от каталога инстанса, не абсолютный")
+    for role in ("article", "schema"):
+        if not p["published_files"].get(role):
+            raise ProfileError(f"поле «paths.published_files.{role}»: имя файла в папке выпущенной статьи")
+    _adapter("paths.transfer", p["transfer"], ("builtin",))
+    src = data["sources"]
+    _one_of("sources.growth.kind", src["growth"]["kind"], GROWTH_KINDS)
+    if src["growth"]["kind"] != "none" and not src["growth"]["path"]:
+        raise ProfileError("поле «sources.growth.path»: папка хранилища Движка роста или карточек гипотез")
+    for i, name in enumerate(src["wordstat"]["order"]):
+        _one_of(f"sources.wordstat.order[{i}]", name, WORDSTAT_SOURCES)
+    if "cloud" in src["wordstat"]["order"] and not src["wordstat"]["cloud_key_env"]:
+        raise ProfileError("поле «sources.wordstat.cloud_key_env»: облако в порядке источников — нужно имя переменной")
+    if not src["serp_order"]:
+        raise ProfileError("поле «sources.serp_order»: хотя бы один источник выдачи")
+    for i, name in enumerate(src["serp_order"]):
+        _one_of(f"sources.serp_order[{i}]", name, SERP_SOURCES)
+    if "yandex_search" in src["serp_order"] and not src["yandex_search"]["key_env"]:
+        raise ProfileError("поле «sources.yandex_search.key_env»: источник в порядке выдачи — нужно имя переменной")
+    if src["suggest"]["limit"] <= 0:
+        raise ProfileError("поле «sources.suggest.limit»: положительное число")
+    if src["wordstat"]["cloud_price_rub"] < 0 or src["yandex_search"]["price_rub"] < 0:
+        raise ProfileError("поля «sources.wordstat.cloud_price_rub», «sources.yandex_search.price_rub»: не меньше нуля")
+    j = data["judge"]
+    if j["top"] <= 0:
+        raise ProfileError("поле «judge.top»: положительное число")
+    _one_of("judge.embeddings.kind", j["embeddings"]["kind"], ("lexical", "api"))
+    if j["embeddings"]["kind"] == "api" and not j["embeddings"]["key_env"]:
+        raise ProfileError("поле «judge.embeddings.key_env»: эмбеддинги через API — нужно имя переменной ключа")
+    _one_of("write.level", data["write"]["level"], TEXT_LEVELS)
+    _one_of("niche.level", data["niche"]["level"], TEXT_LEVELS)
+    _one_of("facts.mode", data["facts"]["mode"], ("separate", "human"))
+    if data["facts"]["ttl_days"] <= 0:
+        raise ProfileError("поле «facts.ttl_days»: положительное число дней")
+    g = data["gate_article"]
+    if not 0 <= g["rhythm_min_cv"] <= 1:
+        raise ProfileError("поле «gate_article.rhythm_min_cv»: доля от 0 до 1")
+    if g["answer_words"] <= 0:
+        raise ProfileError("поле «gate_article.answer_words»: положительное число слов")
+    for name in ("ai_tone_patterns", "norm_patterns"):
+        for pattern in g[name]:
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                raise ProfileError(f"поле «gate_article.{name}»: «{pattern}» — не регулярное выражение ({exc})")
+    im = data["images"]
+    for kind in im["providers"]:
+        if kind not in IMAGE_KINDS:
+            raise ProfileError(f"неизвестное поле «images.providers.{kind}»; виды — {IMAGE_KINDS}")
+    for kind in IMAGE_KINDS:
+        if kind not in im["providers"]:
+            raise ProfileError(f"пропущено обязательное поле «images.providers.{kind}»")
+        _adapter(f"images.providers.{kind}", im["providers"][kind], ("none", "template", "library"))
+    if "library" in im["providers"].values() and not im["library"]["index"]:
+        raise ProfileError("поле «images.library.index»: провайдер library — нужен индекс готовых картинок (CSV)")
+    _adapter("images.upload", im["upload"], ("none",))
+    _one_of("images.fill_rule", im["fill_rule"], ("top", "after_h2"))
+    if im["max_kb"] <= 0:
+        raise ProfileError("поле «images.max_kb»: положительное число")
+    if data["budget"]["usd_rub"] < 0:
+        raise ProfileError("поле «budget.usd_rub»: курс не меньше нуля")
+    pace = data["queue"]["pace"]
+    if pace["domain_since"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", pace["domain_since"]):
+        raise ProfileError("поле «queue.pace.domain_since»: дата ГГГГ-ММ-ДД или пусто")
+    for key in data["onboard"]["answers"]:
+        _one_of(f"onboard.answers.{key}", key, ("vychitka", "rhythm"))
 
 
 def validate(data, version: int = SCHEMA_VERSION) -> dict:
@@ -275,9 +414,11 @@ def validate(data, version: int = SCHEMA_VERSION) -> dict:
     if found != version:
         raise ProfileError(f"поле «schema_version»: {found}, пакет понимает {version}")
     _walk("", SCHEMAS[version], data)
-    _semantics_v1(data)
+    _semantics_v1(data, version)
     if version >= 2:
-        _semantics_v2(data)
+        _semantics_v2(data, version)
+    if version >= 3:
+        _semantics_v3(data)
     return data
 
 
@@ -303,5 +444,7 @@ def load(path) -> dict:
     return validate(data)
 
 
-def template_text() -> str:
-    return resources.files("content_engine.templates").joinpath("profile.template.yaml").read_text(encoding="utf-8")
+def template_text(version: int = SCHEMA_VERSION) -> str:
+    """Шаблон профиля версии; шаблоны прошлых версий нужны переводу: поля шага берутся из шаблона его версии."""
+    name = "profile.template.yaml" if version == SCHEMA_VERSION else f"profile.template.v{version}.yaml"
+    return resources.files("content_engine.templates").joinpath(name).read_text(encoding="utf-8")

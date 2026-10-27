@@ -41,4 +41,7 @@ def run_migrate(args) -> int:
         print("план: файл не изменён; записать — с --apply")
         return 0
     print(migrate.apply(args.profile, step))
+    if step.version_to < profile.SCHEMA_VERSION:
+        print(f"профиль версии {step.version_to}, пакет ждёт {profile.SCHEMA_VERSION}: повторите `profile migrate` — "
+              "перевод идёт на одну версию за запуск")
     return 0

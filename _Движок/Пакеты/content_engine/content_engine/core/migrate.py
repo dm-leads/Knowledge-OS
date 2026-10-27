@@ -10,7 +10,9 @@ YAML не пересобирается — иначе пропали бы ком
 YAML без повторных ключей, обход дерева (все старые значения на месте) и проверка схемой новой версии. Реестры волны 1
 перевод не трогает.
 
-Шаг «версия N → N+1» — запись в `STEPS`: следующая версия добавляется строкой, а не переделкой.
+Шаг «версия N → N+1» — запись в `STEPS`: следующая версия добавляется строкой, а не переделкой. Строки поля
+берутся из шаблона той версии, в которую ведёт шаг (`profile.template.v2.yaml` для `1 → 2`): в шаблоне новой версии у
+тех же разделов есть поля, которых схема промежуточной версии не знает. Перевод — на одну версию за запуск (Т15.3).
 """
 from __future__ import annotations
 
@@ -42,6 +44,14 @@ STEPS = {
             fields=(("budget", "run_limit_rub"), ("budget", "month_limit_rub")),
             item_fields=(("directions", "volume"),),
             keep=(("queue", "require_bet"),)),
+    2: Step(to=3, sections=("paths", "judge", "write", "facts", "niche", "images", "onboard"),
+            fields=(("sources", "growth"), ("sources", "client_questions"), ("sources", "wordstat"),
+                    ("sources", "suggest"), ("sources", "serp_order"), ("sources", "yandex_search"),
+                    ("queue", "pace"), ("budget", "usd_rub"), ("budget", "usd_rub_source"),
+                    ("gate_article", "rhythm_min_cv"), ("gate_article", "ai_tone_patterns"),
+                    ("gate_article", "norm_patterns"), ("gate_article", "answer_words"),
+                    ("assemble.levels", "comments"))
+            + tuple(("gate_article.levels", name) for name in ('rhythm', 'ai_tone', 'volume', 'norm_links', 'internal_links', 'ai_answers', 'facts', 'niche', 'image_alt', 'image_credits'))),
 }
 
 
@@ -209,7 +219,7 @@ def plan(path) -> Plan:
         raise ProfileError(f"{path.name}: версия {version!r} — перевода с неё в пакете нет")
     profile_mod.validate(old, version)
     step = STEPS[version]
-    tpl = profile_mod.template_text().split("\n")
+    tpl = profile_mod.template_text(step.to).split("\n")
     changes = []
     # (в) поле каждого элемента списка — снизу вверх, чтобы номера строк выше не сдвигались
     for list_name, key in step.item_fields:
@@ -320,7 +330,7 @@ def apply(path, migration: Plan) -> str:
     back = path.read_bytes().decode("utf-8")
     if back != migration.text:
         raise ProfileError(f"{path.name}: записано {len(migration.text)} знаков — прочитано {len(back)}")
-    profile_mod.load(path)
+    profile_mod.validate(parse(back), migration.version_to)     # схемой версии шага: промежуточная — не ошибка
     lines = migration.text.count("\n")
     return (f"{path.name}: записано строк {lines} — прочитано {back.count(chr(10))}; профиль версии "
             f"{migration.version_to} проходит проверку")
