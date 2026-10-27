@@ -11,7 +11,9 @@
 - `retake <id>` — тема `taken` с живой бронью и годным отчётом гейта берётся снова со свежей выдачей и новым снимком;
   иначе — полный гейт заново.
 - `status` — запас = темы `gated` с активной бронью; запас в днях = запас / ритм; запас ≤ `refill_at` — код 1.
-- `bet <id>` — поля ставки (гипотеза, ожидание, порог провала); решение по ним — Движок роста, очередь их несёт.
+- `bet <id> --hypothesis-id <H>` — поля ставки из гипотезы Движка роста (Т26, адаптер `growth`, только чтение); для
+  проекта без Движка — вручную `--hypothesis --expectation --fail-threshold`. Решение по ставке — Движок роста,
+  очередь несёт зеркало. `card` — шаблон карточки гипотезы для источника `file`.
 """
 from __future__ import annotations
 
@@ -354,14 +356,53 @@ def status(instance) -> tuple[dict, int]:
     return report, (1 if s <= q["refill_at"] else 0)
 
 
+def set_bet(instance, tid: str, hypothesis_id: str | None, hypothesis: str | None, expectation: str | None,
+            fail_threshold: str | None) -> dict:
+    """Т26: ставка из гипотезы (`--hypothesis-id`) или вручную — всеми тремя полями; новые поля только добавляются."""
+    from ..adapters import growth
+    manual = (hypothesis, expectation, fail_threshold)
+    if hypothesis_id and any(manual):
+        raise EngineError("ставка — либо --hypothesis-id, либо три поля вручную, не вместе")
+    topics = load(instance)
+    topic = _find(topics, tid)
+    bet = topic.setdefault("bet", {})
+    notes = []
+    if hypothesis_id:
+        src = growth.source(instance)
+        if src is None:
+            raise EngineError("sources.growth.kind: none — источника гипотез нет; ставка вручную: --hypothesis "
+                              "--expectation --fail-threshold")
+        got = src.bet(hypothesis_id)
+        notes = got.pop("notes")
+        bet.update({k: v for k, v in got.items() if k != "windows"}, windows=got["windows"])
+        source = f"гипотеза {hypothesis_id}, источник {src.kind}"
+    else:
+        if not all(manual):
+            raise EngineError("ставка вручную — все три поля: --hypothesis --expectation --fail-threshold "
+                              "(или --hypothesis-id)")
+        bet.update(hypothesis=hypothesis, expectation=expectation, fail_threshold=fail_threshold)
+        source = "вручную"
+    return {"write": save(instance, topics), "source": source, "notes": notes, "bet": bet}
+
+
+def run_card(args) -> int:
+    from ..adapters.growth import card_template
+    print(card_template())
+    return 0
+
+
 def register(sub):
     from ..cli import add_profile
     parser = sub.add_parser("queue", help="очередь тем: build | refill | status | take | retake | bet")
     actions = parser.add_subparsers(dest="action", required=True)
     for name, text in (("build", "кандидаты карты спроса → темы очереди"), ("refill", "полный гейт до нормы запаса"),
                        ("status", "запас в днях"), ("take", "взять тему в работу"),
-                       ("retake", "взять заново со свежей выдачей"), ("bet", "поля ставки темы")):
+                       ("retake", "взять заново со свежей выдачей"), ("bet", "поля ставки темы"),
+                       ("card", "шаблон карточки гипотезы (источник ставки file)")):
         p = actions.add_parser(name, help=text)
+        if name == "card":
+            p.set_defaults(func=run_card)
+            continue
         add_profile(p)
         if name in ("take", "retake", "bet"):
             p.add_argument("id")
@@ -372,9 +413,10 @@ def register(sub):
         if name in ("refill", "take", "retake"):
             p.add_argument("--max-quota", type=int, help="объектов квоты на прогон, не больше")
         if name == "bet":
-            p.add_argument("--hypothesis", required=True)
-            p.add_argument("--expectation", required=True)
-            p.add_argument("--fail-threshold", required=True)
+            p.add_argument("--hypothesis-id", help="номер гипотезы Движка роста: поля ставки — из её карточки")
+            p.add_argument("--hypothesis", help="вручную, без Движка: гипотеза словами")
+            p.add_argument("--expectation", help="вручную: ожидание в заявках и деньгах")
+            p.add_argument("--fail-threshold", help="вручную: порог провала")
         p.add_argument("--json", action="store_true")
         p.set_defaults(func=run)
 
@@ -403,12 +445,9 @@ def run(args) -> int:
         text = f"Тема {args.id}: " + ("взята в работу. " if out["taken"] else "снята. ") + out["reason"]
         code = 0 if out["taken"] else 1
     else:
-        topics = load(instance)
-        topic = _find(topics, args.id)
-        topic["bet"].update(hypothesis=args.hypothesis, expectation=args.expectation,
-                            fail_threshold=args.fail_threshold)
-        out = {"write": save(instance, topics)}
-        text = f"Ставка темы {args.id} записана; {out['write']}"
+        out = set_bet(instance, args.id, args.hypothesis_id, args.hypothesis, args.expectation, args.fail_threshold)
+        text = f"Ставка темы {args.id} записана ({out['source']}); {out['write']}" + "".join(
+            f"\n  ! {n}" for n in out["notes"])
     if args.action in ("build", "refill", "status"):
         (instance.reports_dir() / f"Очередь — {args.action}.md").write_text(text + "\n", encoding="utf-8",
                                                                               newline="\n")

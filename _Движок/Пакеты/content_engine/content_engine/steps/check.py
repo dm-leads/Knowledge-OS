@@ -147,7 +147,28 @@ def wave2_items(instance) -> list[dict]:
                                                         f"{p['models'][r]['fallback']}" for r in ROLES)))
     items.append(_ignored(instance))
     items.append(_stale_packages(instance))
+    items.append(_growth(instance))
     return items
+
+
+def _growth(instance):
+    """Т26: связь с реестром гипотез; `require_bet: true` без неё — запас останется нулём."""
+    from pathlib import Path
+    g = instance.p["sources"]["growth"]
+    if g["kind"] == "none":
+        if instance.p["queue"]["require_bet"]:
+            return _item("ставки из гипотез", YELLOW, "sources.growth выключен, а queue.require_bet: true — темы без "
+                         "ставки «спорно», запас очереди останется нулём", "sources.growth или require_bet: false")
+        return _item("ставки из гипотез", OFF, "источник гипотез не подключён — ставка вручную `queue bet`",
+                     "sources.growth.kind: file (карточки) или markdown (хранилище Движка роста)")
+    folder = Path(g["path"])
+    folder = folder if folder.is_absolute() else instance.root / folder
+    if not folder.is_dir():
+        return _item("ставки из гипотез", RED, f"папки {folder} нет", "sources.growth.path")
+    found = sorted(folder.glob("*.yaml" if g["kind"] == "file" else "Гипотезы.md"))
+    return _item("ставки из гипотез", GREEN if found else YELLOW,
+                 f"{g['kind']}: {folder} — " + (f"карточек {len(found)}" if g["kind"] == "file" else
+                                                ("лист гипотез есть" if found else "листа гипотез нет")))
 
 
 def _stale_packages(instance):

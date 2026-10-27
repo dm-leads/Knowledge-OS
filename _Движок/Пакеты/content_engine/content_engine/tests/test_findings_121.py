@@ -142,8 +142,7 @@ def test_inserted_on_is_publication_day_with_source(inst, project):  # noqa: F81
 def test_stale_package_warned_by_check(inst, project):  # noqa: F811
     built(inst)
     item = check_mod._stale_packages(Instance(project, today=TODAY + timedelta(days=2)))
-    assert item["light"] != "green" and TID in item["detail"]
-    assert "зелёный" not in item["detail"]
+    assert item["light"] == check_mod.YELLOW and TID in item["detail"]
 
 
 # --- Н4: тема без ставки ---------------------------------------------------------------------------------------------
