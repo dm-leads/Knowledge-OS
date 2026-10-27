@@ -1,0 +1,828 @@
+# Контракт операций Контент-машины: что делает каждая команда — для навыка content-engine, людей и сервера MCP.
+# Печатается командой `content-engine catalog [--json|--md]`; схема аргументов берётся из парсера. Тест пакета держит
+# контракт и код вместе (core/contract.py). Эффекты: filesystem_read, filesystem_write, external_read, external_write,
+# paid_external_call, agent_task_required, human_approval_required; `when` — условие, `requires_apply` — только с --apply.
+# Коды выхода общие: 0 — успех, 1 — найдена проблема или отказ запрета, 2 — «спорно» или бюджет-гейт без «да»,
+# 3 — ошибка входа или источника, неподтверждённая запись.
+operations:
+
+  # --- подключение и самопроверка ---
+  check:
+    operation_id: check.run
+    name: самопроверка машины — светофор источников, прав, сборщика, правил игнорирования
+    phrases: [проверь машину, светофор контент-машины, всё ли подключено, самопроверка контент-машины]
+    module: Основание
+    requires: профиль инстанса
+    produces: светофор в консоли
+    side_writes: освобождает истёкшие брони темы (реестр броней)
+    effects:
+      - {type: filesystem_read}
+      - {type: external_read, when: пробы источников и сайта на чтение}
+      - {type: filesystem_write, when: истёкшие брони освобождаются}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    exit_codes: {"0": всё зелёное или «не подключено» с причиной, "1": есть красное — пункт и как подключить, "3": профиль не читается}
+    next: [status, onboard]
+  profile check:
+    operation_id: profile.check
+    name: проверить профиль проекта
+    phrases: [проверь профиль, профиль в порядке ли, проверь настройки машины]
+    module: Основание
+    requires: файл профиля
+    produces: строка «профиль в порядке» или ошибка с именем поля
+    side_writes: ""
+    effects: [{type: filesystem_read}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": профиль в порядке, "3": ошибка поля или старая версия — `profile migrate`}
+    next: [check]
+  profile template:
+    operation_id: profile.template
+    name: шаблон профиля с комментариями
+    phrases: [шаблон профиля, покажи пример профиля, какие поля в профиле]
+    module: Основание
+    requires: ""
+    produces: шаблон в консоли
+    side_writes: ""
+    effects: []
+    human: ""
+    repeatable: true
+    exit_codes: {"0": напечатан}
+    next: [profile check]
+  profile migrate:
+    operation_id: profile.migrate
+    name: перевести профиль на версию вверх
+    phrases: [переведи профиль, обнови профиль под новый выпуск, миграция профиля]
+    module: Основание
+    requires: профиль старой версии
+    produces: без --apply — план добавляемых полей; с --apply — профиль новой версии, прочитан обратно
+    side_writes: ""
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: перевод, requires_apply: true}, {type: human_approval_required, when: перевод с --apply}]
+    human: «да» на перевод — профиль проекта меняется
+    repeatable: false
+    proof: [test_migrate_without_apply_changes_nothing, test_migrate_apply_keeps_calibration_and_comments]
+    exit_codes: {"0": план или перевод выполнен; одна версия за запуск — повторить при подсказке, "3": профиль не читается или уже последней версии}
+    next: [profile check]
+  onboard:
+    operation_id: onboard.run
+    name: приёмка запуска — годность ниши, светофор, очередь, два решения человека
+    phrases: [подключи машину к проекту, годна ли ниша, приёмка запуска, первый проход контент-машины]
+    module: Подключение
+    requires: профиль
+    produces: годность ниши со статусом чисел, светофор, очередь; с --answer — режим вычитки и ритм в профиле
+    side_writes: освобождает истёкшие брони; собирает очередь (`queue build`)
+    effects:
+      - {type: filesystem_write, when: истёкшие брони освобождаются}
+      - {type: filesystem_read}
+      - {type: external_read, when: Wordstat и пробы светофора}
+      - {type: filesystem_write, when: очередь и брони; профиль — только с --answer}
+      - {type: human_approval_required, when: режим вычитки и ритм выпуска}
+    human: режим вычитки фактов (separate/human) и ритм выпуска — ответом `--answer`
+    repeatable: true
+    exit_codes: {"0": решения записаны, "2": нет ответа человека — напечатаны вопросы, "3": ошибка входа}
+    next: [queue refill]
+  known-answers:
+    operation_id: known_answers.run
+    name: прогон известных ответов — машина отвечает так, как решено раньше
+    phrases: [прогони известные ответы, проверь машину на эталонах, known answers]
+    module: Основание
+    requires: known_answers.yaml
+    produces: «совпало M из N», отчёт в reports/
+    side_writes: освобождает истёкшие брони; отчёт дня в reports/
+    effects:
+      - {type: filesystem_write, when: истёкшие брони освобождаются}
+      - {type: filesystem_read}
+      - {type: external_read, when: случаи гейта без --offline снимают выдачу}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write, when: отчёт и брони}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × фраз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": всё совпало, "1": есть расхождение — разбирать с владельцем, "2": бюджет-гейт без «да», "3": ошибка входа}
+    next: []
+
+  # --- спрос ---
+  demand collect:
+    operation_id: demand.collect
+    name: собрать спрос из подключённых источников
+    phrases: [собери спрос, обнови спрос, собери запросы, вопросы клиентов в спрос, wordstat в спрос]
+    module: А1
+    requires: подключённые источники в профиле
+    produces: data/demand.jsonl, отчёт «Сбор спроса»
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects:
+      - {type: external_read, when: консоли, Keys.so, файл ядра, вопросы клиентов}
+      - {type: paid_external_call, when: Wordstat облаком (Keys.so отказал или облако в порядке первым)}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.wordstat.cloud_price_rub × запросов (семена × 2), exact_when: перед вызовом облака, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY, YANDEX_FOLDER_ID]
+    repeatable: true
+    proof: [test_wordstat_falls_back_to_cloud_through_budget_gate, test_keysso_wordstat_checks_limit_before_requests, test_client_questions_reject_personal_data]
+    exit_codes: {"0": собрано, "2": бюджет-гейт без «да», "3": персональные данные в файле вопросов или ошибка источника}
+    note: файл вопросов клиентов — агрегат без цитат
+    next: [cluster]
+  cluster:
+    operation_id: demand.cluster
+    name: кластеры по выдаче
+    phrases: [собери кластеры, кластеризуй спрос]
+    module: А2
+    requires: data/demand.jsonl
+    produces: data/clusters.json
+    side_writes: освобождает истёкшие брони; кэш выдачи
+    effects:
+      - {type: external_read, when: выдача не из кэша}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × фраз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": кластеры собраны, "2": бюджет-гейт без «да», "3": нет спроса или ошибка источника}
+    next: [map build]
+  map build:
+    operation_id: demand.map_build
+    name: собрать карту спроса «страница ↔ ключи»
+    phrases: [собери карту спроса, обнови карту спроса, какие страницы на какие ключи]
+    module: А3
+    requires: кластеры, корпус
+    produces: data/demand_map.json, отчёт покрытия
+    side_writes: освобождает истёкшие брони
+    effects:
+      - {type: external_read, when: карта сайта и выдача головных запросов}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × фраз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": карта собрана, "2": бюджет-гейт без «да», "3": ошибка источника}
+    next: [queue build]
+
+  # --- решение ---
+  reserve list:
+    operation_id: reserve.list
+    name: брони кластеров
+    phrases: [какие брони, покажи брони, что забронировано]
+    module: Б4
+    requires: ""
+    produces: список броней
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": напечатано}
+    next: []
+  reserve release:
+    operation_id: reserve.release
+    name: снять бронь
+    phrases: [сними бронь, освободи кластер]
+    module: Б4
+    requires: активная бронь
+    produces: бронь освобождена, тема возвращается в кандидаты
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: снятие брони — решение человека
+    repeatable: false
+    exit_codes: {"0": снята, "1": брони нет или она не активна}
+    next: [queue refill]
+  reserve convert:
+    operation_id: reserve.convert
+    name: превратить бронь в страницу вручную
+    phrases: [статья вышла — переведи бронь в страницу, бронь в страницу]
+    module: Б4
+    requires: бронь и адрес вышедшей страницы
+    produces: бронь converted с адресом
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: false
+    exit_codes: {"0": переведена, "1": брони нет}
+    note: при выпуске машиной это делает `publish verify` сам
+    next: [map build]
+  gate topic:
+    operation_id: gate.topic
+    name: гейт темы — семь слоёв анти-дублей, тип выдачи, ставка
+    phrases: [проверь тему, не пересекается ли тема, гейт темы, можно ли писать на эту тему]
+    module: Б2
+    requires: тема и не меньше трёх формулировок (или --from-queue)
+    input_constraints: "одно из: --from-queue <id> | тема и --formulation не меньше трёх раз"
+    produces: вердикт со слоями, отчёт гейта; с --reserve при «свободно» — бронь
+    side_writes: освобождает истёкшие брони; кэш выдачи; отчёт гейта
+    effects:
+      - {type: external_read, when: выдача не из кэша}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × фраз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": свободно, "1": пересекается или коммерческая выдача, "2": спорно (судья) или бюджет-гейт без «да» — различать по тексту, "3": ошибка входа}
+    next: [judge task, queue take]
+  queue build:
+    operation_id: queue.build
+    name: собрать очередь тем из карты спроса
+    phrases: [собери очередь тем, добавь кандидатов в очередь]
+    module: Б5
+    requires: карта спроса
+    produces: темы-кандидаты в data/queue.json
+    side_writes: освобождает истёкшие брони; отчёт
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": собрано}
+    next: [queue refill]
+  queue refill:
+    operation_id: queue.refill
+    name: пополнить запас тем полным гейтом
+    phrases: [пополни очередь, пополни запас тем, догони запас до нормы]
+    module: Б5
+    requires: кандидаты в очереди
+    produces: темы gated с бронью; по «спорно» — задание судье
+    side_writes: освобождает истёкшие брони; кэш выдачи; журнал отсева; отчёт
+    effects:
+      - {type: external_read, when: выдача не из кэша}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+      - {type: agent_task_required, when: тема «спорно» — задание судье}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × фраз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags, test_run_limit_and_yes_cover_whole_command]
+    exit_codes: {"0": пополнено, "2": бюджет-гейт без «да», "3": ошибка источника}
+    agent_step: по «спорно» — `task_judge.md` в папке темы, ответ `judge.json`, проверка `judge check`
+    next: [judge task, queue take]
+  queue status:
+    operation_id: queue.status
+    name: запас тем в днях и совет по темпу
+    phrases: [что в очереди, сколько тем в запасе, запас тем, темп выпуска]
+    module: Б5
+    requires: очередь
+    produces: запас в днях, статусы, совет по темпу
+    side_writes: освобождает истёкшие брони; отчёт «Очередь»
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: брони и отчёт}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": запас в норме, "1": запас на пороге — пополнить}
+    note: только чтение — `status`
+    next: [queue refill, queue take]
+  queue take:
+    operation_id: queue.take
+    name: взять тему в работу — перепроверка выдачи дня взятия и снимок
+    phrases: [возьми тему в работу, бери тему, начинаем статью по теме]
+    module: Б5
+    requires: тема gated с живой бронью и годным отчётом гейта
+    produces: тема taken, снимок выдачи темы, строка расхода объектов Keys.so
+    side_writes: освобождает истёкшие брони
+    effects:
+      - {type: external_read, when: перепроверка выдачи сегодня}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × формулировок × баз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: false
+    proof: [test_take_spends_keysso_objects_equal_to_client_counter, test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": взята, "1": снята — пересечение в выдаче сегодня или гейт устарел, "2": бюджет-гейт без «да», "3": ошибка источника}
+    note: тему выбирает владелец — лучше под гипотезу со ставкой
+    next: [prepare top]
+  queue retake:
+    operation_id: queue.retake
+    name: взять заново со свежей выдачей
+    phrases: [перевозьми тему, снимок выдачи устарел, возьми тему заново]
+    module: Б5
+    requires: тема taken, живая бронь и годный отчёт гейта
+    produces: свежий снимок выдачи
+    side_writes: освобождает истёкшие брони
+    effects:
+      - {type: external_read}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × формулировок × баз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: false
+    proof: [test_retake_with_live_reservation_and_refused_when_expired, test_serp_commands_take_budget_flags]
+    exit_codes: {"0": взята заново, "1": бронь или гейт истекли — полный гейт заново, "2": бюджет-гейт без «да»}
+    next: [prepare top]
+  queue bet:
+    operation_id: queue.bet
+    name: ставка темы — из гипотезы Движка роста или вручную
+    phrases: [поставь ставку, тема под гипотезу, ставка из гипотезы, свяжи тему с гипотезой]
+    module: Б1
+    requires: тема в очереди; карточка гипотезы (sources.growth) или три поля вручную
+    input_constraints: "одно из: --hypothesis-id | --hypothesis, --expectation и --fail-threshold вместе"
+    produces: поля ставки в теме очереди
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write}, {type: human_approval_required}]
+    human: выбор гипотезы — владелец
+    repeatable: true
+    proof: [test_bet_from_card_written_to_queue_without_breaking_old_fields]
+    exit_codes: {"0": записана, "1": гипотеза в архиве, "3": карточки нет или поле пустое}
+    next: [queue take]
+  queue card:
+    operation_id: queue.card
+    name: шаблон карточки гипотезы
+    phrases: [шаблон карточки гипотезы, как заполнить гипотезу для ставки]
+    module: Б1
+    requires: ""
+    produces: шаблон в консоли
+    side_writes: ""
+    effects: []
+    human: ""
+    repeatable: true
+    exit_codes: {"0": напечатан}
+    next: [queue bet]
+  judge task:
+    operation_id: judge.task
+    name: задание судье по спорной теме
+    phrases: [разбери спорную тему, судья по теме, спорно — что делать]
+    module: Б3
+    requires: тема со «спорно» в гейте
+    produces: task_judge.md и judge_context.json в папке темы
+    side_writes: освобождает истёкшие брони; кэш эмбеддингов (если API)
+    effects:
+      - {type: filesystem_write}
+      - {type: paid_external_call, when: judge.embeddings.kind = api}
+      - {type: agent_task_required}
+    price: {currency: RUB, how: price_per_1k_rub × знаков текстов не из кэша, exact_when: перед вызовом, confirm: --confirm-spend на весь прогон}
+    human: ""
+    repeatable: true
+    proof: [test_api_embeddings_need_budget_yes]
+    agent_step: агент роли judge читает задание, пишет `judge.json` в папку темы; проверка — `judge check`
+    exit_codes: {"0": задание готово, "1": тема не «спорно», "2": бюджет-гейт без «да»}
+    next: [judge check]
+  judge check:
+    operation_id: judge.check
+    name: проверить ответ судьи и записать итог
+    phrases: [проверь ответ судьи, что решил судья]
+    module: Б3
+    requires: judge.json
+    produces: строка в data/judgements.jsonl; свободно — бронь и угол, закрыто — тема снята
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write, when: без --dry-run}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: false
+    exit_codes: {"0": принято, "1": "ответ не принят — раздел вне пятёрки, цитаты нет, нет угла", "2": судья сказал «спорно» — решает человек}
+    next: [judge accept, queue take]
+  judge accept:
+    operation_id: judge.accept
+    name: решение человека по «спорно»
+    phrases: [тема свободна, тема закрыта, моё решение по спорной теме]
+    module: Б3
+    requires: тема со «спорно»
+    produces: итог в очереди и журнале судейства
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: свободно (с углом) или закрыто — `--who`
+    repeatable: false
+    exit_codes: {"0": записано, "1": гейт неполный — бронь невозможна, "3": свободно без угла}
+    next: [queue take]
+
+  # --- подготовка ---
+  prepare top:
+    operation_id: prepare.top
+    name: разбор топа в числа
+    phrases: [разбери топ, сколько писать, разбор конкурентов по теме, что у лидеров выдачи]
+    module: В1
+    requires: тема taken, свежий снимок выдачи
+    produces: top.json и top.md — объём, картинки, таблица, пробелы
+    side_writes: освобождает истёкшие брони; кэш страниц
+    effects: [{type: external_read, when: страницы конкурентов из снимка выдачи}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": разбор готов (или неполный с причиной), "1": тема не taken или снимок устарел — `queue retake`}
+    next: [prepare brief]
+  prepare donors:
+    operation_id: prepare.donors
+    name: страницы зарубежных доноров для экспертной темы
+    phrases: [найди доноров, зарубежные источники для темы]
+    module: В1
+    requires: домены в prepare.donors
+    produces: тезисы доноров в разборе
+    side_writes: освобождает истёкшие брони; кэш страниц
+    effects: [{type: external_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": найдено, "1": донор не из профиля}
+    next: [prepare brief]
+  prepare brief:
+    operation_id: prepare.brief
+    name: задание на бриф
+    phrases: [сделай бриф, бриф статьи, составь бриф]
+    module: В2
+    requires: top.json
+    produces: task_brief.md, brief_context.json (кандидаты авторов и перелинковки)
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: agent_task_required}]
+    human: ""
+    repeatable: true
+    agent_step: агент роли planner заполняет `brief.yaml` по `task_brief.md`; проверка — `prepare check`
+    exit_codes: {"0": задание готово, "1": разбора топа нет}
+    next: [prepare check]
+  prepare check:
+    operation_id: prepare.check
+    name: проверить бриф кодом
+    phrases: [проверь бриф, бриф в порядке ли]
+    module: В2
+    requires: brief.yaml
+    produces: ошибки и предупреждения; кандидаты перелинковки «по подзаголовку» — в brief_context.json
+    side_writes: освобождает истёкшие брони; дописывает кандидатов перелинковки в brief_context.json
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: подзаголовок задевает чужой ключ}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": ошибок нет, "1": ошибки — исправить бриф}
+    next: [prepare approve]
+  prepare approve:
+    operation_id: prepare.approve
+    name: утвердить бриф
+    phrases: [утверждаю бриф, бриф утверждён]
+    module: В2
+    requires: чистый `prepare check`
+    produces: approval.json с суммой брифа; строка расхода токенов
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: утверждает только владелец — `--who`; правка брифа снимает утверждение
+    repeatable: false
+    exit_codes: {"0": утверждён, "1": проверка не пройдена — не утверждается}
+    next: [write task]
+
+  # --- текст и вычитка ---
+  write task:
+    operation_id: write.task
+    name: задания на текст — план, текст, критика
+    phrases: [напиши статью по брифу, задания на текст, пиши статью]
+    module: В3
+    requires: утверждённый бриф; усиленный уровень — пакет проверенных фактов
+    produces: task_plan.md, task_write.md, task_critique.md
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: agent_task_required}]
+    human: ""
+    repeatable: true
+    proof: [test_write_task_refused_without_approved_brief, test_strong_level_needs_fact_pack]
+    agent_step: агент роли writer пишет `article.md` (план — `plan.md`), критик — `critique.md`; дальше `review task` и `gate article`
+    exit_codes: {"0": задания готовы, "1": бриф не утверждён или нет пакета фактов для усиленного уровня}
+    next: [review task]
+  review task:
+    operation_id: review.task
+    name: задания критику и вычитке фактов (вторая модель без контекста автора)
+    phrases: [вычитай факты статьи, проверь факты в статье, критика текста статьи]
+    module: В4
+    requires: утверждённый бриф и текст
+    produces: task_critique.md; круг вычитки в data/factcheck/<id>/ (копия текста, задание, сумма)
+    side_writes: освобождает истёкшие брони; прежние ответы вычитки — в архив
+    effects: [{type: filesystem_write}, {type: agent_task_required}]
+    human: ""
+    repeatable: true
+    proof: [test_factcheck_task_has_no_author_context, test_old_claims_do_not_close_new_text]
+    agent_step: вторая модель (Codex) работает только в `data/factcheck/<id>/`, пишет `claims.jsonl`; проверка — `review check`
+    exit_codes: {"0": задания готовы, "1": бриф не утверждён или текста нет, "3": в тексте путь к контексту автора — задание не пишется}
+    next: [review check]
+  review check:
+    operation_id: review.check
+    name: проверить вычитку кодом
+    phrases: [проверь вычитку, что нашла вычитка]
+    module: В4
+    requires: claims.jsonl текущего круга
+    produces: review.json (чисто или открытые пункты); подтверждённое — в библиотеку фактов
+    side_writes: освобождает истёкшие брони; строка расхода токенов
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_blocker_unverified_and_legal_risk_keep_draft_until_human, test_stale_round_does_not_feed_fact_library]
+    exit_codes: {"0": вычитка закрыта, "1": "статья — черновик (блокер, непроверенное, юридический риск, текст изменился)"}
+    next: [review accept, gate article]
+  review accept:
+    operation_id: review.accept
+    name: решение человека по строке вычитки
+    phrases: [принимаю утверждение, убрать утверждение из текста]
+    module: В4
+    requires: claims.jsonl
+    produces: решение в decisions.json
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: keep или remove по каждой открытой строке — `--who`; remove — правка текста и новый круг
+    repeatable: true
+    proof: [test_remove_needs_claim_gone_from_text]
+    exit_codes: {"0": записано, "3": строки нет}
+    next: [review check]
+  gate article:
+    operation_id: gate.article
+    name: гейт статьи без модели
+    phrases: [проверь статью, гейт статьи, готова ли статья]
+    module: В7
+    requires: article.md (с --topic — статья машины, разметка из текста и брифа)
+    produces: «пропуск» или «черновик» с причинами; с --topic — gate_article.json и schema.json
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: ссылки без --offline}, {type: filesystem_write, when: --topic}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": пропуск, "1": черновик — причины по проверкам}
+    next: [images plan, assemble build]
+
+  # --- картинки ---
+  images plan:
+    operation_id: images.plan
+    name: места картинок в статье
+    phrases: [сделай картинки для статьи, картинки в статью, где поставить картинки]
+    module: В5
+    requires: article.md
+    produces: images.json — места, виды, провайдеры
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": план готов, "1": текста нет}
+    next: [images make]
+  images make:
+    operation_id: images.make
+    name: сделать файлы картинок
+    phrases: [сгенерируй картинки статьи, сделай файлы картинок]
+    module: В5
+    requires: images.json
+    produces: файлы в папке картинок темы; статусы в images.json
+    side_writes: освобождает истёкшие брони; бесплатные картинки (шаблон, библиотека) делаются до бюджет-гейта платных
+    effects:
+      - {type: filesystem_write}
+      - {type: paid_external_call, when: провайдер проекта (module:…) у вида картинки}
+    price: {currency: RUB, how: сумма price() провайдера по кадрам; доллары — по budget.usd_rub, exact_when: перед вызовом генератора, confirm: --confirm-spend на весь прогон}
+    human: ""
+    repeatable: true
+    proof: [test_paid_provider_needs_yes_and_failure_is_stub, test_template_cover_and_scheme_free_without_budget_gate, test_usd_price_needs_rate]
+    exit_codes: {"0": готово (отказ кадра — заглушка), "2": бюджет-гейт без «да» — повторить с ценой, "3": курса нет или плана нет}
+    note: цена генерации — «да» через --confirm-spend
+    next: [images upload]
+  images photo:
+    operation_id: images.photo
+    name: фото из сети — задание агенту и слияние строк
+    phrases: [подбери фото из сети, фото с лицензией]
+    module: В5
+    requires: images.json
+    produces: task_photo.md; с --merge — строки photos.jsonl в плане
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: agent_task_required}]
+    human: ""
+    repeatable: true
+    agent_step: агент пишет `photos.jsonl` (место, адрес, автор, лицензия, источник, alt); `images photo <id> --merge` вливает
+    exit_codes: {"0": задание готово или строки влиты, "1": есть отклонённые строки}
+    next: [images insert]
+  images upload:
+    operation_id: images.upload
+    name: загрузить картинки в хранилище сайта
+    phrases: [загрузи картинки на сайт, выложи картинки в хранилище]
+    module: В5
+    requires: готовые файлы без адресов; загрузчик (провайдер или images.upload)
+    produces: адреса картинок в images.json
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    write: {right: images.allow = write, apply: true, snapshot: что отвечает по адресу до загрузки, rollback: publish rollback <id> — restore загрузчика или инструкция}
+    human: ""
+    repeatable: true
+    proof: [test_upload_needs_right_rollback_in_manual_mode_and_insert, test_upload_not_answering_is_unconfirmed]
+    exit_codes: {"0": "загружено и подтверждено, план без --apply или загрузчика нет — загружает человек по выводу", "1": нет права с --apply, "3": адрес не отвечает — не подтверждено}
+    next: [images insert]
+  images insert:
+    operation_id: images.insert
+    name: вставить картинки в текст
+    phrases: [вставь картинки в текст, поставь картинки в статью]
+    module: В5
+    requires: картинки с адресами
+    produces: строки картинок в article.md, обложка — поле image
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": вставлено}
+    note: вычитку не сбрасывает (сумма вычитки — без адресов картинок); гейт статьи — заново
+    next: [gate article]
+  images backfill:
+    operation_id: images.backfill
+    name: добор картинок опубликованным статьям
+    phrases: [найди статьи без картинок, добор картинок старым статьям]
+    module: В5
+    requires: корпус с адресами
+    produces: очередь добора по статьям без картинок в теле
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read}, {type: filesystem_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    proof: [test_backfill_queues_pages_without_images_and_run_rolls_back]
+    exit_codes: {"0": найдено и поставлено (или план без --apply)}
+    note: очередь — внутри инстанса; правку живой страницы делает публикатор или человек
+    next: [images plan]
+
+  # --- сборка и выпуск ---
+  assemble build:
+    operation_id: assemble.build
+    name: собрать пакет страницы
+    phrases: [собери статью, собери пакет страницы, сборка статьи]
+    module: В6
+    requires: утверждённый бриф, «пропуск» гейта для текущего текста
+    produces: package/ с манифестом; комментарии HTML сняты в notes
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_build_without_approval_refused, test_build_refused_when_text_changed_after_gate]
+    exit_codes: {"0": пакет готов, "1": не готов — провал проверки уровня block или нет утверждения}
+    next: [publish prepare]
+  assemble contract:
+    operation_id: assemble.contract
+    name: тест контракта сборщика проекта
+    phrases: [проверь сборщик, контракт сборщика]
+    module: В6
+    requires: сборщик профиля
+    produces: «выполнен» или нарушения
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": выполнен, "1": нарушен}
+    next: []
+  publish prepare:
+    operation_id: publish.prepare
+    name: пакет для ручной вставки
+    phrases: [подготовь к вставке, пакет для вставки, что вставлять на сайт]
+    module: Г1
+    requires: готовый пакет
+    produces: paste.md (с пояснениями сборки), rollback.md
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required, when: человек вставляет страницу после команды}]
+    human: вставляет страницу человек; после вставки — `publish verify` в тот же день
+    repeatable: true
+    proof: [test_manual_prepare_writes_paste_and_rollback_into_manifest]
+    exit_codes: {"0": готово, "1": финальная чистка не прошла или нет утверждения}
+    next: [publish verify]
+  publish apply:
+    operation_id: publish.apply
+    name: прямая публикация публикатором
+    phrases: [опубликуй статью напрямую, выложи статью на сайт]
+    module: Г1
+    requires: готовый пакет, режим direct и публикатор
+    produces: страница на сайте (по ступени publish.allow)
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    write: {right: publish.allow = commit/publish, apply: true, snapshot: состояние страницы до записи, rollback: publish rollback <id>}
+    human: ""
+    note: ступень права — строкой профиля; --apply — после «да» владельца на план
+    repeatable: false
+    proof: [test_files_level_plans_nothing_commit_level_has_no_publish, test_publish_then_rollback_returns_snapshot]
+    exit_codes: {"0": записано и подтверждено (или план), "1": ручной режим или нет права, "3": запись не подтверждена}
+    next: [publish verify]
+  publish next:
+    operation_id: publish.next
+    name: следующая тема к выкладке по ритму
+    phrases: [что выкладывать следующим, пора ли выкладывать]
+    module: Г1
+    requires: готовые пакеты
+    produces: тема и причина
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": ответ напечатан}
+    next: [publish prepare]
+  publish verify:
+    operation_id: publish.verify
+    name: «доехало» по ответу сайта и записи дня выкладки
+    phrases: [доехала ли статья, статью вставили — проверь, доехало]
+    module: Г2
+    requires: страница на сайте; пакет или запись корпуса как эталон
+    input_constraints: "--inserted-on и --who — только вместе"
+    produces: отчёт «доехало», день выкладки, снимок страницы, записи дня выкладки (бронь, тема, карта спроса, книга ставок, журнал)
+    side_writes: освобождает истёкшие брони; журнал выпуска, эталонный снимок, отчёт; строка журнала действий проекта
+    effects:
+      - {type: external_read}
+      - {type: filesystem_write}
+      - {type: external_write, when: база проекта и передача статьи в папку проекта, requires_apply: true}
+    write: {right: [records.allow = write, paths.allow = write], apply: true, snapshot: строка базы и папка до записи, rollback: publish rollback <id>}
+    human: ""
+    repeatable: true
+    proof: [test_all_records_after_verify, test_transfer_needs_right_and_apply_then_corpus_sees_article, test_inserted_on_is_publication_day_with_source]
+    exit_codes: {"0": доехало и записи сделаны, "1": не доехало — причины по пунктам или отказ права с --apply, "3": ошибка входа или запись не подтверждена}
+    note: в тот же день после вставки; позже — --inserted-on вместе с --who
+    next: [index submit]
+  publish record:
+    operation_id: publish.record
+    name: записи дня выкладки повтором
+    phrases: [сделай записи дня выкладки, повтори записи выпуска]
+    module: Г4
+    requires: «доехало» подтверждено
+    produces: записи без дублей
+    side_writes: освобождает истёкшие брони; строка журнала действий проекта
+    effects: [{type: filesystem_write}, {type: external_write, when: база проекта и передача статьи, requires_apply: true}]
+    write: {right: [records.allow = write, paths.allow = write], apply: true, snapshot: строка базы и папка до записи, rollback: publish rollback <id>}
+    human: ""
+    repeatable: true
+    proof: [test_second_record_adds_nothing, test_project_db_snapshot_and_read_back]
+    exit_codes: {"0": записи сделаны, "1": «доехало» не подтверждено или отказ права с --apply"}
+    next: [index submit]
+  publish rollback:
+    operation_id: publish.rollback
+    name: откат записи по снимку «до»
+    phrases: [откати публикацию статьи, верни страницу как до выкладки, откат записи машины]
+    module: Г1
+    requires: снимки «до» темы или прогона
+    input_constraints: "одно из: id темы | --run <id прогона>"
+    produces: прежнее состояние; строки «откатить вручную» там, где удалять нельзя
+    side_writes: освобождает истёкшие брони; снимки отката
+    effects: [{type: external_write, requires_apply: true}, {type: filesystem_write}, {type: human_approval_required}]
+    write: {right: "та же ступень, что у записи", apply: true, snapshot: состояние перед откатом, rollback: —}
+    human: откат — решение человека
+    repeatable: false
+    proof: [test_publish_then_rollback_returns_snapshot, test_rollback_keeps_file_edited_after_transfer]
+    exit_codes: {"0": откат выполнен или напечатан план и инструкция, "1": нет права, "3": снимков нет или откат не подтверждён}
+    next: []
+  index submit:
+    operation_id: index.submit
+    name: заявки на индексацию
+    phrases: [отправь на индексацию, переобход страницы, индексируй статью]
+    module: Г3
+    requires: «доехало»
+    produces: заявки IndexNow и переобход Вебмастера, строки журнала выпуска
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: ключ IndexNow на сайте, квота Вебмастера, карта сайта}, {type: external_write, requires_apply: true}, {type: filesystem_write, when: журнал выпуска — заявки и их подтверждение}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    write: {right: indexing.allow = write, apply: true, snapshot: не нужен (заявка), rollback: —}
+    human: ""
+    secrets: [INDEXNOW_KEY, YANDEX_WEBMASTER_TOKEN]
+    repeatable: false
+    proof: [test_indexnow_202_confirmed_and_second_same_day_not_sent, test_submit_before_arrival_refused]
+    exit_codes: {"0": "отправлено и подтверждено, план без --apply или отправлять нечего (интеграция выключена, квота, уже сегодня) — причина в выводе", "1": нет права или раньше «доехало», "3": ответ сервиса не подтвердил}
+    next: [index status]
+  index status:
+    operation_id: index.status
+    name: в индексе ли новые адреса
+    phrases: [проиндексировалась ли статья, статус индексации]
+    module: Г3
+    requires: выпущенные адреса
+    produces: статус на 1, 3, 7, 14-й день; события в журнал выпуска
+    side_writes: освобождает истёкшие брони; события index_status в журнале выпуска; отчёт
+    effects: [{type: external_read}, {type: filesystem_write}]
+    human: ""
+    secrets: [YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    exit_codes: {"0": напечатано}
+    next: []
+
+  # --- учёт и состояние ---
+  spend report:
+    operation_id: spend.report
+    name: расход по статьям и видам
+    phrases: [сколько стоила статья, расход машины, цена статей за месяц]
+    module: Основание
+    requires: ""
+    produces: цена каждой статьи и итог периода; «нет данных» называется
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": напечатано}
+    next: []
+  spend add:
+    operation_id: spend.add
+    name: внести трату вне машины
+    phrases: [внеси расход, трата вне машины]
+    module: Основание
+    requires: ""
+    produces: строка в data/spend.jsonl
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}]
+    human: ""
+    repeatable: false
+    exit_codes: {"0": записано, "3": неверный статус или сумма}
+    note: сумма и источник цены — со слов владельца
+    next: []
+  catalog:
+    operation_id: catalog.print
+    name: каталог операций выпуска
+    phrases: [какие команды у машины, каталог операций, что умеет контент-машина]
+    module: Основание
+    requires: ""
+    produces: контракт всех команд; --json — для сервера MCP
+    side_writes: ""
+    effects: []
+    human: ""
+    repeatable: true
+    exit_codes: {"0": напечатан, "3": каталог неполон}
+    next: [status]
+  status:
+    operation_id: status.read
+    name: что с машиной — только чтение
+    phrases: [что с машиной, как дела у контент-машины, состояние машины, что с темой — только посмотреть]
+    module: Основание
+    requires: профиль
+    produces: запас, темп, расход за 30 дней, ближайшие замеры, последние выпуски; с --topic — одна тема
+    side_writes: ""
+    effects: [{type: filesystem_read}]
+    human: ""
+    repeatable: true
+    proof: [test_status_writes_nothing]
+    exit_codes: {"0": напечатано}
+    next: []

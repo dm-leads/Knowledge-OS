@@ -404,7 +404,7 @@ def run_card(args) -> int:
 
 def register(sub):
     from ..cli import add_profile
-    parser = sub.add_parser("queue", help="очередь тем: build | refill | status | take | retake | bet")
+    parser = sub.add_parser("queue", help="очередь тем: build | refill | status | take | retake | bet | card")
     actions = parser.add_subparsers(dest="action", required=True)
     for name, text in (("build", "кандидаты карты спроса → темы очереди"), ("refill", "полный гейт до нормы запаса"),
                        ("status", "запас в днях"), ("take", "взять тему в работу"),

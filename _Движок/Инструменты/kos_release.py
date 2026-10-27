@@ -164,6 +164,9 @@ def issue(package: Path, into: Path, first: bool = False) -> dict:
     passport = {"package": name, "version": version, "canon_commit": commit, "released": date.today().isoformat(),
                 "canon_path": package.as_posix(), "fingerprint": "sha256 текста с LF",
                 "files": {relative: fingerprint(path) for relative, path in files.items()}}
+    if (source / "contracts.yaml").is_file():          # пакет с каталогом операций: хэш сверяет kos_catalog_check
+        from kos_catalog_check import catalog_hash
+        passport["catalog_sha256"] = catalog_hash(source)
     (into / PASSPORT).write_text(json.dumps(passport, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
                                  newline="\n")
     return passport

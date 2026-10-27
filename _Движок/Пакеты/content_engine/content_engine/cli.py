@@ -13,7 +13,8 @@ import sys
 from .core.errors import BudgetRefused, EngineError, GateRefused, WriteUnconfirmed
 
 STEPS = ("check", "profile_cmd", "demand", "cluster", "demand_map", "reservations", "gate_topic", "queue",
-         "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing", "judge", "write", "review", "images", "onboard")
+         "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing", "judge", "write", "review", "images", "onboard",
+         "catalog_cmd", "status_cmd")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,10 +56,15 @@ def add_profile(parser):
     parser.add_argument("--profile", required=True, help="путь к profile.yaml инстанса")
 
 
-def open_instance(args, **kwargs):
+def open_instance(args, *, read_only: bool = False, **kwargs):
+    """Инстанс команды. С записью — сначала освобождаются истёкшие брони (побочная запись, она в контракте операций);
+    `read_only` — ничего не освобождается и не создаётся (`status`)."""
     from .core.instance import Instance
     from .steps.reservations import expire
     instance = Instance(args.profile, **kwargs)
+    if read_only:
+        instance.read_only = True
+        return instance
     # платный запасной источник выдачи (Н6) берёт «да» человека из флагов команды
     instance.confirm_spend = getattr(args, "confirm_spend", None)
     instance.unattended = getattr(args, "unattended", False)
