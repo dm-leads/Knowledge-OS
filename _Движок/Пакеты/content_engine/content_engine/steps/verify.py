@@ -15,18 +15,20 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import timedelta
 from pathlib import Path
 
 from ..adapters.page_fetch import PageFetcher
 from ..core import publications, snapshots
-from ..core.errors import EngineError, SourceError
+from ..core.errors import EngineError, NetworkUnreachable, SourceError
 from ..core.htmldoc import HtmlDoc
 from ..core.urls import ascii_url, norm_url, section_of, slug_of
 from .gate_article import _shingles
 from .schema import problems as schema_problems
 
-ARRIVED, NOT_ARRIVED = "доехало", "не доехало"
+ARRIVED, NOT_ARRIVED, UNVERIFIED = "доехало", "не доехало", "не проверено"
+SLEEP = time.sleep                     # подменяется в тестах
 
 
 def _norm_text(s: str) -> str:
@@ -74,11 +76,21 @@ def check_page(instance, ref: dict, url: str, *, transport=None) -> dict:
     def add(name, ok, detail):
         items.append({"check": name, "ok": bool(ok), "detail": detail})
 
-    try:
-        got = fetcher.get(url, allow_redirects=False)
-    except SourceError as exc:
-        add("код ответа", False, str(exc))
-        return {"items": items, "doc": None}
+    pub = instance.p["publish"]
+    attempts = 1 + int(pub.get("verify_retries", 0))
+    for attempt in range(attempts):
+        try:
+            got = fetcher.get(url, allow_redirects=False)
+            break
+        except NetworkUnreachable as exc:
+            # О1: тайм-аут или обрыв — не ответ сайта; повтор, затем «не проверено», а не «не доехало»
+            if attempt + 1 == attempts:
+                return {"items": items, "doc": None,
+                        "unverified": f"{exc}; попыток {attempts}"}
+            SLEEP(int(pub.get("verify_retry_seconds", 0)))
+        except SourceError as exc:
+            add("код ответа", False, str(exc))
+            return {"items": items, "doc": None}
     redirect = f" → {got.location}" if got.location else ""
     add("код ответа", got.status == 200, f"HTTP {got.status}{redirect}" + (" (перенаправление)" if redirect else ""))
     if got.status != 200:
@@ -154,6 +166,13 @@ def verify(instance, tid: str, url: str | None, *, browser: bool = True, transpo
         url = find_url(instance, ref["slug"])
     url = url if url.startswith("http") else "https://" + url.lstrip("/")
     page = check_page(instance, ref, url, transport=transport)
+    if page.get("unverified"):
+        publications.log(instance, "unverified", id=tid, url=norm_url(url), reason=page["unverified"])
+        return {"id": tid, "url": url, "date": instance.today.isoformat(), "reference": ref["kind"],
+                "verdict": UNVERIFIED, "items": [], "layout": {"status": "не проверялось",
+                                                              "why": "сеть не ответила"},
+                "notes": [f"не проверено: {page['unverified']} — повторите `publish verify {tid}` позже; "
+                          "день выкладки не записан"]}
     items, doc = page["items"], page["doc"]
     layout = {"status": "не проверялось", "why": "страница не ответила 200"}
     if doc is not None and browser:
@@ -243,6 +262,8 @@ def run_verify(instance, tid: str, url: str | None, *, browser: bool = True, app
     (folder / f"Доехало — {tid}.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8",
                                                   newline="\n")
     print(render(report))
+    if report["verdict"] == UNVERIFIED:
+        return 3
     if report["verdict"] != ARRIVED:
         return 1
     if report["reference"] == "манифест":

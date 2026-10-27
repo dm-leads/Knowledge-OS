@@ -56,9 +56,23 @@ def validate(command: str, c: dict) -> list[str]:
     if c.get("side_writes") and "filesystem_write" not in types:
         problems.append(f"{command}: побочная запись без эффекта filesystem_write")
     problems += [f"{command}: write — неизвестное поле {f}" for f in (c.get("write") or {}) if f not in WRITE_FIELDS]
+    problems += _right_problems(command, (c.get("write") or {}).get("right"))
     if not (c.get("phrases") or []):
         problems.append(f"{command}: нет фраз человека")
     return problems
+
+
+def _right_problems(command: str, right) -> list[str]:
+    """`write.right` — строка или список «<область>.allow = <ступень>»: ключ профиля, а не проза (О3 волны 3)."""
+    if right is None:
+        return []
+    from .profile import ALLOW
+    out = []
+    for item in right if isinstance(right, list) else [right]:
+        area, _, levels = str(item).partition(".allow = ")
+        if area not in ALLOW or not levels or not all(l in ALLOW[area] for l in levels.split("/")):
+            out.append(f"{command}: write.right «{item}» — нужен «<область>.allow = <ступень>», области {tuple(ALLOW)}")
+    return out
 
 
 def _arg(action) -> dict:

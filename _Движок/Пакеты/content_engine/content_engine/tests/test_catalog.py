@@ -54,6 +54,21 @@ def test_money_and_writes_name_existing_proof_tests():
         assert missing == [], f"{op['command']}: нет тестов {missing}"
 
 
+def test_paid_operations_proved_by_behaviour_not_flags():
+    """О3: тест разбора флагов не доказывает бюджет-гейт — у платной операции есть тест поведения."""
+    for op in contract.catalog()["operations"]:
+        if any(e["type"] == "paid_external_call" for e in op["effects"]):
+            assert set(op.get("proof") or []) - {"test_serp_commands_take_budget_flags"}, op["command"]
+
+
+def test_rollback_right_is_profile_keys_from_code():
+    """О3: право отката в контракте — ключи профиля, ровно те, что могут запросить действия отката."""
+    from content_engine.core import restore
+    op = next(o for o in contract.catalog()["operations"] if o["command"] == "publish rollback")
+    assert sorted(op["write"]["right"]) == sorted(restore.right_text(r) for r in restore.RIGHTS)
+    assert contract.validate("x", dict(op, write=dict(op["write"], right="та же ступень")))
+
+
 def test_profile_commands_name_reservation_release():
     """Команда с профилем открывает инстанс с записью — истёкшие брони освобождаются; исключения названы с причиной."""
     read_only = {"status"}                                  # open_instance(read_only=True)

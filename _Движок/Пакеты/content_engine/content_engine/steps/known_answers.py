@@ -114,7 +114,10 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
     if kind == "publish":
         from .verify import check_page, reference
         ref = reference(instance, str(case["id"]), case.get("url"))
-        items = check_page(instance, ref, case["url"])["items"]
+        page = check_page(instance, ref, case["url"])
+        if page.get("unverified"):
+            return None, f"не проверено: {page['unverified']}"      # О1: сеть — «отложен», не «не совпало»
+        items = page["items"]
         got = "доехало" if all(i["ok"] for i in items) else "не доехало"
         why = "; ".join(f"{i['check']}: {i['detail']}" for i in items if not i["ok"])
         return got == case["expect"], f"«{got}», ожидалось «{case['expect']}»" + (f" ({why})" if why else "")
@@ -270,6 +273,10 @@ def run(args) -> int:
     lines, ok, pending = [], 0, 0
     for case in cases:
         good, detail = run_case(instance, case, args.offline)
+        if good is None:
+            pending += 1
+            lines.append(f"  … {case['name']}: отложен: сеть — {detail}")
+            continue
         until = str(case.get("pending_until") or "")
         if not good and until and instance.today.isoformat() < until:
             pending += 1

@@ -100,7 +100,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": всё совпало, "1": есть расхождение — разбирать с владельцем, "2": бюджет-гейт без «да», "3": ошибка входа}
     next: []
 
@@ -141,7 +141,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": кластеры собраны, "2": бюджет-гейт без «да», "3": нет спроса или ошибка источника}
     next: [map build]
   map build:
@@ -160,7 +160,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": карта собрана, "2": бюджет-гейт без «да», "3": ошибка источника}
     next: [queue build]
 
@@ -222,7 +222,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": свободно, "1": пересекается или коммерческая выдача, "2": спорно (судья) или бюджет-гейт без «да» — различать по тексту, "3": ошибка входа}
     next: [judge task, queue take]
   queue build:
@@ -255,7 +255,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags, test_run_limit_and_yes_cover_whole_command]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend, test_run_limit_and_yes_cover_whole_command]
     exit_codes: {"0": пополнено, "2": бюджет-гейт без «да», "3": ошибка источника}
     agent_step: по «спорно» — `task_judge.md` в папке темы, ответ `judge.json`, проверка `judge check`
     next: [judge task, queue take]
@@ -289,7 +289,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: false
-    proof: [test_take_spends_keysso_objects_equal_to_client_counter, test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_take_spends_keysso_objects_equal_to_client_counter, test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": взята, "1": снята — пересечение в выдаче сегодня или гейт устарел, "2": бюджет-гейт без «да», "3": ошибка источника}
     note: тему выбирает владелец — лучше под гипотезу со ставкой
     next: [prepare top]
@@ -309,7 +309,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: false
-    proof: [test_retake_with_live_reservation_and_refused_when_expired, test_serp_commands_take_budget_flags]
+    proof: [test_retake_with_live_reservation_and_refused_when_expired, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": взята заново, "1": бронь или гейт истекли — полный гейт заново, "2": бюджет-гейт без «да»}
     next: [prepare top]
   queue bet:
@@ -734,10 +734,10 @@ operations:
     produces: прежнее состояние; строки «откатить вручную» там, где удалять нельзя
     side_writes: освобождает истёкшие брони; снимки отката
     effects: [{type: external_write, requires_apply: true}, {type: filesystem_write}, {type: human_approval_required}]
-    write: {right: "та же ступень, что у записи", apply: true, snapshot: состояние перед откатом, rollback: —}
+    write: {right: [paths.allow = write, images.allow = files, images.allow = write, publish.allow = commit, publish.allow = publish, records.allow = write], apply: true, snapshot: состояние перед откатом, rollback: —}
     human: откат — решение человека
     repeatable: false
-    proof: [test_publish_then_rollback_returns_snapshot, test_rollback_keeps_file_edited_after_transfer]
+    proof: [test_publish_then_rollback_returns_snapshot, test_rollback_keeps_file_edited_after_transfer, test_rollback_without_right_writes_nothing, test_rollback_right_is_profile_keys_from_code]
     exit_codes: {"0": откат выполнен или напечатан план и инструкция, "1": нет права, "3": снимков нет или откат не подтверждён}
     next: []
   index submit:

@@ -100,6 +100,8 @@ def no_network(monkeypatch):
     def refuse(self, method, url, *args, **kwargs):
         raise requests.exceptions.ConnectionError(f"сеть в тестах запрещена: {method} {url}")
     monkeypatch.setattr(requests.Session, "request", refuse)
+    from content_engine.steps import verify as verify_mod
+    monkeypatch.setattr(verify_mod, "SLEEP", lambda seconds: None)     # повтор «доехало» без настоящей паузы (О1)
 
 
 @pytest.fixture

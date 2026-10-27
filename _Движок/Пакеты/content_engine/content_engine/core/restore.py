@@ -13,6 +13,15 @@ from typing import Callable
 from .actions import Action
 
 RESTORERS: dict[str, Callable] = {}
+# Ступени прав, которые может запросить действие отката (О3 волны 3): ключ профиля и ступень. Контракт
+# `publish rollback` (`write.right`) перечисляет ровно их — тест каталога сверяет; действие с другой ступенью
+# в план отката не попадает.
+RIGHTS = (("paths", "write"), ("images", "files"), ("images", "write"), ("publish", "commit"),
+          ("publish", "publish"), ("records", "write"))
+
+
+def right_text(right: tuple[str, str]) -> str:
+    return f"{right[0]}.allow = {right[1]}"
 
 
 def register(kind: str):

@@ -25,6 +25,10 @@ class NotFound(SourceError):
     """HTTP 404: источник не нашёл объект запроса (у Keys.so check-top — ни одной фразы пачки нет в базе)."""
 
 
+class NetworkUnreachable(SourceError):
+    """Сеть не ответила (тайм-аут, обрыв соединения): это «не проверено», а не ответ сайта (О1 волны 3)."""
+
+
 class EndpointNotAllowed(SourceError):
     """Адрес вне белого списка адаптера: запрос не отправлен."""
 

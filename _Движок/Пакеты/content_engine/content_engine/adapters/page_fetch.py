@@ -17,7 +17,7 @@ from pathlib import Path
 
 import requests
 
-from ..core.errors import EndpointNotAllowed, SourceError
+from ..core.errors import EndpointNotAllowed, NetworkUnreachable, SourceError
 from ..core.store import SCHEMA_VERSION
 from ..core.urls import host_of, host_unicode, norm_url
 
@@ -104,6 +104,8 @@ class PageFetcher:
         try:
             response = self.transport("GET", url, headers={"User-Agent": USER_AGENT}, timeout=self.timeout,
                                       allow_redirects=allow_redirects, stream=True)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            raise NetworkUnreachable(f"{url}: сеть не отвечает — {type(exc).__name__}") from exc
         except requests.exceptions.RequestException as exc:
             raise SourceError(f"{url}: сеть не отвечает — {type(exc).__name__}") from exc
         body = self._read(response, url)
