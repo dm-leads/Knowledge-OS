@@ -132,7 +132,7 @@ class WordstatDemand:
         ks = KeyssoWordstat(self.instance)
         limit = self.instance.p["sources"]["suggest"]["limit"]
         items = seeds(self.instance)
-        planned = len(items) * (2 if self.suggest else 1)
+        planned = len(items) * (2 if self.suggest else 1) + 1     # +1 — сам запрос остатка
         left = ks.requests_left()                # квота — до запроса, как у выдачи (П4)
         self.report["planned"] = planned
         self.report["limit_left"] = left if left is not None else "не читается"

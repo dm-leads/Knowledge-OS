@@ -89,8 +89,11 @@ def start_round(instance, tid: str) -> Path:
     folder = factcheck_dir(instance, tid)
     old = [folder / n for n in ("claims.jsonl", "decisions.json") if (folder / n).is_file()]
     if old:
-        archive = folder / "archive" / instance.now().strftime("%Y%m%d-%H%M%S")
-        archive.mkdir(parents=True, exist_ok=True)
+        base = folder / "archive" / instance.now().strftime("%Y%m%d-%H%M%S")
+        archive, n = base, 2
+        while archive.exists():                  # два круга в одну секунду — не перезаписывать архив
+            archive, n = base.with_name(f"{base.name}-{n}"), n + 1
+        archive.mkdir(parents=True)
         for path in old:
             shutil.move(str(path), str(archive / path.name))
     (folder / "article.md").write_bytes(article.read_bytes())

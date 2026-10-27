@@ -28,6 +28,7 @@ from ..images.template import steps_of
 from .gate_article import _sections
 
 PLAN = "images.json"
+MAX_PRODUCT = 2          # фото продукта в статье, не больше: статья — не каталог, остальное — иллюстрации и схемы
 IMAGE_LINE = re.compile(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$")
 
 
@@ -92,6 +93,7 @@ def make_plan(instance, tid: str) -> dict:
         from ..images.library import LibraryProvider
         library = LibraryProvider(instance)
     used, items, notes = set(), [], []
+    product_left = MAX_PRODUCT
     from .prepare import topic_of
     direction = topic_of(instance, tid).get("direction", "")
     if im["cover"]:
@@ -99,9 +101,11 @@ def make_plan(instance, tid: str) -> dict:
     for i in chosen:
         heading, text = h2[i]
         lead = f"{heading}\n{_first_paragraph(text)}"
-        row = library.match(lead, used) if library and im["providers"]["product"] == "library" else None
+        row = (library.match(lead, used) if library and im["providers"]["product"] == "library" and product_left > 0
+               else None)
         if row:
             used.add(row["ref"])
+            product_left -= 1
             items.append({"kind": "product", "place": heading, "alt": row["alt"] or heading, "heading": heading,
                           "ref": row["ref"]})
         elif len(steps_of(text)) >= 2:
@@ -126,25 +130,69 @@ def _request(item: dict, plan_topic: str, text: str) -> Request:
                    {"ref": item.get("ref", ""), "direction": item.get("direction", ""), "prompt": item.get("prompt", "")})
 
 
+PHOTOS = "photos.jsonl"
+PHOTO_FIELDS = ("place", "url", "author", "license", "source", "alt")
+
+
 def photo_task(instance, tid: str) -> Path:
-    """Т30.3: фото из сети машина не ищет — задание агенту: кадр, автор, лицензия, стоп-лист категорий; итог — строки
-    `photo` в `images.json`. Гейт статьи (`image_credits`) требует автора и лицензию у каждого фото из сети."""
+    """Т30.3: фото из сети машина не ищет — задание агенту: кадр, автор, лицензия, стоп-лист категорий; агент пишет
+    строки в отдельный файл `photos.jsonl`, план картинок не трогает. `images photo <id> --merge` проверяет строки и
+    вливает их в план. Гейт статьи (`image_credits`) требует автора и лицензию у каждого фото из сети."""
     from ..core import tasks
     plan = load_plan(instance, tid)
     stop = instance.p["images"]["stop_categories"]
     places = [i["place"] for i in plan["images"] if i["kind"] != "cover"]
     body = ["## Задача", "",
             f"Подобрать фото из сети для статьи темы {tid}, если готовых картинок проекта не хватает. Только кадры с "
-            "явной лицензией (своя, CC с указанием автора, фотобанк с правом публикации). Каждое фото — строкой в "
-            f"`{_plan_path(instance, tid)}`, список `images`: kind `photo`, place (заголовок раздела), url, author, "
-            "license, source (страница кадра), alt. Без автора или лицензии фото не ставится.", "",
+            "явной лицензией (своя, CC с указанием автора, фотобанк с правом публикации). Каждое фото — строкой JSON "
+            f"в `{instance.brief_dir(tid) / PHOTOS}`: place (заголовок раздела из списка ниже), url, author, license, "
+            f"source (страница кадра), alt. Файл плана `{PLAN}` не править: строки вольёт `images photo {tid} --merge`."
+            " Без автора или лицензии фото не ставится.", "",
             "## Места", *([f"- {p}" for p in places] or ["- мест нет — сначала `images plan`"]), "",
             "## Не годятся", *([f"- {c}" for c in stop] or ["- стоп-лист категорий не задан (images.stop_categories)"]),
             "", "Править готовую картинку (текст, цифры, предмет) — генеративным редактором (навык `image-edit`), "
             "а не заплаткой в графическом редакторе."]
-    return tasks.write_task(instance, tid, "planner", "photo", "\n".join(body), result=PLAN,
-                            schema='{"kind": "photo", "place": "<H2>", "url": "", "author": "", "license": "", '
-                                   '"source": "", "alt": ""}')
+    return tasks.write_task(instance, tid, "planner", "photo", "\n".join(body), result=PHOTOS,
+                            schema='{"place": "<H2>", "url": "", "author": "", "license": "", "source": "", "alt": ""}')
+
+
+def merge_photos(instance, tid: str) -> dict:
+    """Строки фото агента → план картинок: каждое поле заполнено, место — раздел плана, адрес — не дубль."""
+    plan = load_plan(instance, tid)
+    path = instance.brief_dir(tid) / PHOTOS
+    if not path.is_file():
+        raise GateRefused(f"тема {tid}: строк фото нет — {path}")
+    places = {i["place"] for i in plan["images"] if i["kind"] != "cover"}
+    known = {i.get("url") for i in plan["images"]}
+    added, problems = 0, []
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            problems.append(f"строка {n}: не JSON")
+            continue
+        empty = [f for f in PHOTO_FIELDS if not str(row.get(f) or "").strip()]
+        if empty:
+            problems.append(f"строка {n}: пусто {empty}")
+        elif row["place"] not in places:
+            problems.append(f"строка {n}: раздела «{row['place']}» нет в плане")
+        elif not str(row["url"]).startswith("http"):
+            problems.append(f"строка {n}: адрес не http")
+        elif row["url"] in known:
+            continue
+        else:
+            known.add(row["url"])
+            plan["images"].append({"n": len(plan["images"]) + 1, "kind": "photo", "place": row["place"],
+                                   "heading": row["place"], "alt": row["alt"], "ref": "", "provider": "web",
+                                   "status": "готово", "file": "", "url": row["url"], "source": row["source"],
+                                   "license": row["license"], "author": row["author"], "price": 0.0,
+                                   "direction": "", "prompt": ""})
+            added += 1
+    text = save_plan(instance, tid, plan)
+    return {"line": f"фото добавлено {added}" + (f"; отклонено {len(problems)}: " + "; ".join(problems) if problems
+                                                  else "") + f"; {text}", "problems": problems}
 
 
 def compress(instance, path: Path) -> str:
@@ -335,6 +383,8 @@ def register(sub):
             budget.add_flags(p)
         if name in ("upload", "backfill"):
             p.add_argument("--apply", action="store_true")
+        if name == "photo":
+            p.add_argument("--merge", action="store_true", help="влить строки photos.jsonl в план картинок")
         p.set_defaults(func=run)
 
 
@@ -350,6 +400,10 @@ def run(args) -> int:
             print(f"  ! {note}")
         return 0
     if args.action == "photo":
+        if args.merge:
+            out = merge_photos(instance, args.id)
+            print(out["line"])
+            return 1 if out["problems"] else 0
         print(f"задание: {photo_task(instance, args.id)}")
         return 0
     if args.action == "make":

@@ -227,6 +227,26 @@ def test_backfill_queues_pages_without_images_and_run_rolls_back(project):
     assert main(["publish", "rollback", "--run", run_id, "--apply", "--profile", str(project)]) == 0
     assert not list((instance.root / "data" / "backfill" / run_id).glob("*.json"))
 
+def test_photo_rows_merge_into_plan_then_insert_and_pass_gate(inst, project):  # noqa: F811
+    instance = topic_with_images(inst, project, cover="none", scheme="template", illustration="template")
+    images_mod.make_plan(instance, TID)
+    images_mod.photo_task(instance, TID)
+    place = next(i["place"] for i in images_mod.load_plan(instance, TID)["images"] if i["kind"] != "cover")
+    rows = [{"place": place, "url": "https://photos.example.org/a.jpg", "author": "Автор", "license": "CC BY 4.0",
+             "source": "https://photos.example.org/a", "alt": "Грядка осенью"},
+            {"place": place, "url": "https://photos.example.org/b.jpg", "author": "", "license": "CC BY 4.0",
+             "source": "https://photos.example.org/b", "alt": "Без автора"}]
+    (instance.brief_dir(TID) / images_mod.PHOTOS).write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+    out = images_mod.merge_photos(instance, TID)
+    assert "фото добавлено 1" in out["line"] and "отклонено 1" in out["line"]
+    images_mod.make(instance, TID)                         # строки фото не ломают остальные команды
+    images_mod.upload(instance, TID, apply=False)
+    assert "вставлено картинок: 1" in images_mod.insert(instance, TID)["line"]
+    report = check_topic(instance, TID, link_checker=lambda url, timeout: (True, "200"))
+    assert not any(r["check"] == "image_credits" for r in report["reasons"])
+
+
 def test_photo_from_web_needs_credit_even_if_inserted_by_hand(inst, project):  # noqa: F811
     instance = topic_with_images(inst, project, cover="template", scheme="template", illustration="template")
     images_mod.make_plan(instance, TID)

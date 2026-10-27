@@ -164,11 +164,15 @@ def run(instance, add, results, *, body: str, sections: list, faq: list, brief: 
     credited = {i.get("url") for i in items if i.get("kind") == "photo" and str(i.get("author") or "").strip()
                 and str(i.get("license") or "").strip()}
     own = {i.get("url") for i in items if i.get("kind") != "photo" and i.get("url")}
-    own_hosts = {u.split("/")[2] for u in own if u.count("/") >= 2}      # хранилище картинок проекта
+    from urllib.parse import urlsplit
+    own_hosts = {urlsplit(u).netloc for u in own if urlsplit(u).netloc}      # хранилище картинок проекта
     bad = [str(i.get("place", "?")) for i in items if i.get("kind") == "photo" and i.get("url") not in credited]
-    for _, url in MD_IMAGE.findall(body):
-        if (url.startswith("http") and url not in own and url not in credited and not is_own(url, domains)
-                and url.split("/")[2] not in own_hosts):
+    srcs = [url for _, url in MD_IMAGE.findall(body)]
+    srcs += [m.group(1) for tag in HTML_IMG.findall(body) for m in [re.search(r'\bsrc\s*=\s*"([^"]+)"', tag)] if m]
+    for url in srcs:
+        host = urlsplit(url).netloc
+        if (url.startswith("http") and host and url not in own and url not in credited and not is_own(url, domains)
+                and host not in own_hosts):
             bad.append(url)
     add("image_credits", not bad, "фото из сети без автора или лицензии: " + ", ".join(dict.fromkeys(bad))[:300]
         if bad else "у фото из сети есть автор и лицензия")

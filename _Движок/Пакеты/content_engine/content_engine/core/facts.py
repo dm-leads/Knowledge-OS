@@ -45,7 +45,9 @@ def pack(instance, topic_id: str, formulations: list[str] | None = None) -> list
             out.append(r)
             continue
         key = instance.norm.key(str(r["fact"]))
-        if words and key.parts and words & set().union(*key.parts):
+        stems = [set(p) for p in key.parts]
+        shared = sum(1 for p in stems if p & words)
+        if words and stems and shared >= min(2, len(stems)):   # одного общего слова ниши мало
             out.append(r)
     return out
 
