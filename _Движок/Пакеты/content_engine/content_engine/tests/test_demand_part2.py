@@ -33,7 +33,7 @@ def test_client_questions_reject_personal_data(project):
     path = questions(project, "question;count;name\nКак утеплить теплицу?;3;Иван\n")
     with pytest.raises(EngineError, match="ровно"):
         ClientQuestions(path, TODAY.isoformat()).read()
-    path.write_text("question;count\nПерезвоните на +7 921 123-45-67?;1\n", encoding="utf-8")
+    path.write_text("question;count\nПерезвоните на +79001112233?;1\n", encoding="utf-8")
     with pytest.raises(EngineError, match="телефон"):
         ClientQuestions(path, TODAY.isoformat()).read()
     path.write_text("question;count\nПишите на a.b@mail.example?;1\n", encoding="utf-8")
