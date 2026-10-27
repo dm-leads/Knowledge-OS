@@ -127,8 +127,9 @@ def run(instance, add, results, *, body: str, sections: list, faq: list, brief: 
             if not review.is_file():
                 problems.append("вычитки нет — `review task` и `review check`")
             else:
+                from .review import text_digest
                 r = json.loads(review.read_text(encoding="utf-8"))
-                if r.get("article_sha256") != article_sha:
+                if r.get("article_sha256") != text_digest(instance.brief_dir(topic_id) / "article.md"):
                     problems.append("вычитка была по прежнему тексту — `review check` заново")
                 elif not r.get("clean"):
                     problems.append("вычитка не закрыта: " + "; ".join(r.get("open", [])[:3]))

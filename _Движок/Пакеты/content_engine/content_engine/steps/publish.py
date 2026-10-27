@@ -46,8 +46,7 @@ def rollback(instance, tid: str | None, run_id: str | None, apply: bool, transpo
             raise
         snaps = []
     own, rest = restore.split(snaps)
-    steps = restore.actions(instance, own)
-    by_hand = []
+    steps, by_hand = restore.actions(instance, own)
     if rest and publisher is not None:
         steps += publisher.restore(rest)
     elif rest:

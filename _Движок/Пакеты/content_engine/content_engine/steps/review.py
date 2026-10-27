@@ -38,6 +38,17 @@ CRITIQUE_SCHEMA = """# critique.md — таблица правок
 |---|---|---|---|"""
 
 
+IMAGE_LINE = re.compile(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$")
+
+
+def text_digest(path: Path) -> str:
+    """Сумма текста для вычитки — без строк картинок и поля `image` шапки: вставка картинок (`images insert`) не
+    меняет утверждений и вычитку не сбрасывает; правка слов — сбрасывает."""
+    text = Path(path).read_bytes().decode("utf-8").replace("\r\n", "\n")
+    lines = [l for l in text.split("\n") if not IMAGE_LINE.match(l) and not l.startswith("image:")]
+    return hashlib.sha256("\n".join(l.rstrip() for l in lines).strip().encode("utf-8")).hexdigest()
+
+
 def factcheck_dir(instance, tid: str) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
         raise EngineError(f"id темы «{tid}»: латиница, цифры, «-» и «_»")
@@ -138,8 +149,8 @@ def check(instance, tid: str) -> dict:
     decisions = _decisions(folder)
     open_items = []
     checked_copy = folder / "article.md"
-    sha = hashlib.sha256(article.read_bytes()).hexdigest() if article.is_file() else ""
-    if checked_copy.is_file() and hashlib.sha256(checked_copy.read_bytes()).hexdigest() != sha:
+    sha = text_digest(article) if article.is_file() else ""
+    if checked_copy.is_file() and text_digest(checked_copy) != sha:
         open_items.append("текст изменился после вычитки — `review task` заново")
     for row in rows:
         decided = decisions.get(str(row["n"]))

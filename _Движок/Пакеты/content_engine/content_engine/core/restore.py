@@ -36,13 +36,17 @@ def split(snaps: list[dict]) -> tuple[list[dict], list[dict]]:
     return own, [s for s in snaps if s["action"] not in RESTORERS]
 
 
-def actions(instance, snaps: list[dict]) -> list[Action]:
+def actions(instance, snaps: list[dict]) -> tuple[list[Action], list[str]]:
+    """Действия отката и строки «вручную»: восстановитель, который удалять не умеет, возвращает инструкцию."""
     _load_all()
-    out = []
+    out, by_hand = [], []
     for snap in snaps:
         made = RESTORERS[snap["action"]](instance, snap)
-        out += made if isinstance(made, list) else [made]
-    return out
+        if isinstance(made, str):
+            by_hand.append(f"откатить вручную: {made}")
+        else:
+            out += made if isinstance(made, list) else [made]
+    return out, by_hand
 
 
 @register("article_transfer")
