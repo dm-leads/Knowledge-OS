@@ -35,6 +35,7 @@ class Instance:
         self._serp = serp
         self._corpus = None
         self._index = None
+        self.read_only = False              # `status`: ничего не создаёт и не пишет (запрет — здесь и в тесте)
 
     def now(self) -> datetime:
         """Время действия: день — день инстанса (в тестах задан), время суток — текущее."""
@@ -45,7 +46,7 @@ class Instance:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", tid or ""):
             raise EngineError(f"id темы «{tid}»: латиница, цифры, «-» и «_»")
         path = self.root / self.profile["paths"]["topic_dir"].replace("{id}", tid)
-        if create:
+        if create and not self.read_only:
             path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -61,6 +62,8 @@ class Instance:
         return self.root / FILES[name]
 
     def reports_dir(self, *parts) -> Path:
+        if self.read_only:
+            raise EngineError("инстанс открыт только для чтения — отчёты не пишутся")
         path = self.root.joinpath("reports", self.today.isoformat(), *parts)
         path.mkdir(parents=True, exist_ok=True)
         return path

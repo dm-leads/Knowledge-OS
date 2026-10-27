@@ -234,6 +234,8 @@ def register(sub):
     add_profile(p)
     p.add_argument("--offline", action="store_true", help="без запросов к выдаче головных запросов")
     p.add_argument("--max-quota", type=int, help="объектов квоты на прогон, не больше")
+    from ..core.budget import add_flags
+    add_flags(p)                                 # выдача при отказе Keys.so — запасной платный источник
     p.set_defaults(func=run)
 
 

@@ -252,6 +252,8 @@ def register(sub):
     p.add_argument("--audit", help="CSV решений гейта с колонкой «ложная тревога (да/нет)»")
     p.add_argument("--offline", action="store_true", help="без запросов к выдаче")
     p.add_argument("--cases", help="файл случаев вместо known_answers.yaml (путь от каталога инстанса)")
+    from ..core.budget import add_flags
+    add_flags(p)                                 # случаи гейта снимают выдачу; при отказе Keys.so — платный источник
     p.set_defaults(func=run)
 
 

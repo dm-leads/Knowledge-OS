@@ -369,7 +369,7 @@ def backfill(instance, *, apply: bool) -> dict:
 
 def register(sub):
     from ..cli import add_profile
-    parser = sub.add_parser("images", help="картинки: plan | make | upload | insert | backfill")
+    parser = sub.add_parser("images", help="картинки: plan | make | photo | upload | insert | backfill")
     actions = parser.add_subparsers(dest="action", required=True)
     for name, text in (("plan", "места картинок по тексту и разбору топа"), ("make", "сделать файлы картинок"),
                        ("photo", "задание агенту: фото из сети с автором и лицензией"),
