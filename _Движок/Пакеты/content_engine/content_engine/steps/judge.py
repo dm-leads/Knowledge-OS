@@ -130,6 +130,23 @@ def make_task(instance, tid: str, *, confirm=None, unattended=False) -> dict:
     return {"task": str(path), "kind": kind, "sections": len(sections), "risk": context["risk"]}
 
 
+def validate(sections: list[dict], answer: dict) -> tuple[list[str], dict | None]:
+    """Ответ судьи проверяет код (Т27.3): раздел — из пятёрки, цитата — из его текста, у «свободно» есть угол.
+    Одна функция для `judge check` и известных ответов."""
+    problems = []
+    verdict = answer.get("verdict")
+    if verdict not in VERDICTS:
+        problems.append(f"verdict «{verdict}» не из {VERDICTS}")
+    section = next((s for s in sections if s["id"] == answer.get("section_id")), None)
+    if section is None:
+        problems.append(f"раздел «{answer.get('section_id')}» не из пятёрки задания")
+    elif not str(answer.get("quote") or "").strip() or _norm(answer["quote"]) not in _norm(section["text"]):
+        problems.append("цитаты нет в тексте раздела")
+    if verdict == "free_with_angle" and not str(answer.get("angle") or "").strip():
+        problems.append("«свободно» без угла")
+    return problems, section
+
+
 def check(instance, tid: str, *, dry_run: bool = False) -> dict:
     folder = instance.brief_dir(tid)
     if not (folder / CONTEXT).is_file():
@@ -141,17 +158,8 @@ def check(instance, tid: str, *, dry_run: bool = False) -> dict:
         answer = json.loads((folder / ANSWER).read_text(encoding="utf-8"))
     except ValueError as exc:
         raise EngineError(f"{ANSWER}: не JSON — {exc}") from exc
-    problems = []
+    problems, section = validate(context["sections"], answer)
     verdict = answer.get("verdict")
-    if verdict not in VERDICTS:
-        problems.append(f"verdict «{verdict}» не из {VERDICTS}")
-    section = next((s for s in context["sections"] if s["id"] == answer.get("section_id")), None)
-    if section is None:
-        problems.append(f"раздел «{answer.get('section_id')}» не из пятёрки задания")
-    elif not str(answer.get("quote") or "").strip() or _norm(answer["quote"]) not in _norm(section["text"]):
-        problems.append("цитаты нет в тексте раздела")
-    if verdict == "free_with_angle" and not str(answer.get("angle") or "").strip():
-        problems.append("«свободно» без угла")
     result = {"id": tid, "verdict": verdict, "accepted": not problems, "problems": problems,
               "section": section["id"] if section else "", "kind": context["kind"]}
     if problems or dry_run:

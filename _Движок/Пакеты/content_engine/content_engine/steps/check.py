@@ -148,6 +148,52 @@ def wave2_items(instance) -> list[dict]:
     items.append(_ignored(instance))
     items.append(_stale_packages(instance))
     items.append(_growth(instance))
+    items += part2_items(instance)
+    return items
+
+
+def part2_items(instance) -> list[dict]:
+    """Пункты части 2 (Т33): роли текста и вычитки, вторая модель на вычитке, судья, картинки, бюджет, спрос, папка
+    выпущенных статей."""
+    p = instance.p
+    items = []
+    fc = p["models"]["fact_checker"]["primary"]
+    critic = p["models"]["critic"]["primary"]
+    writer = p["models"]["writer"]["primary"]
+    if p["facts"]["mode"] == "human":
+        items.append(_item("вычитка фактов", GREEN, "вычитывает человек (facts.mode: human)"))
+    elif fc == writer:
+        items.append(_item("вычитка фактов", YELLOW, f"вычитка той же моделью, что автор ({fc})",
+                           "models.fact_checker — вторая модель (codex-latest) или facts.mode: human"))
+    else:
+        items.append(_item("вычитка фактов", GREEN, f"вычитка — {fc}, автор — {writer}, критик — {critic}"))
+    emb = p["judge"]["embeddings"]
+    items.append(_item("судья", GREEN, f"пятёрка разделов: {'эмбеддинги API' if emb['kind'] == 'api' else 'лексическая'}"
+                                       f", роль judge — {p['models']['judge']['primary']}"))
+    im = p["images"]
+    paid = [k for k, v in im["providers"].items() if v.startswith("module:")]
+    limits = p["budget"]["run_limit_rub"], p["budget"]["month_limit_rub"]
+    light = GREEN if not paid or limits[0] > 0 else YELLOW
+    items.append(_item("картинки", light, "провайдеры: " + ", ".join(f"{k} — {v}" for k, v in im["providers"].items())
+                       + f"; загрузка: {im['upload']} (images.allow {im['allow']})"
+                       + (f"; платные вызовы запрещены профилем (потолки {limits[0]}/{limits[1]} ₽)"
+                          if paid and limits[0] <= 0 else ""),
+                       "budget.run_limit_rub и month_limit_rub — потолки на картинки" if light != GREEN else ""))
+    src = p["sources"]
+    demand = [n for n in ("client_questions", "suggest") if src[n]["enabled"]]
+    demand += ["wordstat (" + "→".join(src["wordstat"]["order"]) + ")"] if src["wordstat"]["order"] else []
+    items.append(_item("спрос части 2", GREEN if demand else OFF, ", ".join(demand) or "вопросы клиентов, Wordstat и "
+                       "подсказки не подключены", "" if demand else "sources.client_questions, wordstat, suggest"))
+    items.append(_item("источники выдачи", GREEN, " → ".join(src["serp_order"])))
+    if p["paths"]["published_dir"]:
+        base = p["paths"]["published_dir"].replace("\\", "/").split("{")[0].rstrip("/")
+        there = (instance.root / base).is_dir()
+        items.append(_item("папка выпущенных статей", GREEN if there else RED,
+                           f"{instance.root / base} — " + ("есть" if there else "нет") +
+                           f"; передача — paths.allow {p['paths']['allow']}"))
+    else:
+        items.append(_item("папка выпущенных статей", OFF, "статью в корпус проекта кладёт человек",
+                           "paths.published_dir и paths.allow: write по разрешению"))
     return items
 
 

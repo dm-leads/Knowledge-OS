@@ -142,6 +142,21 @@ def _decisions(folder: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
+def open_claims(rows: list[dict], decisions: dict) -> list[str]:
+    """Что держит статью черновиком (Т29.2): блокер без «убрать», непроверенное и уточнение без решения человека,
+    юридический риск без решения человека. Одна функция для `review check` и известных ответов."""
+    out = []
+    for row in rows:
+        decided = decisions.get(str(row["n"]))
+        if row["result"] == "blocker" and not (decided and decided["decision"] == "remove"):
+            out.append(f"№{row['n']} блокер: {row['claim'][:80]}")
+        elif row["result"] in ("unverified", "clarify") and not decided:
+            out.append(f"№{row['n']} {row['result']}: {row['claim'][:80]} — решение человека")
+        if row.get("legal_risk") and not decided:
+            out.append(f"№{row['n']} юридический риск: {row['claim'][:80]} — решение человека")
+    return out
+
+
 def check(instance, tid: str) -> dict:
     folder = factcheck_dir(instance, tid)
     article = instance.brief_dir(tid) / "article.md"
@@ -152,14 +167,7 @@ def check(instance, tid: str) -> dict:
     sha = text_digest(article) if article.is_file() else ""
     if checked_copy.is_file() and text_digest(checked_copy) != sha:
         open_items.append("текст изменился после вычитки — `review task` заново")
-    for row in rows:
-        decided = decisions.get(str(row["n"]))
-        if row["result"] == "blocker" and not (decided and decided["decision"] == "remove"):
-            open_items.append(f"№{row['n']} блокер: {row['claim'][:80]}")
-        elif row["result"] in ("unverified", "clarify") and not decided:
-            open_items.append(f"№{row['n']} {row['result']}: {row['claim'][:80]} — решение человека")
-        if row.get("legal_risk") and not decided:
-            open_items.append(f"№{row['n']} юридический риск: {row['claim'][:80]} — решение человека")
+    open_items += open_claims(rows, decisions)
     report = {"id": tid, "date": instance.today.isoformat(), "article_sha256": sha, "clean": not open_items,
               "open": open_items, "claims": len(rows), "confirmed": sum(r["result"] == "confirmed" for r in rows)}
     (instance.brief_dir(tid) / "review.json").write_text(json.dumps(report, ensure_ascii=False, indent=1),
