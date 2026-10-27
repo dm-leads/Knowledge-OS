@@ -24,8 +24,9 @@ EFFECTS = ("filesystem_read", "filesystem_write", "external_read", "external_wri
            "agent_task_required", "human_approval_required")
 REQUIRED = ("operation_id", "name", "phrases", "module", "requires", "produces", "side_writes", "effects",
             "human", "exit_codes", "next")
-OPTIONAL = ("agent_step", "price", "write", "secrets", "repeatable", "locks", "proof", "note")
+OPTIONAL = ("agent_step", "price", "write", "secrets", "repeatable", "locks", "proof", "note", "input_constraints")
 CODES = ("0", "1", "2", "3")
+WRITE_FIELDS = ("right", "apply", "snapshot", "rollback")
 
 
 def load() -> dict:
@@ -47,9 +48,14 @@ def validate(command: str, c: dict) -> list[str]:
     for code in (c.get("exit_codes") or {}):
         if str(code) not in CODES:
             problems.append(f"{command}: код выхода {code} не из {CODES}")
-    if any(e.get("type") == "paid_external_call" for e in c.get("effects") or [] if isinstance(e, dict)) \
-            and not c.get("price"):
+    types = {e.get("type") for e in c.get("effects") or [] if isinstance(e, dict)}
+    if "paid_external_call" in types and not c.get("price"):
         problems.append(f"{command}: платный вызов без поля price")
+    if bool(c.get("human")) != ("human_approval_required" in types):
+        problems.append(f"{command}: поле human заполняется тогда и только тогда, когда есть human_approval_required")
+    if c.get("side_writes") and "filesystem_write" not in types:
+        problems.append(f"{command}: побочная запись без эффекта filesystem_write")
+    problems += [f"{command}: write — неизвестное поле {f}" for f in (c.get("write") or {}) if f not in WRITE_FIELDS]
     if not (c.get("phrases") or []):
         problems.append(f"{command}: нет фраз человека")
     return problems
@@ -124,13 +130,16 @@ def markdown(cat: dict) -> str:
              "руками не править.", "", "| Команда | Операция | Модуль | Эффекты | ✋ |", "|---|---|---|---|---|"]
     for op in cat["operations"]:
         effects = ", ".join(sorted({e["type"] for e in op["effects"]}))
-        lines.append(f"| `{op['command']}` | {op['name']} | {op['module']} | {effects} | "
-                     f"{'да' if op['human'] else '—'} |")
+        approval = any(e["type"] == "human_approval_required" for e in op["effects"])
+        lines.append(f"| `{op['command']}` | {op['name']} | {op['module']} | {effects} | {'да' if approval else '—'} |")
     for op in cat["operations"]:
         lines += ["", f"## `{op['command']}` — {op['name']}", "",
                   f"- id: `{op['operation_id']}`; модуль: {op['module']}",
                   "- фразы: " + "; ".join(f"«{p}»" for p in op["phrases"]),
-                  f"- нужно до: {op['requires']}", f"- получится: {op['produces']}",
+                  f"- нужно до: {op['requires']}"]
+        if op.get("input_constraints"):
+            lines.append(f"- условия на аргументы: {op['input_constraints']}")
+        lines += [f"- получится: {op['produces']}",
                   f"- побочная запись: {op['side_writes'] or 'нет'}"]
         for e in op["effects"]:
             lines.append(f"- эффект `{e['type']}`" + (f" — {e['when']}" if e.get("when") else "")
@@ -142,6 +151,8 @@ def markdown(cat: dict) -> str:
         if op.get("agent_step"):
             lines.append(f"- шаг агента: {op['agent_step']}")
         lines.append(f"- ✋ человек: {op['human'] or 'нет'}")
+        if op.get("note"):
+            lines.append(f"- примечание: {op['note']}")
         if op.get("secrets"):
             lines.append("- секреты (имена переменных): " + ", ".join(op["secrets"]))
         lines.append("- коды выхода: " + "; ".join(f"{k} — {v}" for k, v in op["exit_codes"].items()))

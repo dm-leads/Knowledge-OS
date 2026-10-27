@@ -54,6 +54,18 @@ def test_money_and_writes_name_existing_proof_tests():
         assert missing == [], f"{op['command']}: нет тестов {missing}"
 
 
+def test_profile_commands_name_reservation_release():
+    """Команда с профилем открывает инстанс с записью — истёкшие брони освобождаются; исключения названы с причиной."""
+    read_only = {"status"}                                  # open_instance(read_only=True)
+    own_open = {"profile check", "profile migrate"}         # профиль читается сам, инстанс не открывается
+    parsers = dict(contract.leaves(build_parser()))
+    for op in contract.catalog()["operations"]:
+        if "--profile" not in contract.flags(parsers[op["command"]]) or op["command"] in read_only | own_open:
+            continue
+        assert "истёкшие брони" in op["side_writes"], op["command"]
+        assert any(e["type"] == "filesystem_write" and not e.get("requires_apply") for e in op["effects"]), op["command"]
+
+
 def test_next_points_to_existing_commands():
     commands = {op["command"] for op in contract.catalog()["operations"]}
     for op in contract.catalog()["operations"]:
