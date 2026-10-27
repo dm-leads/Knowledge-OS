@@ -362,6 +362,8 @@ def status(instance) -> tuple[dict, int]:
     report = {"date": instance.today.isoformat(), "stock": s, "days": round(days, 1), "norm": q["norm"],
               "refill_at": q["refill_at"], "by_status": by_status, "below_norm": s < q["norm"],
               "hint": refill_hint(instance)[1]}
+    from .onboard import pace
+    report["pace"] = pace(instance)                  # совет по темпу (Т32.1)
     return report, (1 if s <= q["refill_at"] else 0)
 
 
@@ -448,7 +450,9 @@ def run(args) -> int:
         text = (f"Запас: {out['stock']} тем ≈ {out['days']} дней (норма {out['norm']}, пополнять при ≤ "
                 f"{out['refill_at']})" + (" — НИЖЕ НОРМЫ" if out["below_norm"] else "")
                 + "\nПо статусам: " + ", ".join(f"{k} — {v}" for k, v in out["by_status"].items())
-                + f"\n{out['hint']}")
+                + f"\n{out['hint']}"
+                + f"\nТемп: возраст домена {out['pace']['domain_age']}; индексация: {out['pace']['indexing_speed']}"
+                + (f"\n! {out['pace']['warning']}" if out["pace"]["warning"] else ""))
     elif args.action in ("take", "retake"):
         out = (take if args.action == "take" else retake)(instance, args.id, args.max_quota)
         text = f"Тема {args.id}: " + ("взята в работу. " if out["taken"] else "снята. ") + out["reason"]
