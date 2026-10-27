@@ -8,6 +8,7 @@ description: >
   expensive. Also triggers on "позови кодекс", "вторым мнением", "перепроверь другой моделью", "get a
   second opinion", "adversarial review". Claude decides when to invoke this — the user should not have to
   know. Do NOT use for routine work, creative/ToV writing, or tasks needing our MCP/memory context.
+  Fact-check of a Content Engine article (вычитка фактов статьи машины) runs through content-engine.
 ---
 
 # second-agent — когда звать Codex (вторую модель)
