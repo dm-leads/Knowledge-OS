@@ -111,7 +111,8 @@ def make_plan(instance, tid: str) -> dict:
     for n, item in enumerate(items, 1):
         spec = im["providers"].get(item["kind"], "none")
         item.update(n=n, provider=spec, status="пропущено: провайдер none" if spec == "none" else "план", file="",
-                    url="", source="", license="", author="", price=None, direction=direction)
+                    url="", source="", license="", author="", price=None, direction=direction,
+                    prompt="")                       # промпт генератору — агент может дописать до `images make`
         if not str(item["alt"]).strip():
             notes.append(f"место {n} ({item['place']}): нет alt — гейт статьи проверит `image_alt`")
     body_items = [x for x in items if x["kind"] != "cover" and not x["status"].startswith("пропущено")]
@@ -122,7 +123,28 @@ def make_plan(instance, tid: str) -> dict:
 
 def _request(item: dict, plan_topic: str, text: str) -> Request:
     return Request(item["kind"], plan_topic, item["heading"], text, item["alt"],
-                   {"ref": item.get("ref", ""), "direction": item.get("direction", "")})
+                   {"ref": item.get("ref", ""), "direction": item.get("direction", ""), "prompt": item.get("prompt", "")})
+
+
+def photo_task(instance, tid: str) -> Path:
+    """Т30.3: фото из сети машина не ищет — задание агенту: кадр, автор, лицензия, стоп-лист категорий; итог — строки
+    `photo` в `images.json`. Гейт статьи (`image_credits`) требует автора и лицензию у каждого фото из сети."""
+    from ..core import tasks
+    plan = load_plan(instance, tid)
+    stop = instance.p["images"]["stop_categories"]
+    places = [i["place"] for i in plan["images"] if i["kind"] != "cover"]
+    body = ["## Задача", "",
+            f"Подобрать фото из сети для статьи темы {tid}, если готовых картинок проекта не хватает. Только кадры с "
+            "явной лицензией (своя, CC с указанием автора, фотобанк с правом публикации). Каждое фото — строкой в "
+            f"`{_plan_path(instance, tid)}`, список `images`: kind `photo`, place (заголовок раздела), url, author, "
+            "license, source (страница кадра), alt. Без автора или лицензии фото не ставится.", "",
+            "## Места", *([f"- {p}" for p in places] or ["- мест нет — сначала `images plan`"]), "",
+            "## Не годятся", *([f"- {c}" for c in stop] or ["- стоп-лист категорий не задан (images.stop_categories)"]),
+            "", "Править готовую картинку (текст, цифры, предмет) — генеративным редактором (навык `image-edit`), "
+            "а не заплаткой в графическом редакторе."]
+    return tasks.write_task(instance, tid, "planner", "photo", "\n".join(body), result=PLAN,
+                            schema='{"kind": "photo", "place": "<H2>", "url": "", "author": "", "license": "", '
+                                   '"source": "", "alt": ""}')
 
 
 def compress(instance, path: Path) -> str:
@@ -173,13 +195,10 @@ def make(instance, tid: str, *, confirm=None, unattended=False) -> dict:
 
     run([i for i in todo if i not in paid])
     save_plan(instance, tid, plan)                   # бесплатные готовы, даже если платные остановит бюджет-гейт
-    if paid:
-        if total > 0:
-            budget.paid_call(instance, tid, "картинки", total, lambda: run(paid), confirm=confirm,
-                             unattended=unattended, what=f"картинки {len(paid)} шт.",
-                             source=f"цены провайдеров на {instance.today.isoformat()}")
-        else:
-            run(paid)
+    if paid:                                     # провайдер проекта — платный: через гейт и при цене 0
+        budget.paid_call(instance, tid, "картинки", total, lambda: run(paid), confirm=confirm,
+                         unattended=unattended, what=f"картинки {len(paid)} шт.",
+                         source=f"цены провайдеров на {instance.today.isoformat()}")
     text = save_plan(instance, tid, plan)
     done = sum(1 for i in plan["images"] if i["status"] == "готово")
     return {"line": f"картинок готово {done} из {len(plan['images'])}; платных {len(paid)} на {total:.2f} ₽; {text}",
@@ -218,6 +237,9 @@ def upload(instance, tid: str, *, apply: bool) -> dict:
                                           "read_back", ("images", "write"), do=do, verify=verify, snapshot=snap,
                                           meta={"independent": True}))
     allowed, refused = rights.split(instance, planned)
+    if apply and refused and not allowed:
+        from ..core.errors import RightsRefused
+        raise RightsRefused("загрузка не выполнена: " + "; ".join(refused[:1]))
     lines = [f"не в плане — {r}" for r in refused]
     try:
         out = actions_mod.run(instance, tid, allowed, apply=apply, echo=lambda s: lines.append(s.strip()))
@@ -302,6 +324,7 @@ def register(sub):
     parser = sub.add_parser("images", help="картинки: plan | make | upload | insert | backfill")
     actions = parser.add_subparsers(dest="action", required=True)
     for name, text in (("plan", "места картинок по тексту и разбору топа"), ("make", "сделать файлы картинок"),
+                       ("photo", "задание агенту: фото из сети с автором и лицензией"),
                        ("upload", "загрузить в хранилище сайта"), ("insert", "вставить картинки в текст"),
                        ("backfill", "добор картинок опубликованным статьям")):
         p = actions.add_parser(name, help=text)
@@ -325,6 +348,9 @@ def run(args) -> int:
             print(f"  {item['n']}. {item['kind']} — {item['place']} ({item['provider']}; {item['status']})")
         for note in out["notes"]:
             print(f"  ! {note}")
+        return 0
+    if args.action == "photo":
+        print(f"задание: {photo_task(instance, args.id)}")
         return 0
     if args.action == "make":
         print(make(instance, args.id, confirm=args.confirm_spend, unattended=args.unattended)["line"])

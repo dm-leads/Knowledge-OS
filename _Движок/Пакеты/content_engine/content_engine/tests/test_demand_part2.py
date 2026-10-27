@@ -82,7 +82,7 @@ def wordstat(project, order, price=0):
 
 
 def test_wordstat_keysso_frequency_and_suggest_without_frequency_dropped(project):
-    wordstat(project, ["keysso", "cloud"])
+    wordstat(project, ["keysso", "cloud"], price=0.02)
     site = Cloud(keysso_status=200)
     report = collect(Instance(project, today=TODAY, transport=site))
     item = report["sources"]["wordstat"]

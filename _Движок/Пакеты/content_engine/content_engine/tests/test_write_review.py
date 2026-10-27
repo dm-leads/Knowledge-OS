@@ -156,9 +156,40 @@ def test_expired_fact_keeps_draft(inst, project):  # noqa: F811
     (instance.brief_dir(TID) / "article.md").write_text(CLEAN.replace("за три-четыре недели", "за 3 недели"),
                                                        encoding="utf-8")
     review.factcheck_task(instance, TID)
+    claims(instance, [])                                   # новый круг — прежние claims в архиве
     review.check(instance, TID)
     report = check_topic(instance, TID, **ALIVE)
     assert report["verdict"] == DRAFT and "просрочен" in by_check(report)["facts"]["detail"]
+
+
+def test_old_claims_do_not_close_new_text(inst, project):  # noqa: F811
+    """Б1 проверки кода: правка текста → новый круг вычитки; прежние claims и решения его не закрывают."""
+    ready_topic(inst)
+    set_profile(project, lambda d: d["facts"].update(enabled=True))
+    instance = Instance(project, today=TODAY)
+    review.factcheck_task(instance, TID)
+    claims(instance, [{"n": 1, "claim": "чеснок сажают осенью", "type": "product", "source": "https://example.org/a",
+                       "result": "confirmed"}])
+    assert review.check(instance, TID)["clean"]
+    article = instance.brief_dir(TID) / "article.md"
+    article.write_text(article.read_text(encoding="utf-8") + "\nУрожай вырастет вдвое.\n", encoding="utf-8")
+    assert not review.check(instance, TID)["clean"]                       # текст изменился после вычитки
+    review.factcheck_task(instance, TID)                                  # новый круг
+    with pytest.raises(GateRefused, match="вычитки нет"):
+        review.check(instance, TID)                                       # старые claims ушли в архив
+    assert list((review.factcheck_dir(instance, TID) / "archive").glob("*/claims.jsonl"))
+    assert check_topic(instance, TID, **ALIVE)["verdict"] == DRAFT
+
+
+def test_remove_needs_claim_gone_from_text(inst, project):  # noqa: F811
+    ready_topic(inst)
+    instance = Instance(project, today=TODAY)
+    review.factcheck_task(instance, TID)
+    claims(instance, [{"n": 1, "claim": "Озимый чеснок сажают осенью", "type": "product", "source": "",
+                       "result": "blocker"}])
+    review.accept(instance, TID, 1, "Человек", "remove")
+    out = review.check(instance, TID)
+    assert not out["clean"] and "ещё в тексте" in out["open"][0]
 
 
 def test_niche_disclaimer(inst, project):  # noqa: F811

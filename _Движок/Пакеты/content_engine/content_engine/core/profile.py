@@ -357,6 +357,11 @@ def _semantics_v3(data: dict):
         _one_of(f"sources.serp_order[{i}]", name, SERP_SOURCES)
     if "yandex_search" in src["serp_order"] and not src["yandex_search"]["key_env"]:
         raise ProfileError("поле «sources.yandex_search.key_env»: источник в порядке выдачи — нужно имя переменной")
+    # платный источник с ценой 0 машина сочла бы бесплатным — цена из тарифа обязательна
+    if "cloud" in src["wordstat"]["order"] and src["wordstat"]["cloud_price_rub"] <= 0:
+        raise ProfileError("поле «sources.wordstat.cloud_price_rub»: облако платное — цена запроса из тарифа, больше 0")
+    if "yandex_search" in src["serp_order"] and src["yandex_search"]["price_rub"] <= 0:
+        raise ProfileError("поле «sources.yandex_search.price_rub»: источник платный — цена запроса из тарифа, больше 0")
     if src["suggest"]["limit"] <= 0:
         raise ProfileError("поле «sources.suggest.limit»: положительное число")
     if src["wordstat"]["cloud_price_rub"] < 0 or src["yandex_search"]["price_rub"] < 0:
@@ -369,6 +374,8 @@ def _semantics_v3(data: dict):
         if not j["embeddings"]["key_env"]:
             raise ProfileError("поле «judge.embeddings.key_env»: эмбеддинги через API — нужно имя переменной ключа")
         _adapter("judge.embeddings.model", j["embeddings"]["model"], ())   # провайдер — адаптер инстанса
+        if j["embeddings"]["price_per_1k_rub"] <= 0:
+            raise ProfileError("поле «judge.embeddings.price_per_1k_rub»: API платный — цена из тарифа, больше 0")
     _one_of("write.level", data["write"]["level"], TEXT_LEVELS)
     _one_of("niche.level", data["niche"]["level"], TEXT_LEVELS)
     _one_of("facts.mode", data["facts"]["mode"], ("separate", "human"))

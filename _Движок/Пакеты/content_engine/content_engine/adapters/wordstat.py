@@ -21,7 +21,7 @@ from .base import ReadOnlyClient
 from .demand import demand_row
 
 KEYSSO_API = "https://api.keys.so"
-DASHBOARD, SIMILAR = "report/simple/keyword_dashboard", "report/simple/similarkeys"
+DASHBOARD, SIMILAR, LIMITS = "report/simple/keyword_dashboard", "report/simple/similarkeys", "limits/all"
 CLOUD_API = "https://searchapi.api.cloud.yandex.net/v2/wordstat"
 TOP, DYNAMICS = "topRequests", "dynamics"
 SAMPLES = 15
@@ -36,9 +36,17 @@ class KeyssoWordstat:
         if not k["enabled"]:
             raise SourceError("Keys.so не подключён (sources.keysso.enabled: false)")
         self.base = k["base"]
-        self.client = ReadOnlyClient("Keys.so Wordstat", KEYSSO_API, {DASHBOARD, SIMILAR},
+        self.client = ReadOnlyClient("Keys.so Wordstat", KEYSSO_API, {DASHBOARD, SIMILAR, LIMITS},
                                      {"X-Keyso-TOKEN": secret(instance.p, k["key_env"]), "Accept": "application/json"},
                                      transport=instance.transport)
+
+    def requests_left(self) -> int | None:
+        """Остаток лимита запросов API Keys.so (`limits/all`, поле `apiRequest`); не читается — None."""
+        data = self.client.call("GET", LIMITS)
+        item = data.get("apiRequest") if isinstance(data, dict) else None
+        if not isinstance(item, dict) or "limit" not in item:
+            return None
+        return int(item["limit"]) - int(item.get("usedLimit") or 0)
 
     def frequency(self, phrase: str) -> float | None:
         data = self.client.call("GET", DASHBOARD, params={"keyword": phrase, "base": self.base})
@@ -123,8 +131,15 @@ class WordstatDemand:
     def _keysso(self, period_from, period_to) -> list[dict]:
         ks = KeyssoWordstat(self.instance)
         limit = self.instance.p["sources"]["suggest"]["limit"]
+        items = seeds(self.instance)
+        planned = len(items) * (2 if self.suggest else 1)
+        left = ks.requests_left()                # квота — до запроса, как у выдачи (П4)
+        self.report["planned"] = planned
+        self.report["limit_left"] = left if left is not None else "не читается"
+        if left is not None and planned > left:
+            raise QuotaExhausted(f"Keys.so: нужно запросов {planned}, остаток лимита API {left}")
         rows = []
-        for seed in seeds(self.instance):
+        for seed in items:
             value = ks.frequency(seed)
             if value is not None:
                 rows.append(self._row(seed, value, "keysso", period_from, period_to,
@@ -166,8 +181,8 @@ class WordstatDemand:
                         rows.append(self._row(phrase, count, "cloud", period_from, period_to))
             return rows
 
-        rows = (budget.paid_call(self.instance, "спрос", "Wordstat облако", price, run, confirm=self.confirm,
-                                 unattended=self.unattended, what=f"Wordstat облако: {calls} запросов",
-                                 source=f"sources.wordstat.cloud_price_rub × {calls}") if price > 0 else run())
+        rows = budget.paid_call(self.instance, "спрос", "Wordstat облако", price, run, confirm=self.confirm,
+                                unattended=self.unattended, what=f"Wordstat облако: {calls} запросов",
+                                source=f"sources.wordstat.cloud_price_rub × {calls}")
         self.report["requests"] = cloud.client.calls
         return rows

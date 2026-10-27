@@ -49,7 +49,12 @@ def run_check(instance) -> list[dict]:
             items.append(_item(f"секрет {source}", RED, f"переменной {env} нет", "добавить её в файл секретов"))
 
     def keysso():
-        left = instance.serp().remaining()
+        serp = instance.serp()
+        left = serp.remaining()
+        if left >= 10 ** 9:                      # ответил запасной источник: суточной квоты нет, предел — деньги
+            return _item("Keys.so", YELLOW, f"Keys.so не ответил — выдача из запасного источника "
+                         f"({getattr(serp, 'last_source', '') or 'yandex_search'}), платно через бюджет-гейт",
+                         "проверить ключ и подписку Keys.so")
         reserve = p["budget"]["reserve"]
         light = GREEN if left > reserve else YELLOW
         return _item("Keys.so", light, f"остаток суточной квоты {left} (резерв {reserve})",

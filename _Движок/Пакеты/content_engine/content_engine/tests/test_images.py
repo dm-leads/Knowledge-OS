@@ -180,7 +180,8 @@ def test_upload_needs_right_rollback_in_manual_mode_and_insert(inst, project):  
     instance = Instance(project, today=TODAY)
     images_mod.make_plan(instance, TID)
     images_mod.make(instance, TID)
-    out = images_mod.upload(instance, TID, apply=True)
+    assert main(["images", "upload", TID, "--apply", "--profile", str(project)]) == 1     # нет права — отказ
+    out = images_mod.upload(instance, TID, apply=False)
     assert "images.allow = write" in out["line"] and not (instance.root / "bucket.json").exists()
     set_profile(project, lambda d: d["images"].update(allow="write"))
     assert main(["images", "upload", TID, "--apply", "--profile", str(project)]) == 0
@@ -225,3 +226,14 @@ def test_backfill_queues_pages_without_images_and_run_rolls_back(project):
     assert len(snaps) == len(queued)
     assert main(["publish", "rollback", "--run", run_id, "--apply", "--profile", str(project)]) == 0
     assert not list((instance.root / "data" / "backfill" / run_id).glob("*.json"))
+
+def test_photo_from_web_needs_credit_even_if_inserted_by_hand(inst, project):  # noqa: F811
+    instance = topic_with_images(inst, project, cover="template", scheme="template", illustration="template")
+    images_mod.make_plan(instance, TID)
+    task = images_mod.photo_task(instance, TID).read_text(encoding="utf-8")
+    assert "лицензи" in task and "image-edit" in task
+    article = instance.brief_dir(TID) / "article.md"
+    article.write_text(CLEAN.replace("## Когда сажать", "![Грядка](https://photos.example.org/g.jpg)\n\n## Когда сажать"),
+                       encoding="utf-8")
+    report = check_topic(instance, TID, link_checker=lambda url, timeout: (True, "200"))
+    assert any(r["check"] == "image_credits" and "photos.example.org" in r["detail"] for r in report["reasons"])

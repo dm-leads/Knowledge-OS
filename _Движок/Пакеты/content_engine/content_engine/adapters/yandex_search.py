@@ -60,8 +60,7 @@ class YandexSearchSerp:
 
         def run():
             return {p: self._one(p, base) for p in phrases}
-        if cost <= 0:
-            return run()
+        # платный источник — всегда через гейт, и при цене 0
         return budget.paid_call(self.instance, "выдача", "выдача Yandex Search API", cost, run,
                                 confirm=getattr(self.instance, "confirm_spend", None),
                                 unattended=getattr(self.instance, "unattended", False),

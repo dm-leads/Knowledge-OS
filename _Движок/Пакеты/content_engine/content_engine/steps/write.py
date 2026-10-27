@@ -47,7 +47,7 @@ def make_tasks(instance, tid: str) -> dict:
     brief = load_brief(instance, tid)
     folder = instance.brief_dir(tid)
     level = level_of(instance, brief)
-    pack = facts.pack(instance, tid)
+    pack = facts.pack(instance, tid, topic.get("formulations") or [])
     if level == "усиленный" and not pack:
         raise GateRefused(f"тема {tid}: усиленный уровень текста без пакета проверенных фактов — сначала факты "
                           "(вычитка и библиотека фактов), задание писателю не выдаётся")

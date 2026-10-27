@@ -175,6 +175,8 @@ def _transfer(instance, tid: str, url: str, apply: bool) -> str:
         return f"папка проекта: ✗ {exc}"
     allowed, refused = rights.split(instance, planned)
     out = [f"не в плане — {r}" for r in refused]
+    if apply and refused and not allowed:
+        out.append("ОТКАЗ: передача с --apply не выполнена — нет права")
     if apply and allowed:
         result = actions_mod.run(instance, tid, allowed, apply=True, echo=lambda s: out.append(s.strip()))
         out.append(f"передача: {result.line()}; откат — `publish rollback {tid} --apply`")
@@ -188,7 +190,7 @@ def run_records(instance, tid: str, *, apply: bool = False) -> int:
     print(f"Записи дня выкладки {tid} ({out['day']}, {out['url']}): новых {out['new']}")
     for line in out["lines"]:
         print(f"  {line}")
-    return 0
+    return 1 if apply and any("ОТКАЗ:" in line for line in out["lines"]) else 0
 
 
 def release_pages(instance, known: set[str]) -> list[dict]:

@@ -422,6 +422,8 @@ def register(sub):
         if name == "build":
             p.add_argument("--limit", type=int, default=BUILD_LIMIT, help="верхних кандидатов за прогон")
         if name in ("refill", "take", "retake"):
+            from ..core.budget import add_flags
+            add_flags(p)                             # запасной источник выдачи платный (Н6)
             p.add_argument("--max-quota", type=int, help="объектов квоты на прогон, не больше")
         if name == "bet":
             p.add_argument("--hypothesis-id", help="номер гипотезы Движка роста: поля ставки — из её карточки")

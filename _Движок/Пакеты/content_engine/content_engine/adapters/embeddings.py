@@ -45,12 +45,9 @@ def vectors(instance, texts: list[str], *, tid: str, confirm, unattended: bool, 
     if missing:
         provider = provider or load(instance)
         price = float(provider.price(missing))
-        if price > 0:
-            got = budget.paid_call(instance, tid, "судья: эмбеддинги", price, lambda: provider.embed(missing),
-                                   confirm=confirm, unattended=unattended, what=f"эмбеддинги {len(missing)} текстов",
-                                   source=f"judge.embeddings.price_per_1k_rub × знаков, {instance.today.isoformat()}")
-        else:
-            got = provider.embed(missing)
+        got = budget.paid_call(instance, tid, "судья: эмбеддинги", price, lambda: provider.embed(missing),
+                               confirm=confirm, unattended=unattended, what=f"эмбеддинги {len(missing)} текстов",
+                               source=f"judge.embeddings.price_per_1k_rub × знаков, {instance.today.isoformat()}")
         for text, vector in zip(missing, got):
             (Path(folder) / f"{_key(text)}.json").write_text(json.dumps(vector), encoding="utf-8")
             cached[text] = vector

@@ -42,17 +42,29 @@ def actions(instance, snaps: list[dict]) -> tuple[list[Action], list[str]]:
     out, by_hand = [], []
     for snap in snaps:
         made = RESTORERS[snap["action"]](instance, snap)
-        if isinstance(made, str):
-            by_hand.append(f"откатить вручную: {made}")
-        else:
-            out += made if isinstance(made, list) else [made]
+        for item in (made if isinstance(made, list) else [made]):
+            if isinstance(item, str):
+                by_hand.append(f"откатить вручную: {item}")
+            else:
+                out.append(item)
     return out, by_hand
 
 
 @register("article_transfer")
-def _transfer(instance, snap: dict) -> Action:
+def _transfer(instance, snap: dict):
     folder = Path(snap["meta"].get("folder") or snap["target"])
-    created = [name for name, sha in (snap["content"] or {}).items() if sha is None]
+    sent = snap["meta"].get("sent") or {}
+    created, edited = [], []
+    for name, sha in (snap["content"] or {}).items():
+        if sha is not None:
+            continue
+        path = folder / name
+        if path.is_file() and sent.get(name) and hashlib.sha256(path.read_bytes()).hexdigest() != sent[name]:
+            edited.append(name)              # после передачи файл правили — машина его не удаляет
+        else:
+            created.append(name)
+    if edited and not created:
+        return f"{folder}: файлы {edited} правили после передачи — удалить вручную, если нужно"
 
     def do():
         for name in created:
@@ -72,6 +84,9 @@ def _transfer(instance, snap: dict) -> Action:
                 "content": {name: (hashlib.sha256((folder / name).read_bytes()).hexdigest()
                                    if (folder / name).is_file() else None) for name in created}}
 
-    return Action("article_transfer_rollback", str(folder), "delete",
-                  f"удалить файлы, которые машина положила в папку проекта: {created}", "read_back", ("paths", "write"),
-                  do=do, verify=verify, snapshot=snapshot)
+    action = Action("article_transfer_rollback", str(folder), "delete",
+                    f"удалить файлы, которые машина положила в папку проекта: {created}", "read_back",
+                    ("paths", "write"), do=do, verify=verify, snapshot=snapshot)
+    if edited:
+        return [action, f"{folder}: файлы {edited} правили после передачи — удалить вручную, если нужно"]
+    return action

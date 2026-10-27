@@ -18,7 +18,7 @@ from ..core.errors import EngineError, SourceError
 from ..core.number import FACT
 from .demand import demand_row
 
-PII = (("телефон", re.compile(r"(?:\+7|\b8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}\b")),
+PII = (("телефон", re.compile(r"(?:\+7|\b8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}\b|\b9\d{9}\b")),
        ("почта", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
        ("ссылка", re.compile(r"https?://|www\.", re.I)))
 COLUMNS = ["question", "count"]

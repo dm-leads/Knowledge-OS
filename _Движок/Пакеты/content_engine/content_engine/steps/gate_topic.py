@@ -141,6 +141,8 @@ def register(sub):
     p.add_argument("--exclude", action="append", default=[],
                    help="slug статьи, которую не считать (проверка; неполный гейт)")
     p.add_argument("--json", action="store_true", help="печатать отчёт JSON")
+    from ..core.budget import add_flags
+    add_flags(p)                                 # запасной источник выдачи платный (Н6)
     p.set_defaults(func=run)
     from . import gate_article
     gate_article.register_kind(kinds)

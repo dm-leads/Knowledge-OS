@@ -31,9 +31,23 @@ def expired(instance) -> list[dict]:
     return [r for r in read(instance) if r.get("status") == "confirmed" and not valid(r, instance.today)]
 
 
-def pack(instance, topic_id: str) -> list[dict]:
-    """Пакет проверенных фактов темы (Т28.3): подтверждённые и годные факты этой темы."""
-    return [r for r in read(instance) if r.get("topic") == topic_id and valid(r, instance.today)]
+def pack(instance, topic_id: str, formulations: list[str] | None = None) -> list[dict]:
+    """Пакет проверенных фактов темы (Т28.3): годные факты этой темы и годные факты библиотеки, у которых с темой
+    есть общая основа (библиотека ниши растёт статья за статьёй — новая тема берёт её факты до задания писателю)."""
+    rows = [r for r in read(instance) if valid(r, instance.today)]
+    words = set()
+    for f in formulations or []:
+        key = instance.norm.key(f)
+        words |= set().union(*key.parts) if key.parts else set()
+    out = []
+    for r in rows:
+        if r.get("topic") == topic_id:
+            out.append(r)
+            continue
+        key = instance.norm.key(str(r["fact"]))
+        if words and key.parts and words & set().union(*key.parts):
+            out.append(r)
+    return out
 
 
 def _key(row: dict) -> tuple:

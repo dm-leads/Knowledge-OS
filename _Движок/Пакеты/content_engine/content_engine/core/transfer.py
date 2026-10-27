@@ -97,7 +97,8 @@ class BuiltinTransfer:
         def snapshot():
             return {"exists": folder.is_dir(), "read_from": str(folder),
                     "content": {name: (_sha(folder / name) if (folder / name).is_file() else None) for name in sources},
-                    "meta": {"folder_existed": folder.is_dir(), "folder": str(folder)}}
+                    "meta": {"folder_existed": folder.is_dir(), "folder": str(folder),
+                             "sent": {name: _sha(src) for name, src in sources.items()}}}
 
         def do():
             folder.mkdir(parents=True, exist_ok=True)

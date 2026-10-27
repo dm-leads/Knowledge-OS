@@ -155,11 +155,20 @@ def run(instance, add, results, *, body: str, sections: list, faq: list, brief: 
     no_alt = [url for alt, url in MD_IMAGE.findall(body) if not alt.strip()]
     no_alt += [tag[:60] for tag in HTML_IMG.findall(body) if not re.search(r'\balt\s*=\s*"[^"]+"', tag)]
     add("image_alt", not no_alt, "картинки без alt: " + ", ".join(no_alt[:5]) if no_alt else "у картинок есть alt")
+    # кредиты (Т30.3): у каждого фото из сети — автор и лицензия; фото из сети — любая картинка текста, которой нет
+    # среди своих (сделанных машиной, из библиотеки, загруженных в хранилище) и которая не лежит на своём домене
+    plan = {}
     if topic_id and (instance.brief_dir(topic_id) / "images.json").is_file():
         plan = json.loads((instance.brief_dir(topic_id) / "images.json").read_text(encoding="utf-8"))
-        bad = [i.get("place", "?") for i in plan.get("images", [])
-               if i.get("kind") == "photo" and not (str(i.get("author") or "").strip() and str(i.get("license") or "").strip())]
-        add("image_credits", not bad, "фото без автора или лицензии: " + ", ".join(map(str, bad)) if bad else
-            "у фото из сети есть автор и лицензия")
-    else:
-        add("image_credits", True, "фото из сети нет (плана картинок нет)")
+    items = plan.get("images", [])
+    credited = {i.get("url") for i in items if i.get("kind") == "photo" and str(i.get("author") or "").strip()
+                and str(i.get("license") or "").strip()}
+    own = {i.get("url") for i in items if i.get("kind") != "photo" and i.get("url")}
+    own_hosts = {u.split("/")[2] for u in own if u.count("/") >= 2}      # хранилище картинок проекта
+    bad = [str(i.get("place", "?")) for i in items if i.get("kind") == "photo" and i.get("url") not in credited]
+    for _, url in MD_IMAGE.findall(body):
+        if (url.startswith("http") and url not in own and url not in credited and not is_own(url, domains)
+                and url.split("/")[2] not in own_hosts):
+            bad.append(url)
+    add("image_credits", not bad, "фото из сети без автора или лицензии: " + ", ".join(dict.fromkeys(bad))[:300]
+        if bad else "у фото из сети есть автор и лицензия")

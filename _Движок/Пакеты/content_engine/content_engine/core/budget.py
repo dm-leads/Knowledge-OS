@@ -36,7 +36,12 @@ def paid_call(instance, topic_id: str, step: str, price_rub: float, call: Callab
               confirm: float | None, unattended: bool, what: str, source: str):
     """Гейт → вызов → строка расхода (оценка по прайсу провайдера; факт пишет адаптер, если цена пришла в ответе)."""
     gate(instance, price_rub, confirm=confirm, unattended=unattended, what=what)
-    result = call()
+    try:
+        result = call()
+    except Exception:
+        # прогон оборвался — часть вызовов уже оплачена: расход пишется оценкой, месячный потолок не занижается
+        spend.add(instance, topic_id, step, "rub", round(price_rub, 2), ESTIMATE, source + " (прогон оборвался)")
+        raise
     spend.add(instance, topic_id, step, "rub", round(price_rub, 2), ESTIMATE, source)
     return result
 

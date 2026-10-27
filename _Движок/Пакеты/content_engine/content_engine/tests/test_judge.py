@@ -103,7 +103,7 @@ def test_api_embeddings_need_budget_yes(inst, project):  # noqa: F811
     (project.parent / "adapters").mkdir()
     (project.parent / "adapters" / "emb.py").write_text(EMB, encoding="utf-8")
     set_profile(project, lambda d: (d["judge"]["embeddings"].update(kind="api", model="module:adapters/emb.py:Provider",
-                                                                     key_env="EMB_KEY"),
+                                                                     key_env="EMB_KEY", price_per_1k_rub=0.5),
                                     d["budget"].update(run_limit_rub=10, month_limit_rub=100)))
     instance = Instance(project, today=TODAY)
     disputed(instance)
