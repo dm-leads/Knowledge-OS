@@ -23,7 +23,7 @@ from ..core.urls import norm_url, section_of, slug_of
 
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
-ROLES = ("id", "slug", "title", "url")
+ROLES = ("id", "slug", "title", "url", "date")   # date — день публикации из шапки (книга ставок задним числом)
 
 
 @dataclass

@@ -20,9 +20,9 @@ def base_profile() -> dict:
         "fields": {"id": "id", "slug": "slug", "title": "title", "url": "url"},
         "url_template": "https://{domain}/{section}/{slug}", "section": "blog", "index_csv": ""}]
     data["directions"] = [{"name": "теплицы", "words": ["теплица"], "weight": 2, "quarter_quota": 4,
-                           "volume": [6000, 12000]},
+                           "volume": [6000, 12000], "hypothesis_id": ""},
                           {"name": "полив", "words": ["полив"], "weight": 1, "quarter_quota": 0,
-                           "volume": [3000, 8000]}]
+                           "volume": [3000, 8000], "hypothesis_id": ""}]
     data["thresholds"]["section_block"] = 4
     data["thresholds"]["section_warn"] = 3
     return data

@@ -78,7 +78,7 @@ def web():
 
 def taken_topic(project, web, *, as_of=TODAY, top=TOP, direction="розы"):
     set_profile(project, lambda d: d["directions"].append({"name": "розы", "words": ["роза"], "weight": 1,
-                                                           "quarter_quota": 0, "volume": [100, 50000]}))
+                                                           "quarter_quota": 0, "volume": [100, 50000], "hypothesis_id": ""}))
     inst = Instance(project, today=TODAY, transport=web, serp=FakeSerp({"remaining": 100, "top": {}}))
     queue_mod.save(inst, [{"id": TID, "topic": FORMULATIONS[0], "formulations": FORMULATIONS, "cluster_id": None,
                            "direction": direction, "weight": 10, "manual_priority": 0, "status": queue_mod.TAKEN,
