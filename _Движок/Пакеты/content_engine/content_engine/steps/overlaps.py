@@ -85,8 +85,10 @@ def live_overlaps(instance, pages, *, ctx=None) -> list[dict]:
     return unique
 
 
-def _save_overlaps(instance, found: list[dict]) -> str:
+def _save_overlaps(instance, found: list[dict], scope: set[str] | None = None) -> str:
     old = store.read_json(instance.file("overlaps"), "overlaps", missing_ok=True)["records"]
+    # пары вне области прогона (без --full) не проверялись — остаются, а не стираются
+    kept = [o for o in old if scope is not None and not (set(o["pair"]) & scope)]
     decided = {(tuple(o["pair"]), o["kind"]): o for o in old if o.get("decision")}
     records = []
     for o in found:
@@ -94,7 +96,10 @@ def _save_overlaps(instance, found: list[dict]) -> str:
         records.append({**o, "date": instance.today.isoformat(),
                         "decision": prev["decision"] if prev else None, "decided_by": prev.get("decided_by") if prev
                         else None})
-    records += [o for k, o in decided.items() if k not in {(tuple(r["pair"]), r["kind"]) for r in records}]
+    have = {(tuple(r["pair"]), r["kind"]) for r in records}
+    records += [o for k, o in decided.items() if k not in have]
+    have = {(tuple(r["pair"]), r["kind"]) for r in records}
+    records += [o for o in kept if (tuple(o["pair"]), o["kind"]) not in have]
     return store.write_json(instance.file("overlaps"), "overlaps", records)
 
 
@@ -228,7 +233,8 @@ def run_all(instance, out: dict, *, full: bool) -> dict:
     pages = [pg for pg in (instance.corpus()[0] if instance.p["corpus"]["folders"] else [])
              if norm_url(pg.url) in scope or full]
     found = live_overlaps(instance, pages)
-    lines.append(f"сверено статей {len(pages)}; пар {len(found)}; {_save_overlaps(instance, found)}")
+    lines.append(f"сверено статей {len(pages)}; пар {len(found)}; "
+                 f"{_save_overlaps(instance, found, None if full else scope)}")
     allowed, why = merge_tasks_allowed(instance)
     lines.append(why)
     for o in found:
@@ -250,6 +256,14 @@ def run_all(instance, out: dict, *, full: bool) -> dict:
                          "first_seen": first_seen.get(fid, instance.today.isoformat())})
     lines.append(f"проверено адресов {len(articles)} (предел проверок Search Console {instance.p['audit']['inspect_limit']}"
                  f"), выпало {len(gone)}")
+    # находки прошлого снимка вне области этого прогона не проверялись — переносятся, а не «ушли»
+    if not full and out["previous"]:
+        from .audit import carry
+        mine = {f["id"] for f in findings}
+        for f in out["previous"]["findings"]:
+            if (f["check"].startswith("overlap") or f["check"] == "dropped") and f["id"] not in mine \
+                    and f["url"] not in scope:
+                findings += carry([f])
     task = advice_task(instance, out["findings"] + findings, graph)
     if task:
         lines += ["", f"Советы по находкам — задание роли cheap: {task}; ответ проверит `audit advice`"]

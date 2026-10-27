@@ -44,8 +44,13 @@ def main(argv=None) -> int:
         from pathlib import Path
         from .core import store
         command = " ".join(x for x in (args.command, getattr(args, "action", "") or "") if x)
-        store.append_jsonl(Path(args.profile).resolve().parent / "data" / "schedule_runs.jsonl",
-                           [{"command": command, "start": start, "code": code}])
+        root = Path(args.profile).resolve().parent
+        store.append_jsonl(root / "data" / "schedule_runs.jsonl", [{"command": command, "start": start, "code": code}])
+        if code:                             # Т42.2: остановка без человека — строкой в отчёт дня
+            day = root / "reports" / start[:10]
+            day.mkdir(parents=True, exist_ok=True)
+            with open(day / "unattended.md", "a", encoding="utf-8", newline="\n") as handle:
+                handle.write(f"- {start} `{command}` — код {code}: ждёт человека или ошибка; см. вывод команды\n")
     except Exception as exc:                 # журнал запусков не должен ломать сам запуск
         print(f"журнал запусков не записан: {exc}", file=sys.stderr)
     return code
@@ -87,6 +92,8 @@ def open_instance(args, *, read_only: bool = False, **kwargs):
     # платный запасной источник выдачи (Н6) берёт «да» человека из флагов команды
     instance.confirm_spend = getattr(args, "confirm_spend", None)
     instance.unattended = getattr(args, "unattended", False)
+    if instance.unattended:                  # расписание не пишет очередь и брони параллельно с чатом контента
+        return instance
     released = expire(instance)
     if released:
         print(f"брони истекли и освобождены: {released}")

@@ -22,7 +22,16 @@ class CronScheduler:
 
     def _table(self) -> list[str]:
         code, out = self.runner(["crontab", "-l"])
-        return out.splitlines() if code == 0 else []
+        if code == 0:
+            return out.splitlines()
+        if "no crontab" in out.lower():
+            return []
+        from ..core.errors import EngineError
+        raise EngineError(f"crontab -l: код {code} — таблица не прочитана, запись не выполняется: {out.strip()[:200]}")
+
+    def table(self) -> str:
+        """Вся таблица — для снимка «до»: чужие строки можно вернуть."""
+        return "\n".join(self._table())
 
     def list(self) -> list[str]:
         return sorted(l.rsplit("# ", 1)[1] for l in self._table() if f"# {PREFIX}-" in l)

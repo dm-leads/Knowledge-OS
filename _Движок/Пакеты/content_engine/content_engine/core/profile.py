@@ -466,8 +466,8 @@ def _semantics_v4(data: dict):
     _adapter("bets.money.kind", b["money"]["kind"], MONEY_KINDS)
     if b["money"]["kind"] == "file" and not b["money"]["file"]:
         raise ProfileError("поле «bets.money.file»: kind: file — нужен путь к CSV денег по окнам")
-    if b["min_step"] not in (1, 2, 3):
-        raise ProfileError("поле «bets.min_step»: ступень лесенки 1, 2 или 3")
+    if b["min_step"] not in (1, 2):
+        raise ProfileError("поле «bets.min_step»: ступень лесенки 1 или 2 — proxy и «нет данных» итога не дают (Т39.2)")
     if not b["proposal_dir"]:
         raise ProfileError("поле «bets.proposal_dir»: папка файлов-предложений для Движка роста")
     e = data["economics"]

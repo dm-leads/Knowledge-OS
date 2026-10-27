@@ -25,7 +25,10 @@ def _lark(instance, text: str, transport) -> Action:
                          hosts=[parts.hostname], transport=transport)
 
     def do():
-        return client.call("POST", endpoint, json={"msg_type": "text", "content": {"text": text}})
+        try:
+            return client.call("POST", endpoint, json={"msg_type": "text", "content": {"text": text}})
+        except EngineError as exc:              # путь вебхука — сам секрет: в сообщение он не попадает
+            raise EngineError(str(exc).replace(endpoint, "<вебхук>").replace(url, "<вебхук>")) from None
 
     def verify(answer):
         body = answer.data if isinstance(answer.data, dict) else {}
@@ -68,4 +71,7 @@ def action(instance, text: str, *, transport=None) -> Action | None:
     if kind == "telegram":
         return _telegram(instance, text, transport)
     from ..core.plugins import load_class
-    return load_class(instance, kind, {}, "notify.kind")(instance).action(text)
+    act = load_class(instance, kind, {}, "notify.kind")(instance).action(text)
+    if tuple(act.right) != ("notify", "write"):    # адаптер проекта не обходит право notify.allow
+        raise EngineError(f"адаптер сводки {kind}: ступень действия {act.right} — нужна (notify, write)")
+    return act

@@ -131,7 +131,15 @@ def collect(instance, *, transport=None, network: bool = True) -> dict:
         blocks["site"] = {"ok": None, "why": "--no-network"}
         blocks["positions"] = {"engines": {}, "alarms": [], "note": "не проверялось: --no-network"}
         blocks["drift"] = {"findings": [], "critical": None, "note": "не проверялось: --no-network"}
-    facts = {"site_ok": blocks["site"]["ok"], "site_why": blocks["site"]["why"], "last_publication": pub["last_day"],
+    unchecked = []
+    dr = blocks["drift"]
+    blind = sum(1 for f in dr.get("findings", []) if f["level"] == drift.UNVERIFIED)
+    if blind:
+        unchecked.append(f"дрифт: сеть не ответила у {blind} стр.")
+    for name, e in (blocks["positions"].get("engines") or {}).items():
+        if e.get("status") not in ("ок", "не подключено"):
+            unchecked.append(f"позиции {name}: {e.get('status')}")
+    facts = {"unchecked": unchecked, "site_ok": blocks["site"]["ok"], "site_why": blocks["site"]["why"], "last_publication": pub["last_day"],
              "drift_critical": blocks["drift"].get("critical"), "audit_critical": blocks["audit"]["critical"],
              "audit_age": blocks["audit"]["age"], "stock_days": blocks["stock"].get("days")}
     verdict = decide(instance, facts)
@@ -234,6 +242,8 @@ def summary(data: dict) -> str:
     v = data["verdict"]
     lines = [f"Пульс {data['date']}: {v['color'].upper()} — {v['why']}"]
     lines += [f"• {d}" for d in data["diff"]] or ["• изменений со вчера нет"]
+    if v.get("unchecked"):
+        lines.append("Не проверено: " + "; ".join(v["unchecked"]))
     if v["todo"]:
         lines.append(f"Что сделать: {v['todo']}")
     return "\n".join(lines)

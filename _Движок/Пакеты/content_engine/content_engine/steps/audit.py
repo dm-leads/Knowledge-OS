@@ -25,6 +25,7 @@ from ..core.htmldoc import HtmlDoc
 from ..core.urls import host_of, is_own, norm_url, section_of, slug_of
 
 SLEEP = time.sleep
+UNCHECKED = "не проверено: "
 CHECKLIST_VERSION = 1
 REDIRECTS = (301, 302, 303, 307, 308)
 
@@ -138,6 +139,9 @@ def run_audit(instance, *, transport=None) -> dict:
         add("robots", domain, f"robots.txt: {robots.get('error') or 'HTTP ' + str(robots['status'])}")
     elif re.search(r"(?ims)^user-agent:\s*\*\s*$(?:(?!^user-agent:).)*?^disallow:\s*/\s*$", robots["text"]):
         add("robots", domain, "robots.txt закрывает весь сайт для всех роботов")
+    old_by_url = defaultdict(list)
+    for f in (prev or {}).get("findings", []):
+        old_by_url[f["url"]].append(f)
     titles, descriptions = defaultdict(list), defaultdict(list)
     graph: dict[str, list[str]] = {}
     unreachable = 0
@@ -153,6 +157,8 @@ def run_audit(instance, *, transport=None) -> dict:
             unreachable += 1
             if not got.get("network"):
                 add("http_error", url, got["error"])
+            else:                              # сеть не ответила — прошлые находки страницы не «ушли»
+                findings += carry(old_by_url.get(norm_url(url), []))
             continue
         if got["status"] in REDIRECTS:
             add("redirect_in_sitemap", url, f"HTTP {got['status']} → {got['location']}")
@@ -256,6 +262,12 @@ def run_audit(instance, *, transport=None) -> dict:
                           newline="\n")
     return {"pages": len(urls), "loads": crawl.loads, "unreachable": unreachable, "findings": findings,
             "previous": prev, "graph": graph, "crawl": crawl}
+
+
+def carry(old: list[dict]) -> list[dict]:
+    """Находки прошлого снимка по адресам, которые в этот раз не проверены: остаются с пометкой, не «ушли»."""
+    return [{**f, "detail": f["detail"] if f["detail"].startswith(UNCHECKED) else UNCHECKED + f["detail"]}
+            for f in old]
 
 
 def delta(prev: dict | None, findings: list[dict]) -> dict:

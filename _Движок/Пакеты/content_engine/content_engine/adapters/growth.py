@@ -185,7 +185,10 @@ class FileGrowth:
         path = self.folder / f"{hid}.yaml"
         if not path.is_file():
             raise EngineError(f"карточки гипотезы нет: {path}")
-        card = yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            card = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise EngineError(f"карточка {path.name}: YAML не читается — {exc}") from exc
         validate_card(card, path.name)
         exported = date.fromisoformat(str(card["exported_at"])[:10])
         if (self.today - exported).days > CARD_MAX_AGE:

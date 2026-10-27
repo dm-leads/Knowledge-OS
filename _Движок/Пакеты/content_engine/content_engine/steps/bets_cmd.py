@@ -104,7 +104,8 @@ def measure(instance, *, only: str | None = None, as_of: date | None = None) -> 
                 if end > today:
                     counts["окно не наступило"] += 1
                     continue
-                if key in rec["measures"]:
+                old = rec["measures"].get(key)
+                if old and (old.get("result") is not None or old.get("proposed") != bets.LOW_DATA):
                     counts["уже замерено"] += 1
                     continue
                 got = money.money(rec["url"], first.isoformat(), (end - timedelta(days=1)).isoformat())

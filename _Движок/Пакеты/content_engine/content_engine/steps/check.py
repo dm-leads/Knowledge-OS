@@ -215,7 +215,10 @@ def wave3_items(instance) -> list[dict]:
         tail = "; ".join(f"{j['name']}: " + next((f"{r['start']} код {r['code']}" for r in reversed(runs)
                                                    if r.get("command") == j["command"]), "запусков нет")
                           for j in jobs)
-        items.append(_item("расписание", GREEN if runs else YELLOW,
+        last_codes = [next((r["code"] for r in reversed(runs) if r.get("command") == j["command"]), None)
+                      for j in jobs]
+        ok = runs and all(c == 0 for c in last_codes if c is not None)
+        items.append(_item("расписание", GREEN if ok else YELLOW,
                            f"заданий {len(jobs)} (schedule.allow {p['schedule']['allow']}); последний запуск — {tail}",
                            "" if runs else "`schedule install --apply` по разрешению; запуски пишутся в "
                                          "data/schedule_runs.jsonl"))
@@ -421,6 +424,12 @@ def register(sub):
 
 def run(args) -> int:
     from ..cli import open_instance
+    if args.contours:
+        instance = open_instance(args, read_only=True)
+        from ..core import contours
+        rows = contours.table(instance)
+        print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else contours.render(rows))
+        return 0
     instance = open_instance(args)
     if args.contours:
         from ..core import contours

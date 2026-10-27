@@ -30,6 +30,7 @@ def decide(instance, facts: dict) -> dict:
                    "открыть сайт в браузере; если отвечает — повторить `pulse run` (сеть устройства)")
     if facts.get("site_ok") is None:
         unchecked.append("сайт не проверялся")
+    unchecked += list(facts.get("unchecked") or [])
     if per_day > 0:
         limit = m["silence_intervals"] / per_day
         last = facts.get("last_publication")

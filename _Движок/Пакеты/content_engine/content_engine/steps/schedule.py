@@ -50,8 +50,8 @@ def _install_action(instance, sch, job: base.Job) -> Action:
         return ok, f"{job.name}: " + ("стоит, команда и время совпали" if ok else f"прочитано иначе: {got}")
 
     def snapshot():
-        return {"exists": job.name in sch.list(), "read_from": f"планировщик {sch.kind}",
-                "content": json.dumps(sch.read(job.name), ensure_ascii=False)}
+        whole = sch.table() if hasattr(sch, "table") else json.dumps(sch.read(job.name), ensure_ascii=False)
+        return {"exists": job.name in sch.list(), "read_from": f"планировщик {sch.kind}", "content": whole}
 
     return Action("schedule_install", job.name, sch.kind, f"{job.every} {job.at} {job.weekday} — {job.command}",
                   "read_back", ("schedule", "write"), do=do, verify=verify, snapshot=snapshot)
@@ -76,7 +76,7 @@ def remove(instance, *, job: str | None, apply: bool, runner=None) -> dict:
     sch = scheduler(instance, runner)
     mine = [n for n in sch.list() if base.own(n, instance)]
     if job:
-        mine = [n for n in mine if n.endswith(f"-{job}")]
+        mine = [n for n in mine if n == f"{base.PREFIX}-{base.instance_id(instance)}-{job}"]
     planned = []
     for name in mine:
         def do(name=name):
@@ -107,7 +107,7 @@ def listing(instance, runner=None) -> list[str]:
     for name in sch.list():
         if not base.own(name, instance):
             continue
-        job = name.rsplit("-", 1)[-1]
+        job = name[len(f"{base.PREFIX}-{base.instance_id(instance)}-"):]
         last = [r for r in runs if r.get("command") == _command_of(instance, job)]
         tail = f"последний запуск {last[-1]['start']} — код {last[-1]['code']}" if last else "запусков в журнале нет"
         lines.append(f"{name}: {tail}")

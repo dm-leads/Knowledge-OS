@@ -44,6 +44,9 @@ def _add(instance, records: list, topic: dict, url: str, day: str) -> tuple[bool
     old = next((r for r in records if r.get("origin") == "corpus" and norm_url(r["url"]) == norm_url(url)), None)
     if old is not None:
         records.remove(old)
+        carried = {k: old[k] for k in ("measures",) if old.get(k)}   # принятые замеры не теряются
+    else:
+        carried = {}
     bet = topic.get("bet") or {}
     published = date.fromisoformat(day)
     missing = bet_missing(topic)
@@ -52,7 +55,7 @@ def _add(instance, records: list, topic: dict, url: str, day: str) -> tuple[bool
                     "fail_threshold": bet.get("fail_threshold", ""), "published": day,
                     "measure": {str(w): (published + timedelta(days=w)).isoformat() for w in WINDOWS},
                     "result": None, "bet_missing": missing, "direction": topic.get("direction", ""),
-                    **{k: bet[k] for k in ("expectation_numbers", "unit", "planned_count") if k in bet}})
+                    **{k: bet[k] for k in ("expectation_numbers", "unit", "planned_count") if k in bet}, **carried})
     return True, f"; {NO_BET}" if missing else ""
 
 
@@ -111,7 +114,7 @@ def decide(record: dict, measured: dict, min_step: int) -> tuple[str, str]:
     """Итог окна (Т39.2): ступень ниже порога данных или «нет данных» — «мало данных»; ставки нет — «ставки нет»;
     иначе сравнение в единице ставки: ≥ ожидания — «сыграла», ≤ порога провала — «провал», между — «мало данных»."""
     money, leads = measured["money"], measured.get("leads")
-    if measured["step"] > min_step or money.get("status") == "нет данных":
+    if measured["step"] > min(min_step, 2) or money.get("status") in ("нет данных", "proxy"):
         return LOW_DATA, f"ступень {measured['step']}: {money.get('note') or money.get('status')}"
     if record.get("bet_missing"):
         return NO_BET_RESULT, "ставки нет — деньги страницы записаны, сравнивать не с чем"
