@@ -183,3 +183,20 @@ def test_bet_for_corpus_article_keeps_measures(project):
     bets.add(instance, {"id": "T0009", "topic": "т", "bet": {}}, "example.ru/blog/otoplenie-teplicy", "2025-10-01")
     recs = bets.load(instance)
     assert [r["id"] for r in recs] == ["T0009"] and recs[0]["measures"]["90"]["result"] == "ставки нет"
+
+
+def test_real_bet_remeasured_after_corpus_record(project):
+    from .test_bets_wave3 import money_file, window
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("bets"), "bets", [{"id": "C:otoplenie-teplicy", "origin": "corpus",
+        "url": "example.ru/blog/otoplenie-teplicy", "published": "2025-10-01", "bet_missing": True,
+        "measures": {"90": {"proposed": "ставки нет", "result": "ставки нет"}}}])
+    topic = {"id": "T0009", "topic": "т", "direction": "теплицы", "bet": {
+        "hypothesis": "h", "hypothesis_id": "H-1", "expectation": "4 заявки", "fail_threshold": "0",
+        "expectation_numbers": [{"value": 4, "unit": "заявки"}], "unit": "article", "planned_count": 1}}
+    bets.add(instance, topic, "example.ru/blog/otoplenie-teplicy", "2025-10-01")
+    rec = bets.load(instance)[0]
+    assert "measures" not in rec and rec["measures_corpus"]["90"]["result"] == "ставки нет"
+    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
+    bets_cmd.measure(Instance(project, today=TODAY))
+    assert bets.load(instance)[0]["measures"]["90"]["proposed"] == "сыграла"

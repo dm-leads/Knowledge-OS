@@ -21,7 +21,7 @@ import yaml
 
 from ..core import bets
 from ..core.errors import EngineError, GateRefused, SourceError
-from ..core.urls import norm_url, section_of, slug_of
+from ..core.urls import ascii_url, norm_url, section_of, slug_of
 
 
 def _first_days(instance, urls: list[str]) -> dict[str, str]:
@@ -35,14 +35,17 @@ def _first_days(instance, urls: list[str]) -> dict[str, str]:
                            transport=instance.transport)
     except (SourceError, OSError, ValueError):
         return {}
-    since = (instance.today - timedelta(days=480)).isoformat()      # предел истории Search Console — 16 месяцев
+    start = instance.today - timedelta(days=480)                    # предел истории Search Console — 16 месяцев
+    edge = (start + timedelta(days=7)).isoformat()
     out = {}
     for url in urls:
-        try:
-            day = sc.first_day(url if url.startswith("http") else "https://" + url, since, instance.today.isoformat())
+        try:                                    # консоль ждёт адрес в punycode: кириллический домен не находится
+            day = sc.first_day(ascii_url(url if url.startswith("http") else "https://" + url), start.isoformat(),
+                               instance.today.isoformat())
         except (SourceError, OSError):
             continue
-        if day:
+        # первый показ у самого края истории — статья старше истории консоли: день выкладки не установлен
+        if day and day > edge:
             out[url] = day
     return out
 

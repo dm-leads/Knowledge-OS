@@ -57,14 +57,22 @@ class Page:
         return "\n".join(f"{s.heading}\n{s.text}" for s in self.sections)
 
 
+MONTHS = {"янв": 1, "фев": 2, "мар": 3, "апр": 4, "мая": 5, "май": 5, "июн": 6, "июл": 7, "авг": 8, "сен": 9,
+          "окт": 10, "ноя": 11, "дек": 12}
+
+
 def iso_day(value) -> str:
-    """День публикации из шапки: ГГГГ-ММ-ДД (в том числе с временем) или ДД.ММ.ГГГГ; иначе пусто."""
+    """День публикации из шапки: ГГГГ-ММ-ДД (в том числе с временем), ДД.ММ.ГГГГ или «02 марта 2022»; иначе пусто."""
     text = str(value or "").strip()
     m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
     m = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})", text)
-    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else ""
+    if m:
+        return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    m = re.match(r"^(\d{1,2})\s+([а-яё]+)\s+(\d{4})", text.lower())   # «02 марта 2022» — как пишет сайт
+    month = MONTHS.get(m.group(2)[:3]) if m else None
+    return f"{m.group(3)}-{month:02d}-{int(m.group(1)):02d}" if month else ""
 
 
 def _clean(line: str) -> str:

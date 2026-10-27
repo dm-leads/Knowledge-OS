@@ -235,3 +235,31 @@ def test_old_card_without_decision_reads(project):
 def test_bet_commands_via_main(project, corpus, capsys):
     assert main(["bet", "backfill", "--profile", str(project)]) == 0
     assert "план" in capsys.readouterr().out
+
+
+def test_russian_month_date_in_corpus_head():
+    from content_engine.adapters.corpus import iso_day
+    assert iso_day("02 марта 2022") == "2022-03-02" and iso_day("1 мая 2025") == "2025-05-01"
+    assert iso_day("2026-07-01T10:00") == "2026-07-01" and iso_day("15.09.2026") == "2026-09-15"
+    assert iso_day("вчера") == ""
+
+
+def test_gsc_day_punycode_and_history_edge(project, monkeypatch):
+    from datetime import timedelta
+    import content_engine.adapters.gsc as gsc
+    seen = []
+
+    class SC:
+        def __init__(self, *a, **k):
+            pass
+
+        def first_day(self, url, start, end):
+            seen.append(url)
+            return start if "old" in url else (TODAY - timedelta(days=30)).isoformat()
+
+    monkeypatch.setattr(gsc, "SearchConsole", SC)
+    monkeypatch.setattr(gsc, "service_account_token", lambda f: "t")
+    set_profile(project, lambda d: d["sources"]["gsc"].update(enabled=True))
+    out = bets_cmd._first_days(Instance(project, today=TODAY), ["пример.испытание/blog/new", "пример.испытание/blog/old"])
+    assert all(u.startswith("https://xn--") for u in seen)                 # punycode
+    assert list(out) == ["пример.испытание/blog/new"]                             # край истории — «не установлен»

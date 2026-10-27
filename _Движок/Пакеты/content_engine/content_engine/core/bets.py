@@ -44,7 +44,8 @@ def _add(instance, records: list, topic: dict, url: str, day: str) -> tuple[bool
     old = next((r for r in records if r.get("origin") == "corpus" and norm_url(r["url"]) == norm_url(url)), None)
     if old is not None:
         records.remove(old)
-        carried = {k: old[k] for k in ("measures",) if old.get(k)}   # принятые замеры не теряются
+        # замеры записи задним числом не теряются; при настоящей ставке это история — окна замеряются по ставке заново
+        carried = {("measures_corpus" if not bet_missing(topic) else "measures"): old["measures"]}             if old.get("measures") else {}
     else:
         carried = {}
     bet = topic.get("bet") or {}

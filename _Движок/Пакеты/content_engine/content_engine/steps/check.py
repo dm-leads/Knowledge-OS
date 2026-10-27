@@ -431,11 +431,6 @@ def run(args) -> int:
         print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else contours.render(rows))
         return 0
     instance = open_instance(args)
-    if args.contours:
-        from ..core import contours
-        rows = contours.table(instance)
-        print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else contours.render(rows))
-        return 0
     items = run_check(instance)
     print(json.dumps(items, ensure_ascii=False, indent=1) if args.json else render(items))
     return 1 if any(i["light"] == RED for i in items) else 0

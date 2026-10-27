@@ -261,8 +261,13 @@ def run_all(instance, out: dict, *, full: bool) -> dict:
         from .audit import carry
         mine = {f["id"] for f in findings}
         for f in out["previous"]["findings"]:
-            if (f["check"].startswith("overlap") or f["check"] == "dropped") and f["id"] not in mine \
-                    and f["url"] not in scope:
+            if f["id"] in mine:
+                continue
+            if f["check"].startswith("overlap"):
+                pair = set(f["id"].split("|", 1)[1].split(" ↔ "))     # одно правило с реестром пар
+                if not pair & scope:
+                    findings += carry([f])
+            elif f["check"] == "dropped" and f["url"] not in scope:
                 findings += carry([f])
     task = advice_task(instance, out["findings"] + findings, graph)
     if task:
