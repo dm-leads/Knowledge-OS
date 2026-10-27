@@ -35,3 +35,13 @@ def test_proxy_direction_not_proposed(project):
     store.write_json(instance.file("bets"), "bets", [rec(f"A{i}", "огород", step=3, status="proxy", money=100)
                                                      for i in range(3)])
     assert economics.report(instance)["proposals"] == []
+
+
+def test_unknown_money_and_cost_are_no_data_not_zero(project):
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("bets"), "bets", [rec("A1", "огород", step=4, status="нет данных")])
+    data = economics.report(instance)
+    d = data["directions"][0]
+    assert d["status"] == "нет данных" and d["payback"] is None
+    row = [l for l in economics.render(data).splitlines() if l.startswith("| огород")][0]
+    assert row.count("нет данных") >= 3 and "| 0 |" not in row

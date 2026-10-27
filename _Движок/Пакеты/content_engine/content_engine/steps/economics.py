@@ -32,7 +32,8 @@ def report(instance) -> dict:
     e = instance.p["economics"]
     rows = spend.rows(instance)
     articles, by_dir = [], defaultdict(lambda: {"cost": 0.0, "money": 0.0, "articles": 0, "status": 3,
-                                                 "incomplete": 0, "matured": 0, "leads": 0.0, "low_data": 0})
+                                                 "incomplete": 0, "matured": 0, "leads": 0.0, "low_data": 0,
+                                                 "money_known": 0, "cost_known": 0})
     for rec in bets.load(instance):
         cost = _cost(rows, rec["id"])
         m180 = (rec.get("measures") or {}).get("180")
@@ -46,9 +47,11 @@ def report(instance) -> dict:
         d = by_dir[line["direction"]]
         d["articles"] += 1
         d["cost"] += cost["rub"]
+        d["cost_known"] += cost["known"]
         d["incomplete"] += not cost["complete"]
         if money and money.get("value") is not None:
             d["money"] += float(money["value"])
+            d["money_known"] += 1
             d["status"] = min(d["status"], RANK.get(money["status"], 0))
         if mclose:
             d["matured"] += 1
@@ -59,8 +62,10 @@ def report(instance) -> dict:
     directions, proposals = [], []
     status_name = {v: k for k, v in RANK.items()}
     for name, d in sorted(by_dir.items()):
-        payback = round(d["money"] / d["cost"], 2) if d["cost"] else None
-        directions.append({"direction": name, **d, "status": status_name[d["status"]], "payback": payback})
+        # денег не известно ни по одной статье — «нет данных», а не ноль и не «факт»
+        status = status_name[d["status"]] if d["money_known"] else "нет данных"
+        payback = round(d["money"] / d["cost"], 2) if d["cost"] and d["money_known"] else None
+        directions.append({"direction": name, **d, "status": status, "payback": payback})
         if d["matured"] >= e["close_min_articles"] and d["low_data"] == 0 and d["leads"] <= e["close_leads_max"]:
             proposals.append(f"предложение: закрыть направление «{name}» — статей с наступившим окном "
                              f"{d['matured']}, заявок за {e['close_window']} дней {d['leads']:g}; решение — Движок "
@@ -80,9 +85,11 @@ def render(data: dict) -> str:
         lines.append(f"| {a['id']} | {a['direction']} | {cost} | {money} | {a['note']} |")
     lines += ["", "| Направление | Статей | Цена, ₽ | Деньги, ₽ | Окупаемость | Статус |", "|---|---|---|---|---|---|"]
     for d in data["directions"]:
-        lines.append(f"| {d['direction']} | {d['articles']} | {d['cost']:g}"
-                     + (f" (неполная у {d['incomplete']})" if d["incomplete"] else "")
-                     + f" | {d['money']:g} | {d['payback'] if d['payback'] is not None else '—'} | {d['status']} |")
+        cost = "нет данных" if not d["cost_known"] else (f"{d['cost']:g}" + (f" (неполная у {d['incomplete']})"
+                                                                              if d["incomplete"] else ""))
+        money = f"{d['money']:g}" if d["money_known"] else "нет данных"
+        lines.append(f"| {d['direction']} | {d['articles']} | {cost} | {money} | "
+                     f"{d['payback'] if d['payback'] is not None else '—'} | {d['status']} |")
     lines += [""] + (data["proposals"] or ["Предложений закрыть направление нет."])
     return "\n".join(lines) + "\n"
 
