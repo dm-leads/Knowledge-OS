@@ -25,10 +25,19 @@ KIND = "article_transfer"
 BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+
+
 def clean_name(text: str) -> str:
-    """Имя папки, допустимое в Windows: без запрещённых знаков, пробелы сжаты, без точек и пробелов по краям."""
+    """Имя папки, допустимое в Windows: без запрещённых знаков, пробелы сжаты, без точек и пробелов по краям, не
+    имя устройства (CON, NUL, COM1…). Пустое после очистки — ошибка: путь не должен схлопнуться."""
     name = re.sub(r"\s+", " ", BAD.sub("", text or "")).strip(" .")
-    return name[:120].rstrip(" .")
+    name = name[:120].rstrip(" .")
+    if not name:
+        raise EngineError(f"имя папки из «{text}» после очистки пустое")
+    if name.split(".")[0].upper() in RESERVED:
+        name = "_" + name
+    return name
 
 
 def _sha(path: Path) -> str:

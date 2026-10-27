@@ -41,12 +41,26 @@ CRITIQUE_SCHEMA = """# critique.md — таблица правок
 IMAGE_LINE = re.compile(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$")
 
 
+IMAGE_URL = re.compile(r"(!\[[^\]]*\])\([^)]*\)")
+
+
+def normalized_text(text: str) -> str:
+    """Текст для суммы вычитки: адреса картинок и поле `image` шапки сняты, alt и всё остальное — на месте.
+
+    Вставка картинки (`images insert`) утверждений не меняет и вычитку не сбрасывает; правка слов — и в alt тоже —
+    сбрасывает. Поле `image` снимается только в шапке YAML, строка «image:» в теле — обычный текст."""
+    text = text.replace("\r\n", "\n")
+    head, body = "", text
+    if text.startswith("---\n") and "\n---" in text[4:]:
+        end = text.index("\n---", 4)
+        head = "\n".join(l for l in text[:end].split("\n") if not l.startswith("image:"))
+        body = text[end:]
+    body = IMAGE_URL.sub(r"\1", body)
+    return "\n".join(l.rstrip() for l in (head + body).split("\n")).strip()
+
+
 def text_digest(path: Path) -> str:
-    """Сумма текста для вычитки — без строк картинок и поля `image` шапки: вставка картинок (`images insert`) не
-    меняет утверждений и вычитку не сбрасывает; правка слов — сбрасывает."""
-    text = Path(path).read_bytes().decode("utf-8").replace("\r\n", "\n")
-    lines = [l for l in text.split("\n") if not IMAGE_LINE.match(l) and not l.startswith("image:")]
-    return hashlib.sha256("\n".join(l.rstrip() for l in lines).strip().encode("utf-8")).hexdigest()
+    return hashlib.sha256(normalized_text(Path(path).read_bytes().decode("utf-8")).encode("utf-8")).hexdigest()
 
 
 def factcheck_dir(instance, tid: str) -> Path:
@@ -104,6 +118,12 @@ def start_round(instance, tid: str) -> Path:
 
 
 def factcheck_task(instance, tid: str) -> Path:
+    article = instance.brief_dir(tid) / "article.md"
+    if article.is_file():                        # утечка — до архивации прежнего круга: отказ не теряет его
+        leaks = [w for w in FORBIDDEN if w in article.read_text(encoding="utf-8")]
+        if leaks:
+            raise EngineError(f"задание вычитки содержит путь к контексту автора {leaks} (в тексте статьи) — не "
+                              "пишется, прежний круг вычитки не тронут (Т29.1)")
     folder = start_round(instance, tid)
     if instance.p["facts"]["mode"] == "human":
         raise GateRefused(f"facts.mode: human — вычитку делает человек: claims.jsonl в {folder} (копия текста там же)")
@@ -206,11 +226,13 @@ def check(instance, tid: str) -> dict:
               "open": open_items, "claims": len(rows), "confirmed": sum(r["result"] == "confirmed" for r in rows)}
     (instance.brief_dir(tid) / "review.json").write_text(json.dumps(report, ensure_ascii=False, indent=1),
                                                           encoding="utf-8", newline="\n")
-    confirmed = [r for r in rows if r["result"] == "confirmed"]
+    current = meta.get("article_digest") == sha
+    confirmed = [r for r in rows if r["result"] == "confirmed"] if current else []
     added, text = facts.add(instance, [{
         "fact": r["claim"], "value": (re.findall(r"\d+(?:[.,]\d+)?", r["claim"]) or [r["claim"]])[0], "unit": "",
         "source": r["source"], "checked": instance.today.isoformat(), "ttl_days": instance.p["facts"]["ttl_days"],
-        "status": "confirmed", "topic": tid} for r in confirmed]) if confirmed else (0, "подтверждённых нет")
+        "status": "confirmed", "topic": tid} for r in confirmed]) if confirmed else (
+        0, "подтверждённых нет" if current else "вычитка по прежнему тексту — в библиотеку фактов не идёт")
     report["library"] = text
     if not any(row["id"] == tid and row["step"] == "вычитка" for row in spend.rows(instance)):
         spend.add(instance, tid, "вычитка", "tokens", None, NO_DATA, "вычитка фактов")

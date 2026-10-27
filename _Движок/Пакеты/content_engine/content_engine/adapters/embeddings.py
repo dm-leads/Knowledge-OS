@@ -48,6 +48,12 @@ def vectors(instance, texts: list[str], *, tid: str, confirm, unattended: bool, 
         got = budget.paid_call(instance, tid, "судья: эмбеддинги", price, lambda: provider.embed(missing),
                                confirm=confirm, unattended=unattended, what=f"эмбеддинги {len(missing)} текстов",
                                source=f"judge.embeddings.price_per_1k_rub × знаков, {instance.today.isoformat()}")
+        if not isinstance(got, list) or len(got) != len(missing) or not all(
+                isinstance(v, list) and v and all(isinstance(x, (int, float)) for x in v) for v in got) \
+                or len({len(v) for v in got} | {len(v) for v in cached.values()}) > 1:
+            from ..core.errors import SourceError
+            raise SourceError(f"эмбеддинги: провайдер вернул {len(got) if isinstance(got, list) else '?'} векторов "
+                              f"на {len(missing)} текстов или векторы разной длины — кэш не пишется")
         for text, vector in zip(missing, got):
             (Path(folder) / f"{_key(text)}.json").write_text(json.dumps(vector), encoding="utf-8")
             cached[text] = vector
