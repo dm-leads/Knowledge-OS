@@ -365,8 +365,10 @@ def _semantics_v3(data: dict):
     if j["top"] <= 0:
         raise ProfileError("поле «judge.top»: положительное число")
     _one_of("judge.embeddings.kind", j["embeddings"]["kind"], ("lexical", "api"))
-    if j["embeddings"]["kind"] == "api" and not j["embeddings"]["key_env"]:
-        raise ProfileError("поле «judge.embeddings.key_env»: эмбеддинги через API — нужно имя переменной ключа")
+    if j["embeddings"]["kind"] == "api":
+        if not j["embeddings"]["key_env"]:
+            raise ProfileError("поле «judge.embeddings.key_env»: эмбеддинги через API — нужно имя переменной ключа")
+        _adapter("judge.embeddings.model", j["embeddings"]["model"], ())   # провайдер — адаптер инстанса
     _one_of("write.level", data["write"]["level"], TEXT_LEVELS)
     _one_of("niche.level", data["niche"]["level"], TEXT_LEVELS)
     _one_of("facts.mode", data["facts"]["mode"], ("separate", "human"))

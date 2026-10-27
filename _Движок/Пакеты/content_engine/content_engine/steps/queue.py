@@ -192,7 +192,7 @@ def _quarter_used(instance, topics, direction) -> int:
 
 
 def refill(instance, count: int | None = None, max_quota: int | None = None) -> dict:
-    from .gate_topic import COMMERCIAL, FREE, OVERLAP, gate, reserve_if_free, save_report
+    from .gate_topic import COMMERCIAL, DISPUTED, FREE, OVERLAP, gate, reserve_if_free, save_report
     hint, hint_text = refill_hint(instance)
     count = hint if count is None else count
     topics = load(instance)
@@ -228,7 +228,15 @@ def refill(instance, count: int | None = None, max_quota: int | None = None) -> 
                    "reason": stop.get("reason") or report["serp_type"]["reason"], "page": stop.get("page", ""),
                    "section": stop.get("section", ""), "full_gate": True}
             store.append_jsonl(instance.file("rejections"), [row])
-        results.append((topic["id"], report["verdict"] + ("" if report["complete"] else " (неполный гейт)")))
+        verdict = report["verdict"] + ("" if report["complete"] else " (неполный гейт)")
+        if report["verdict"] == DISPUTED and report["complete"]:
+            # Т27.4: статья-риск читается при пополнении запаса, а не в день выпуска — задание судье сразу
+            from .judge import make_task
+            try:
+                verdict += f" — задание судье: {make_task(instance, topic['id'])['task']}"
+            except Exception as exc:                    # задание не помешает пополнению — причина в строке
+                verdict += f" — задание судье не составлено: {exc}"
+        results.append((topic["id"], verdict))
         if not report["complete"]:
             break                                     # выдачи не хватило — дальше гнать бессмысленно
     return {"hint": hint_text, "gated_now": done, "results": results, "stock": stock(instance)}

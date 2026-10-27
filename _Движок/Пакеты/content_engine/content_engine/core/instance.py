@@ -18,6 +18,7 @@ FILES = {
     "whitelist": "data/whitelist.json", "frozen": "data/frozen.json", "page_money": "data/page_money.csv",
     "known_answers": "known_answers.yaml",
     "publications": "data/publications.jsonl", "spend": "data/spend.jsonl", "bets": "data/bets.json",
+    "judgements": "data/judgements.jsonl", "facts": "data/facts.jsonl",
 }
 
 
