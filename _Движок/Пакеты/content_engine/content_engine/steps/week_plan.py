@@ -46,8 +46,8 @@ def candidates(instance) -> list[dict]:
             if day and instance.today.isoformat() <= day <= soon and w not in (rec.get("measures") or {}):
                 due += 1
         for w, m in (rec.get("measures") or {}).items():
-            if m.get("result") is None and m.get("proposed"):
-                accepted += 1
+            if m.get("result") is None and m.get("proposed") in (bets.PLAYED, bets.FAILED):
+                accepted += 1                       # «мало данных» и «ставки нет» человек не принимает — это не итог
             if m.get("result") in bets.RESULTS and rec.get("hypothesis_id") and not m.get("proposed_file"):
                 task("деньги", f"`bet propose` — итог {rec['id']} +{w} в Движок роста", "принятый итог не передан",
                      m["result"], "data/bets.json", "малая")
@@ -77,7 +77,7 @@ def candidates(instance) -> list[dict]:
         task("аудит", "`audit run`", "аудита нет", "аудита нет", "data/audit/", "средняя")
     else:
         crit = [f for f in snap["findings"] if f["level"] == "critical"]
-        if crit:
+        if crit and not any(x["group"] == "пульс" and "аудит" in x["why"] for x in out):   # не дублировать пульс
             task("аудит", "исправить критичные находки аудита", "критичные находки", f"{len(crit)} критичных",
                  f"data/audit/{snap['date']}.json", "средняя")
         orphans = [f for f in snap["findings"] if f["check"] == "orphan"]

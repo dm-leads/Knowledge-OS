@@ -147,3 +147,13 @@ def test_week_plan_fewer_marked(project, monkeypatch):
     audit_store.write(instance, "full", 1, [])
     data = week_plan.plan(instance)
     assert len(data["tasks"]) < 5 and "меньше" in data["note"]
+
+
+def test_week_plan_ignores_low_data_proposals(project, monkeypatch):
+    from content_engine.steps import check
+    monkeypatch.setattr(check, "run_check", lambda inst: [])
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("bets"), "bets", [{"id": f"C:{i}", "url": f"example.ru/blog/{i}", "measures": {
+        "90": {"proposed": "мало данных", "result": None}}} for i in range(5)])
+    tasks = week_plan.plan(instance)["tasks"]
+    assert not any("bet accept" in t["what"] for t in tasks)
