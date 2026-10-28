@@ -14,7 +14,8 @@ from .core.errors import BudgetRefused, EngineError, GateRefused, WriteUnconfirm
 
 STEPS = ("check", "profile_cmd", "demand", "cluster", "demand_map", "reservations", "gate_topic", "queue",
          "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing", "judge", "write", "review", "images", "onboard",
-         "catalog_cmd", "status_cmd", "pulse", "bets_cmd", "economics", "audit", "schedule", "week_plan")
+         "catalog_cmd", "status_cmd", "pulse", "bets_cmd", "economics", "audit", "schedule", "week_plan",
+         "refresh")
 
 
 def build_parser() -> argparse.ArgumentParser:

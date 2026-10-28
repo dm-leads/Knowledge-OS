@@ -1056,3 +1056,39 @@ operations:
     proof: [test_week_plan_five_to_eight_with_basis, test_week_plan_fewer_marked]
     exit_codes: {"0": план собран}
     next: []
+
+  # --- волна 3, часть 2: рост и спрос ---
+  refresh scan:
+    operation_id: refresh.scan
+    name: дожим и актуализация — кандидаты на правку страниц
+    phrases: [дожим статей, какие статьи дожать, что обновить на сайте, старые статьи на правку]
+    module: Д4
+    requires: снимок позиций пульса и книга ставок или даты корпуса; для ИИ — балл `ai score`
+    produces: data/refresh.json — кандидаты с причинами и числами, блоки «нет данных»
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_zone_candidate_by_impressions, test_zone_without_impressions_is_no_data, test_stale_positions_no_data, test_old_article_by_day_and_no_date]
+    exit_codes: {"0": собрано (кандидатов может не быть), "3": реестры не читаются}
+    note: по расписанию — с --unattended; сети и трат нет
+    next: [refresh take]
+  refresh take:
+    operation_id: refresh.take
+    name: правку страницы — в очередь, эталон и снимок выдачи
+    phrases: [возьми страницу на правку, дожми статью, обнови статью]
+    module: Д4
+    requires: живая страница со слагом; запросы страницы в позициях или карте спроса
+    produces: тема refresh-<slug> (taken), эталон data/refresh/baseline/<id>-<день>.json с SHA-256, снимок выдачи, строка расхода объектов Keys.so
+    side_writes: освобождает истёкшие брони
+    effects:
+      - {type: external_read, when: страница сайта и выдача сегодня}
+      - {type: paid_external_call, when: Keys.so отказал и выдачу дал запасной платный источник}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.yandex_search.price_rub × запросов × баз, exact_when: перед запросом выдачи, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
+    repeatable: false
+    proof: [test_take_twice_refused, test_take_weekly_limit, test_take_baseline_immutable_and_hashed, test_take_dead_page_refused]
+    exit_codes: {"0": взята, "1": "уже в очереди, предел недели, страница не живая или выдачи нет", "2": бюджет-гейт без «да», "3": сайт не ответил — не проверено}
+    next: [prepare top]

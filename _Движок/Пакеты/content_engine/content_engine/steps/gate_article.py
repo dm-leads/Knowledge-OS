@@ -234,10 +234,30 @@ def check_article(instance, path: Path, *, schema_path: Path | None = None, offl
         text_checks.run(instance, add, results, body=body, sections=sections, faq=faq, brief=brief,
                         topic_id=topic_id, direction=direction, links=_links(body),
                         article_sha=hashlib.sha256(Path(path).read_bytes()).hexdigest())
+    if "refresh_change" in g["levels"] and topic_id:   # профиль версии 5: правка страницы против эталона
+        _refresh_change(instance, add, topic_id, body)
     reasons = [r for r in results if r["level"] == "block" and not r["ok"]]
     notes = [r for r in results if r["level"] == "warn" and not r["ok"]]
     return {"file": str(path), "verdict": DRAFT if reasons else PASS_, "reasons": reasons, "notes": notes,
             "checks": results, "offline": offline}
+
+
+def _refresh_change(instance, add, topic_id: str, body: str):
+    """Т36.4: у правки страницы доля новых восьмисловных цепочек против эталона дня взятия не ниже порога."""
+    from . import refresh
+    try:
+        from .queue import _find, load
+        topic = _find(load(instance), topic_id)
+    except EngineError:
+        return
+    if not refresh.is_refresh(topic):
+        return
+    base = refresh.baseline_of(instance, topic)
+    share = refresh.change_share(base["text"], body)
+    floor = instance.p["refresh"]["min_change"]
+    add("refresh_change", share >= floor,
+        f"новых восьмисловных цепочек {share:.0%} против эталона {base['day']} (порог {floor:.0%})"
+        + ("" if share >= floor else " — пустое обновление: новая дата без изменения по существу не публикуется"))
 
 
 def _links(body: str) -> list[str]:

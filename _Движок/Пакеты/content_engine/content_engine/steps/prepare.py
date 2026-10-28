@@ -186,13 +186,15 @@ def top(instance, tid: str) -> dict:
             continue
         donors.append({"url": url, "status": "разобрано", "theses": _theses(HtmlDoc(got.text, pr["main_blocks"]),
                                                                             url)})
+    refresh_gaps = _refresh_gaps(instance, topic, pages) if topic.get("type") == "refresh" else None
     report = {"id": tid, "topic": topic["topic"], "serp_as_of": snapshot["as_of"], "date": instance.today.isoformat(),
               "complete": complete,
               "incomplete_reason": "" if complete else f"разобрано {len(pages)} из {pr['top_n']}: "
                                                        "не хватило страниц, ответивших 200 с текстом",
               "numbers": numbers, "gaps": gap_list, "our_pages": our,
               "facts": {"status": "не подключено", "note": "библиотеки фактов в части 1 нет (Т18.8)"},
-              "dropped": dropped, "skipped": skipped, "donors": donors, "serp_requests": 0}
+              "dropped": dropped, "skipped": skipped, "donors": donors, "serp_requests": 0,
+              **({"refresh": refresh_gaps} if refresh_gaps is not None else {})}
     line = store.write_json(instance.brief_dir(tid) / "top.json", "topic_top", pages,
                             meta={k: v for k, v in report.items()}, source_count=None)
     (instance.brief_dir(tid) / "top.md").write_text(render_top(report, pages) + "\n", encoding="utf-8",
@@ -200,6 +202,34 @@ def top(instance, tid: str) -> dict:
     report["write"] = line
     report["pages"] = pages
     return report
+
+
+def _refresh_gaps(instance, topic: dict, pages: list[dict]) -> dict:
+    """Правка страницы (Т36.1): чего у эталона нет против первых трёх разобранных страниц топа. Свой домен из
+    разбора уже выброшен (`candidates`)."""
+    from . import refresh
+    base = refresh.baseline_of(instance, topic)["markers"]
+    top3 = pages[:3]
+    if not top3:
+        return {"status": "нет данных", "why": "разобранных страниц топа нет", "gaps": []}
+    out = []
+    ours = {instance.norm.key(h).canonical() for h in base["h2"] + base["h3"]}
+    seen = set()
+    for pg in top3:
+        for h in pg["h2"]:
+            key = instance.norm.key(h).canonical()
+            if key and key not in ours and key not in seen:
+                seen.add(key)
+                out.append({"kind": "раздел", "what": h, "source": pg["url"]})
+    if base["tables"] == 0 and sum(1 for pg in top3 if pg["tables"]) >= 2:
+        out.append({"kind": "таблица", "what": "у двух и более из топ-3 есть таблица, у страницы — нет"})
+    if not base["faq"] and sum(1 for pg in top3 if pg["faq"]) >= 2:
+        out.append({"kind": "FAQ", "what": "у двух и более из топ-3 есть FAQ, у страницы — нет"})
+    mean = sum(pg["chars"] for pg in top3) / len(top3)
+    if base["chars"] < 0.8 * mean:
+        out.append({"kind": "объём", "what": f"{base['chars']} знаков против {mean:.0f} в среднем у топ-3"})
+    return {"status": "ок", "baseline_day": refresh.baseline_of(instance, topic)["day"],
+            "compared": [pg["url"] for pg in top3], "gaps": out}
 
 
 def _get_same_site(fetcher, url: str):

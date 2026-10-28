@@ -36,6 +36,20 @@ def add(instance, topic: dict, url: str, day: str) -> tuple[bool, str]:
     return added, (box["write"] + text if added else text)
 
 
+def mark_refreshed(instance, topic: dict, url: str, day: str) -> tuple[bool, str]:
+    """Правка страницы (Т36.3): новой записи книги нет; у записи страницы — день и тема правки."""
+    from .urls import norm_url
+    with update(instance) as box:
+        record = next((r for r in box["records"] if norm_url(r["url"]) == norm_url(url)), None)
+        if record is None:
+            return False, "книга ставок: записи страницы нет — правка не отмечена (страница вне книги)"
+        done = record.setdefault("refreshed", [])
+        if any(x["id"] == topic["id"] for x in done):
+            return False, "книга ставок: правка уже отмечена"
+        done.append({"day": day, "id": topic["id"]})
+    return True, box["write"] + "; книга ставок: правка отмечена у записи страницы"
+
+
 def _add(instance, records: list, topic: dict, url: str, day: str) -> tuple[bool, str]:
     from .urls import norm_url
     if any(r["id"] == topic["id"] for r in records):

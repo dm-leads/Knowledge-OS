@@ -52,7 +52,9 @@ class Outcome:
 
 
 def run(instance, tid: str, actions: list[Action], *, apply: bool, run_id: str | None = None,
-        echo: Callable[[str], None] = print) -> Outcome:
+        echo: Callable[[str], None] = print, must_exist: bool = False) -> Outcome:
+    """`must_exist` — правка страницы (Т36.3): цель каждого действия со снимком должна существовать до записи;
+    исчезла — отказ без единой записи, а не новая страница."""
     out = Outcome(planned=len(actions))
     if not apply:
         for action in actions:
@@ -67,11 +69,15 @@ def run(instance, tid: str, actions: list[Action], *, apply: bool, run_id: str |
     missing = [a.kind for a in actions if a.needs_snapshot and a.snapshot is None]
     if missing:
         raise SnapshotMissing(f"у действий {missing} нет снимка «до» — запись не выполняется")
+    states = [(action, action.snapshot()) for action in actions if action.snapshot is not None]
+    if must_exist:
+        gone = [a.target for a, state in states if not state.get("exists")]
+        if gone:
+            from .errors import GateRefused
+            raise GateRefused(f"правка страницы: цели нет ({', '.join(gone)}) — новая страница не создаётся, "
+                              "запись не выполнена")
     out.run_id = run_id or snapshots.new_run_id(instance)
-    for action in actions:
-        if action.snapshot is None:
-            continue
-        state = action.snapshot()
+    for action, state in states:
         snapshots.save(instance, tid, out.run_id, target=action.target, kind=action.kind,
                        read_from=state.get("read_from", action.target), exists=bool(state.get("exists")),
                        content=state.get("content"), meta=state.get("meta"))
