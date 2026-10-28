@@ -1168,3 +1168,66 @@ operations:
     proof: [test_check_advises_spread_or_rollback]
     exit_codes: {"0": замер или «рано»}
     next: [publish rollback]
+  freeze scan:
+    operation_id: freeze.scan
+    name: заморозка по динамике спроса — кандидаты по ряду за два года
+    phrases: [заморозь кластер, какой спрос вымер, динамика спроса кластеров, что больше не ищут]
+    module: А3
+    requires: кластеры; ряд из сбора спроса или дозапрос облака
+    produces: data/demand_history.jsonl (пополнение), data/freeze.json — статус кластера с числами
+    side_writes: освобождает истёкшие брони
+    effects:
+      - {type: filesystem_read}
+      - {type: paid_external_call, when: --fetch — ряд облаком Wordstat}
+      - {type: filesystem_write}
+    price: {currency: RUB, how: sources.wordstat.cloud_price_rub × головных запросов без свежего ряда, exact_when: перед дозапросом, confirm: --confirm-spend на весь прогон}
+    human: ""
+    secrets: [YANDEX_SEARCH_API_KEY]
+    repeatable: true
+    proof: [test_steady_drop_is_candidate_not_frozen, test_seasonal_dip_not_candidate, test_gap_in_series_is_no_data, test_fetch_needs_yes_and_unattended_spends_nothing]
+    exit_codes: {"0": собрано, "1": кластеров нет, "2": бюджет-гейт без «да», "3": источник не ответил}
+    note: по расписанию — без --fetch; дозапрос раз в месяц по плану недели
+    next: [freeze accept]
+  freeze accept:
+    operation_id: freeze.accept
+    name: заморозить кластер — решение человека
+    phrases: [замораживаем кластер, не замораживать кластер]
+    module: А3
+    requires: кандидат последнего freeze scan
+    produces: data/frozen.json и строка решений; карта спроса даёт кластеру статус frozen
+    side_writes: освобождает истёкшие брони
+    effects: [{type: human_approval_required}, {type: filesystem_write}]
+    human: решает человек (--who)
+    repeatable: false
+    proof: [test_freeze_only_by_accept_and_only_candidate]
+    exit_codes: {"0": записано, "1": не кандидат или кластера нет}
+    next: [map build]
+  competitors snap:
+    operation_id: competitors.snap
+    name: разведка конкурентов — снимок карт сайтов и новые адреса
+    phrases: [что публикуют конкуренты, конкуренты публикуют, темп конкурентов, новые статьи конкурентов]
+    module: А4
+    requires: search.competitors — домены конкурентов
+    produces: data/competitors/<день>.json; новые адреса против снимка старше competitors.window_days — промежуток, статус оценка или proxy, темп в неделю
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: robots.txt и карты сайтов конкурентов}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_new_urls_between_two_snapshots_proxy, test_reliable_lastmod_is_estimate, test_first_snapshot_no_data_with_date, test_competitors_not_connected]
+    exit_codes: {"0": снимок или «не подключено», "3": профиль не читается}
+    note: по расписанию — с --unattended; трат нет
+    next: [competitors pages]
+  competitors pages:
+    operation_id: competitors.pages
+    name: устройство новых статей конкурентов
+    phrases: [как устроены статьи конкурентов, разбери новые статьи конкурентов]
+    module: А4
+    requires: сравнение двух снимков карт
+    produces: data/competitors/pages-<день>.json — разделы, объём, картинки, таблицы, FAQ, разметка
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: страницы конкурентов из белого списка}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_pages_structure_parsed]
+    exit_codes: {"0": разобрано, "1": сравнения ещё нет}
+    next: []
