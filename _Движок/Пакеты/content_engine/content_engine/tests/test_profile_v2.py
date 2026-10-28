@@ -100,6 +100,7 @@ def test_migrate_keeps_crlf(tmp_path):
     assert raw.count(b"\r\n") == raw.count(b"\n")
     migrate.apply(path, migrate.plan(path))                  # 2 → 3
     migrate.apply(path, migrate.plan(path))                  # 3 → 4
+    migrate.apply(path, migrate.plan(path))                  # 4 → 5
     raw = path.read_bytes()
     assert raw.count(b"\r\n") == raw.count(b"\n")
     profile_mod.load(path)
@@ -107,9 +108,9 @@ def test_migrate_keeps_crlf(tmp_path):
 
 def test_migrate_twice_refused(tmp_path):
     path = calibrated_v1(tmp_path)
-    for _ in range(3):                                       # 1 → 2 → 3 → 4
+    for _ in range(4):                                       # 1 → 2 → 3 → 4 → 5
         migrate.apply(path, migrate.plan(path))
-    with pytest.raises(ProfileError, match="уже версии 4"):
+    with pytest.raises(ProfileError, match="уже версии 5"):
         migrate.plan(path)
 
 

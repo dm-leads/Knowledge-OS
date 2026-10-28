@@ -55,6 +55,8 @@ STEPS = {
     3: Step(to=4, sections=("monitor", "notify", "bets", "economics", "audit", "schedule", "week_plan"),
             fields=(("publish", "verify_retries"), ("publish", "verify_retry_seconds")),
             item_fields=(("directions", "hypothesis_id"),)),
+    4: Step(to=5, sections=("refresh", "ai_visibility", "behavior", "freeze", "competitors", "field"),
+            fields=(("schedule", "month_day"), ("gate_article.levels", "refresh_change"))),
 }
 
 

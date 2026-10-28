@@ -5,7 +5,7 @@
 (поля `*_env`) и путями к ключам; значение секрета в профиле — ошибка.
 
 Версия профиля поднимается с каждым выпуском, который добавляет поля (Т15.1): 1.2.0 — версия 2, 1.3.0 — версия 3,
-1.4.0 — версия 4. Схемы прошлых версий (`SCHEMA_V1`, `SCHEMA_V2`, `SCHEMA_V3`) и их наборы проверок остались в коде только для перевода `profile
+1.4.0 — версия 4, 1.5.0 — версия 5. Схемы прошлых версий (`SCHEMA_V1` … `SCHEMA_V4`) и их наборы проверок остались в коде только для перевода `profile
 migrate`: общие разделы и списки проверок разведены по версиям, иначе поле новой версии сломало бы проверку старого
 профиля перед переводом. Профиль старой версии в любой другой команде — ошибка с названием команды перевода.
 """
@@ -20,7 +20,7 @@ import yaml
 
 from .errors import ProfileError
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
@@ -87,7 +87,7 @@ ROLE = S(primary=F("str"), fallback=F("str"))
 AUTHOR = L(name=F("str"), role=F("str"), experience=F("str"), directions=F("list"), month_limit=F("int"))
 ASSEMBLE_CHECKS_V2 = ("anchors", "toc", "tables", "required", "section_borders")
 ASSEMBLE_CHECKS = ASSEMBLE_CHECKS_V2 + ("comments",)       # Н5: публикуемый HTML без комментариев
-ASSEMBLE_BY_VERSION = {2: ASSEMBLE_CHECKS_V2, 3: ASSEMBLE_CHECKS, 4: ASSEMBLE_CHECKS}
+ASSEMBLE_BY_VERSION = {2: ASSEMBLE_CHECKS_V2, 3: ASSEMBLE_CHECKS, 4: ASSEMBLE_CHECKS, 5: ASSEMBLE_CHECKS}
 GROWTH_KINDS = ("none", "markdown", "file")
 WORDSTAT_SOURCES = ("keysso", "cloud")
 SERP_SOURCES = ("keysso", "yandex_search")
@@ -157,7 +157,7 @@ SCHEMA_V3 = S(
 # Разделы `publish` и `directions` получают поля — строятся заново из версии 3, а не правкой PART1.
 PUBLISH_V4 = dict(PART1["publish"], verify_retries=F("int"), verify_retry_seconds=F("int"))
 DIRECTIONS_V4 = dict(PART1["directions"], hypothesis_id=F("str"))
-SCHEMA = dict(
+SCHEMA_V4 = dict(
     SCHEMA_V3,
     publish=PUBLISH_V4,
     directions=DIRECTIONS_V4,
@@ -175,7 +175,25 @@ SCHEMA = dict(
                jobs=L(name=F("str"), command=F("str"), every=F("str"), at=F("str"), weekday=F("str"))),
     week_plan=S(min=F("int"), max=F("int")),
 )
-SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA}
+# Версия 5 (волна 3, часть 2, выпуск 1.5.0): дожим, ИИ-видимость, поведение, заморозка, разведка, «поле шире».
+# Расписание получает день месяца — одним полем раздела: перевод вставляет поля разделов, а не элементов вложенных списков.
+SCHEDULE_V4 = SCHEMA_V4["schedule"]
+SCHEMA = dict(
+    SCHEMA_V4,
+    schedule=dict(SCHEDULE_V4, month_day=F("int")),
+    refresh=S(zone=F("list"), min_impressions=F("int"), positions_max_age=F("int"), age_days=F("int"),
+              min_change=F("number"), weekly_limit=F("int"), allow_behavior=F("bool")),
+    ai_visibility=S(answer_words=F("list"), section_max_words=F("int"), bots=F("list"), min_score=F("int"),
+                    citations=F("str"), tracker_id=F("str"), max_quota=F("int"), max_pages=F("int")),
+    behavior=S(kind=F("str"), counter_env=F("str"), token_env=F("str"), window_days=F("int"), min_people=F("int"),
+               drop_share=F("number"), device_ratio=F("number"), min_gain=F("number"), funnel=F("list"),
+               recheck_days=F("list")),
+    freeze=S(months=F("int"), drop_share=F("number"), min_months_down=F("int"), min_frequency=F("number"),
+             refetch_days=F("int")),
+    competitors=S(window_days=F("int"), max_pages=F("int"), delay_seconds=F("number")),
+    field=S(file=F("str"), max=F("int")),
+)
+SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA_V4, 5: SCHEMA}
 
 GATE_ARTICLE_CHECKS_V2 = (
     "title_length", "description_length", "slug", "title_duplicate", "structure", "skeleton", "foreign_keys",
@@ -184,7 +202,11 @@ GATE_ARTICLE_CHECKS_V2 = (
 GATE_ARTICLE_CHECKS = GATE_ARTICLE_CHECKS_V2 + (
     "rhythm", "ai_tone", "volume", "norm_links", "internal_links", "ai_answers", "facts", "niche", "image_alt",
     "image_credits")
-GATE_CHECKS_BY_VERSION = {1: GATE_ARTICLE_CHECKS_V2, 2: GATE_ARTICLE_CHECKS_V2, 3: GATE_ARTICLE_CHECKS, 4: GATE_ARTICLE_CHECKS}
+GATE_ARTICLE_CHECKS_V4 = GATE_ARTICLE_CHECKS
+# Волна 3, часть 2: пустой сдвиг даты у правки страницы (Т36.4)
+GATE_ARTICLE_CHECKS = GATE_ARTICLE_CHECKS_V4 + ("refresh_change",)
+GATE_CHECKS_BY_VERSION = {1: GATE_ARTICLE_CHECKS_V2, 2: GATE_ARTICLE_CHECKS_V2, 3: GATE_ARTICLE_CHECKS_V4,
+                          4: GATE_ARTICLE_CHECKS_V4, 5: GATE_ARTICLE_CHECKS}
 LEVELS = ("block", "warn", "off")
 VALUE_KINDS = ("file", "keysso", "none")
 # Ступени прав (Т16.1): выше `files` — только строкой профиля по разрешению владельца.
@@ -193,10 +215,12 @@ ALLOW_V2 = {"publish": ("files", "commit", "publish"), "indexing": ("files", "wr
 ALLOW_V3 = dict(ALLOW_V2, images=("files", "write"), paths=("files", "write"))
 # Волна 3: сводка в мессенджер (Т34.5) и расписание (Т42.1) — запись вовне со своими ступенями
 ALLOW = dict(ALLOW_V3, notify=("files", "write"), schedule=("files", "write"))
-ALLOW_BY_VERSION = {2: ALLOW_V2, 3: ALLOW_V3, 4: ALLOW}
+ALLOW_BY_VERSION = {2: ALLOW_V2, 3: ALLOW_V3, 4: ALLOW, 5: ALLOW}
 NOTIFY_KINDS = ("none", "lark_webhook", "telegram")
 MONEY_KINDS = ("none", "file")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+CITATION_KINDS = ("none", "keysso", "keysso_tracker")
+BEHAVIOR_KINDS = ("none", "metrika")
 MIGRATE_HINT = "content-engine profile migrate --profile {path}"
 
 
@@ -443,7 +467,7 @@ def _semantics_v3(data: dict):
         _one_of(f"onboard.answers.{key}", key, ("vychitka", "rhythm"))
 
 
-def _semantics_v4(data: dict):
+def _semantics_v4(data: dict, version: int = 4):
     m = data["monitor"]
     _adapter("monitor.positions", m["positions"], ("consoles", "none"))
     _one_of("monitor.keys", m["keys"], ("demand_map",))
@@ -499,7 +523,7 @@ def _semantics_v4(data: dict):
         if not re.fullmatch(r"[a-z][a-z0-9-]*", job["name"]) or job["name"] in names:
             raise ProfileError(f"поле «{where}.name»: латиница в нижнем регистре, без повторов")
         names.add(job["name"])
-        _one_of(f"{where}.every", job["every"], ("day", "week"))
+        _one_of(f"{where}.every", job["every"], ("day", "week") if version < 5 else ("day", "week", "month"))
         if not re.fullmatch(r"\d\d:\d\d", job["at"]):
             raise ProfileError(f"поле «{where}.at»: время «ЧЧ:ММ»")
         if job["every"] == "week":
@@ -510,6 +534,68 @@ def _semantics_v4(data: dict):
     w = data["week_plan"]
     if not 0 < w["min"] <= w["max"]:
         raise ProfileError("поля «week_plan.min», «max»: 0 < min ≤ max")
+
+
+def _share(name: str, value, *, upper_open: bool = False):
+    if not 0 < value < 1 and not (not upper_open and value == 1):
+        raise ProfileError(f"поле «{name}»: доля от 0 до 1")
+
+
+def _positive(section: dict, prefix: str, names: tuple, *, zero_ok: tuple = ()):
+    for name in names:
+        if section[name] < 0 or (section[name] == 0 and name not in zero_ok):
+            raise ProfileError(f"поле «{prefix}.{name}»: положительное число" + (" или 0" if name in zero_ok else ""))
+
+
+def _semantics_v5(data: dict):
+    if not 1 <= data["schedule"]["month_day"] <= 28:
+        raise ProfileError("поле «schedule.month_day»: день месяца 1–28 (в каждом месяце есть)")
+    r = data["refresh"]
+    _pair("refresh.zone", r["zone"])
+    lo, hi = r["zone"]
+    if not 1 <= lo <= hi:
+        raise ProfileError("поле «refresh.zone»: [от, до], 1 ≤ от ≤ до (например [4, 15])")
+    _positive(r, "refresh", ("min_impressions", "positions_max_age", "age_days", "weekly_limit"))
+    _share("refresh.min_change", r["min_change"])
+    a = data["ai_visibility"]
+    _pair("ai_visibility.answer_words", a["answer_words"])
+    lo, hi = a["answer_words"]
+    if not 0 < lo <= hi:
+        raise ProfileError("поле «ai_visibility.answer_words»: [от, до] слов, 0 < от ≤ до")
+    _positive(a, "ai_visibility", ("section_max_words", "min_score", "max_quota", "max_pages"), zero_ok=("max_quota",))
+    if a["min_score"] > 6:
+        raise ProfileError("поле «ai_visibility.min_score»: балл 1–6 (признаков шесть)")
+    if not all(isinstance(b, str) and b.strip() for b in a["bots"]):
+        raise ProfileError("поле «ai_visibility.bots»: имена ИИ-краулеров строками")
+    _one_of("ai_visibility.citations", a["citations"], CITATION_KINDS)
+    if a["citations"] == "keysso_tracker" and not a["tracker_id"]:
+        raise ProfileError("поле «ai_visibility.tracker_id»: трекер Keys.so — нужен его id (создаёт человек)")
+    b = data["behavior"]
+    _adapter("behavior.kind", b["kind"], BEHAVIOR_KINDS)
+    for name in ("counter_env", "token_env"):
+        if b["kind"] == "metrika" and not ENV_NAME.match(b[name]):
+            raise ProfileError(f"поле «behavior.{name}»: Метрика включена — нужно имя переменной")
+    _positive(b, "behavior", ("window_days", "min_people"))
+    _share("behavior.drop_share", b["drop_share"], upper_open=True)
+    _share("behavior.min_gain", b["min_gain"])
+    if b["device_ratio"] <= 1:
+        raise ProfileError("поле «behavior.device_ratio»: во сколько раз хуже остальных устройств, больше 1")
+    if sorted(b["recheck_days"]) != b["recheck_days"] or not b["recheck_days"] \
+            or not all(isinstance(x, int) and not isinstance(x, bool) and x > 0 for x in b["recheck_days"]):
+        raise ProfileError("поле «behavior.recheck_days»: дни замера по возрастанию (например [14, 28])")
+    if not all(isinstance(x, str) and x.strip() for x in b["funnel"]):
+        raise ProfileError("поле «behavior.funnel»: шаги воронки — адреса или «goal:<id>» строками")
+    f = data["freeze"]
+    if f["months"] != 24:
+        raise ProfileError("поле «freeze.months»: 24 — правило сравнивает два года по 12 месяцев")
+    _share("freeze.drop_share", f["drop_share"], upper_open=True)
+    if not 1 <= f["min_months_down"] <= 12:
+        raise ProfileError("поле «freeze.min_months_down»: 1–12 месяцев ниже того же месяца год назад")
+    _positive(f, "freeze", ("min_frequency", "refetch_days"), zero_ok=("min_frequency",))
+    c = data["competitors"]
+    _positive(c, "competitors", ("window_days", "max_pages", "delay_seconds"), zero_ok=("delay_seconds",))
+    if data["field"]["max"] <= 0:
+        raise ProfileError("поле «field.max»: положительное число")
 
 
 def _scheduled_command(where: str, command: str):
@@ -537,7 +623,9 @@ def validate(data, version: int = SCHEMA_VERSION) -> dict:
     if version >= 3:
         _semantics_v3(data)
     if version >= 4:
-        _semantics_v4(data)
+        _semantics_v4(data, version)
+    if version >= 5:
+        _semantics_v5(data)
     return data
 
 
