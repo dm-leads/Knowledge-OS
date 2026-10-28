@@ -151,3 +151,11 @@ def test_redirect_is_critical(project):
     instance = _baseline(project)
     out = drift.check(instance, transport=Site({URL: Page(301, "", location="https://example.ru/blog/new")}))
     assert out["critical"] == 1 and out["findings"][0]["what"] == "перенаправление"
+
+
+def test_moved_corpus_address_without_reference_is_not_critical(project):
+    instance = Instance(project, today=TODAY)
+    out = drift.check(instance, transport=Site({URL: Page(301, "", location="https://example.ru/ecology/new")}),
+                      extra_urls=[URL])
+    assert out["critical"] == 0
+    assert out["findings"][0]["what"] == "адрес в корпусе устарел" and out["findings"][0]["level"] == "важно"

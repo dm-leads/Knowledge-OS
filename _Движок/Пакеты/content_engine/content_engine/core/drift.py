@@ -90,8 +90,12 @@ def check(instance, *, transport=None, extra_urls=()) -> dict:
             continue
         pages += 1
         if page.status in (301, 302, 303, 307, 308):
-            findings.append({"url": url, "level": CRITICAL, "what": "перенаправление", "was": url,
-                             "now": page.location})
+            if ref is None:                    # эталона нет: страница давно переехала — старый адрес в корпусе, не поломка
+                findings.append({"url": url, "level": IMPORTANT, "what": "адрес в корпусе устарел", "was": url,
+                                 "now": page.location})
+            else:                              # страница с эталоном (200) стала перенаправлять — это поломка
+                findings.append({"url": url, "level": CRITICAL, "what": "перенаправление", "was": url,
+                                 "now": page.location})
             continue
         doc = HtmlDoc(page.text, instance.p["prepare"]["main_blocks"])
         got = picture(instance, doc, url, page.status)
