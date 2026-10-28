@@ -1123,3 +1123,48 @@ operations:
     exit_codes: {"0": снимок или «не подключено», "1": предел квоты не задан — запроса нет, "3": источник не ответил}
     note: по расписанию — только при ai_visibility.max_quota > 0; рублей нет
     next: []
+  behavior scan:
+    operation_id: behavior.scan
+    name: поведение на странице — обрывы, тупики, устройства, выпавшие страницы
+    phrases: [где люди уходят со страницы, поведение на сайте, воронка статей, тупиковые страницы]
+    module: Д6
+    requires: behavior.kind — metrika или module; токен и счётчик по именам переменных
+    produces: data/behavior/<день>.json — находки с числами-основаниями; страницы — факт, воронка — оценка
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: отчёты веб-аналитики}, {type: filesystem_write}]
+    human: ""
+    secrets: [METRICA_OAUTH_TOKEN, METRICA_COUNTER_ID]
+    repeatable: true
+    proof: [test_drop_on_hundred_people_found_on_sixty_not, test_uneven_neighbours_not_a_drop, test_dead_end_device_outlier, test_behavior_not_connected]
+    exit_codes: {"0": находки или «не подключено», "3": источник не ответил}
+    note: опция; по расписанию — с --unattended
+    next: [behavior accept]
+  behavior accept:
+    operation_id: behavior.accept
+    name: утвердить одну правку по находке поведения
+    phrases: [утверждаю правку по поведению, берём находку поведения в работу]
+    module: Д6
+    requires: находка последнего прогона на шаге с behavior.min_people
+    produces: строка data/behavior/decisions.jsonl; утверждённая — кандидат дожима
+    side_writes: освобождает истёкшие брони
+    effects: [{type: human_approval_required}, {type: filesystem_write}]
+    human: утверждает человек (--who)
+    repeatable: false
+    proof: [test_accept_only_with_enough_people, test_refresh_takes_only_accepted_behavior]
+    exit_codes: {"0": записано, "1": находки нет или людей мало}
+    next: [refresh scan]
+  behavior check:
+    operation_id: behavior.check
+    name: замер правки по поведению на 14-й и 28-й день
+    phrases: [сработала ли правка по поведению, замер правки поведения]
+    module: Д6
+    requires: утверждённая правка и её выкладка
+    produces: совет — перенести на соседние страницы или откатить (решает человек)
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: отчёты веб-аналитики}, {type: filesystem_read}, {type: filesystem_write, when: истёкшие брони}]
+    human: ""
+    secrets: [METRICA_OAUTH_TOKEN, METRICA_COUNTER_ID]
+    repeatable: true
+    proof: [test_check_advises_spread_or_rollback]
+    exit_codes: {"0": замер или «рано»}
+    next: [publish rollback]
