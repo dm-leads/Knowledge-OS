@@ -27,8 +27,9 @@ def _lark(instance, text: str, transport) -> Action:
     def do():
         try:
             return client.call("POST", endpoint, json={"msg_type": "text", "content": {"text": text}})
-        except EngineError as exc:              # путь вебхука — сам секрет: в сообщение он не попадает
-            raise EngineError(str(exc).replace(endpoint, "<вебхук>").replace(url, "<вебхук>")) from None
+        except Exception as exc:                # путь вебхука — сам секрет: в сообщение он не попадает (любая ошибка)
+            message = f"{type(exc).__name__}: {exc}".replace(url, "<вебхук>").replace(endpoint, "<вебхук>")
+            raise EngineError(message) from None
 
     def verify(answer):
         body = answer.data if isinstance(answer.data, dict) else {}
@@ -49,8 +50,8 @@ def _telegram(instance, text: str, transport) -> Action:
     def do():
         try:
             return client.call("POST", endpoint, json={"chat_id": chat, "text": text})
-        except EngineError as exc:              # в адресе Bot API — токен: в сообщение он не попадает
-            raise EngineError(str(exc).replace(token, "<токен>")) from None
+        except Exception as exc:                # в адресе Bot API — токен: в сообщение он не попадает (любая ошибка)
+            raise EngineError(f"{type(exc).__name__}: {exc}".replace(token, "<токен>")) from None
 
     def verify(answer):
         body = answer.data if isinstance(answer.data, dict) else {}

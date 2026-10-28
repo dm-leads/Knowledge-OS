@@ -260,14 +260,21 @@ def run_pulse(instance, *, network: bool = True, transport=None) -> int:
 
 
 def run_notify(instance, *, apply: bool, transport=None) -> int:
-    from ..adapters import notify
-    from ..core import actions as actions_mod
-    from ..core import rights
     path = _folder(instance) / f"{instance.today.isoformat()}.json"
     if not path.is_file():
         raise EngineError("пульса за сегодня нет — сначала `content-engine pulse run`")
     data = json.loads(path.read_text(encoding="utf-8"))
     text = summary(data)
+    from ..core import locks
+    with locks.held(instance, "pulse", "notify"):
+        return _notify_locked(instance, text, apply=apply, transport=transport)
+
+
+def _notify_locked(instance, text: str, *, apply: bool, transport=None) -> int:
+    """Под блокировкой pulse/notify: второй процесс не отправит ту же сводку дважды."""
+    from ..adapters import notify
+    from ..core import actions as actions_mod
+    from ..core import rights
     if any(r["event"] == "notify" and r.get("day") == instance.today.isoformat() and r.get("confirmed")
            for r in publications.read(instance)):
         print("сводка за сегодня уже отправлена — повтор не нужен")

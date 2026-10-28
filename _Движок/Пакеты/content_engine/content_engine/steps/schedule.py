@@ -68,7 +68,9 @@ def install(instance, *, apply: bool, runner=None) -> dict:
         print(f"  не в плане — {line}")
     if apply and not allowed:
         raise RightsRefused("расписание не поставлено: нужно разрешение schedule.allow = write")
-    out = actions_mod.run(instance, "schedule", allowed if apply else planned, apply=apply)
+    from ..core import locks
+    with locks.held(instance, "schedule", "write"):  # таблица cron — чтение и запись целиком
+        out = actions_mod.run(instance, "schedule", allowed if apply else planned, apply=apply)
     return {"line": out.line() if apply else "план напечатан", "outcome": out}
 
 
@@ -96,7 +98,9 @@ def remove(instance, *, job: str | None, apply: bool, runner=None) -> dict:
         print(f"  не в плане — {line}")
     if apply and not allowed:
         raise RightsRefused("задания не сняты: нужно разрешение schedule.allow = write")
-    out = actions_mod.run(instance, "schedule", allowed if apply else planned, apply=apply)
+    from ..core import locks
+    with locks.held(instance, "schedule", "write"):
+        out = actions_mod.run(instance, "schedule", allowed if apply else planned, apply=apply)
     return {"line": out.line() if apply else "план напечатан"}
 
 

@@ -154,37 +154,39 @@ def _number_row(rec: dict, window: str, m: dict, unit: str) -> dict:
 
 
 def propose(instance) -> dict:
+    """Чтение принятых итогов, файлы-предложения и отметки — под одной блокировкой книги: итог, принятый параллельно,
+    не помечается переданным, если в файл он не вошёл (отмечаются ровно записанные пары «запись, окно»)."""
     folder = Path(instance.p["bets"]["proposal_dir"])
     folder = folder if folder.is_absolute() else instance.root / folder
-    groups: dict[tuple[str, str], list] = {}
-    for rec in bets.load(instance):
-        for window, m in (rec.get("measures") or {}).items():
-            if m.get("result") in bets.RESULTS and rec.get("hypothesis_id") and not m.get("proposed_file"):
-                groups.setdefault((rec["hypothesis_id"], window), []).append((rec, m))
-    if not groups:
-        raise GateRefused("принятых итогов ставок из гипотез без предложения нет — сначала `bet accept`")
-    written = []
-    for (hid, window), items in groups.items():
-        _, unit, _ = bets.expectation_of(items[0][0])
-        unit = unit or "money"
-        data = {"hypothesis_id": hid, "window": int(window), "made_on": instance.today.isoformat(),
-                "results": [{"id": r["id"], "url": r["url"], "result": m["result"], "accepted_by": m["accepted_by"]}
-                            for r, m in items],
-                "numbers": [_number_row(r, window, m, unit) for r, m in items],
-                "how_to": f"Движок роста: завести числа на лист чисел и `measure {hid} measured_id=<номер числа>`; "
-                          "статус гипотезы меняет только Движок"}
-        path = folder / f"{instance.today.isoformat()}-{hid}-{window}.yaml"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8", newline="\n")
-        if yaml.safe_load(path.read_text(encoding="utf-8"))["hypothesis_id"] != hid:
-            raise EngineError(f"{path.name}: предложение не прочиталось обратно")
-        written.append(str(path))
+    written, sent = [], set()
     with bets.update(instance) as box:
+        groups: dict[tuple[str, str], list] = {}
         for rec in box["records"]:
             for window, m in (rec.get("measures") or {}).items():
-                if (rec.get("hypothesis_id"), window) in groups and m.get("result") in bets.RESULTS:
-                    m["proposed_file"] = instance.today.isoformat()
-    return {"files": written, "write": box["write"]}
+                if m.get("result") in bets.RESULTS and rec.get("hypothesis_id") and not m.get("proposed_file"):
+                    groups.setdefault((rec["hypothesis_id"], window), []).append((rec, m))
+        if not groups:
+            raise GateRefused("принятых итогов ставок из гипотез без предложения нет — сначала `bet accept`")
+        for (hid, window), items in groups.items():
+            _, unit, _ = bets.expectation_of(items[0][0])
+            unit = unit or "money"
+            data = {"hypothesis_id": hid, "window": int(window), "made_on": instance.today.isoformat(),
+                    "results": [{"id": r["id"], "url": r["url"], "result": m["result"],
+                                 "accepted_by": m["accepted_by"]} for r, m in items],
+                    "numbers": [_number_row(r, window, m, unit) for r, m in items],
+                    "how_to": f"Движок роста: завести числа на лист чисел и `measure {hid} measured_id=<номер числа>`; "
+                              "статус гипотезы меняет только Движок"}
+            path = folder / f"{instance.today.isoformat()}-{hid}-{window}.yaml"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8",
+                            newline="\n")
+            if yaml.safe_load(path.read_text(encoding="utf-8"))["hypothesis_id"] != hid:
+                raise EngineError(f"{path.name}: предложение не прочиталось обратно")
+            written.append(str(path))
+            for r, m in items:
+                m["proposed_file"] = instance.today.isoformat()
+                sent.add((r["id"], window))
+    return {"files": written, "sent": len(sent), "write": box["write"]}
 
 
 def register(sub):

@@ -227,3 +227,30 @@ def test_audit_without_network_writes_nothing(project):
     with pytest.raises(NetworkUnreachable, match="аудит не проведён"):
         audit.run_audit(Instance(project, today=TODAY, transport=down))
     assert audit_store.latest(instance) is None
+
+
+def test_any_transport_error_hides_secret(project, monkeypatch):
+    """Codex №1–2: секрет очищается из текста любого исключения транспорта, не только ошибки машины."""
+    from content_engine.adapters import notify
+    from content_engine.core.errors import EngineError as EE
+    monkeypatch.setenv("NOTIFY_LARK_WEBHOOK", HOOK)
+    set_profile(project, lambda d: d["notify"].update(kind="lark_webhook", url_env="NOTIFY_LARK_WEBHOOK"))
+
+    def leaky(method, url, **kw):
+        raise RuntimeError(url)
+    act = notify.action(Instance(project, today=TODAY), "текст", transport=leaky)
+    with pytest.raises(EE) as caught:
+        act.do()
+    assert "SECRET123" not in str(caught.value) and "<вебхук>" in str(caught.value)
+
+
+def test_notify_second_process_waits_for_lock(project, monkeypatch):
+    """Codex №8: вторая отправка в тот же момент получает отказ блокировки, а не второе сообщение."""
+    from content_engine.core import locks
+    from content_engine.core.errors import LockBusy
+    instance = Instance(project, today=TODAY)
+    pulse.save(instance, {"date": TODAY.isoformat(), "verdict": {"color": "зелёный", "why": "", "todo": "",
+                                                                    "unchecked": []}, "diff": [], "blocks": {}})
+    with locks.held(instance, "pulse", "notify"):
+        with pytest.raises(LockBusy):
+            pulse.run_notify(Instance(project, today=TODAY), apply=True)
