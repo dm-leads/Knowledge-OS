@@ -176,3 +176,19 @@ def test_audit_via_main(audited, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "база снята" in out and "Пересечения живых" in out
     assert audit_store.latest(Instance(audited, today=TODAY))["findings"]
+
+
+
+def test_overlaps_capped_until_false_alarm_measured(project):
+    twin(project)
+    instance = Instance(project, today=TODAY)
+    page = next(p for p in instance.corpus()[0] if p.slug == "otoplenie-teplicy-zimoj")
+    found = overlaps.live_overlaps(instance, [page])
+    assert found
+    from types import SimpleNamespace
+    out = {"crawl": SimpleNamespace(pages={}), "graph": {}, "previous": None, "findings": []}
+    got = overlaps.run_all(instance, out, full=True)["findings"]
+    assert got and all(f["level"] in ("low", "medium") for f in got if f["check"].startswith("overlap"))
+    set_profile(project, lambda d: d["audit"]["false_alarm"].update(rate=0.1, as_of="2026-02-20", source="П10"))
+    got = overlaps.run_all(Instance(project, today=TODAY), out, full=True)["findings"]
+    assert any(f["level"] == "high" for f in got if f["check"] == "overlap_article")

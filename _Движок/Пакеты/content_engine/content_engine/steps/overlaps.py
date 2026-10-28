@@ -27,6 +27,9 @@ LIVE_LAYERS = {1, 2, 5, 6, 7}
 KINDS = {"sales": ("overlap_sales", "critical", "статья против продающей — срочно"),
          "article": ("overlap_article", "high", "статья против статьи"),
          "hub": ("overlap_hub", "medium", "три и больше статей на головной термин — предложить хаб")}
+# Пока доля ложных тревог гейта не замерена ниже порога (audit.false_alarm), пересечения не выше «среднего»: на живом
+# корпусе серийные статьи (один шаблон заголовка) дают сотни пар по слоям 1–2 — это шум, а не срочность.
+UNMEASURED_LEVEL = {"sales": "medium", "article": "low", "hub": "low"}
 
 
 def _hashes_path(instance) -> Path:
@@ -239,10 +242,14 @@ def run_all(instance, out: dict, *, full: bool) -> dict:
     lines.append(why)
     for o in found:
         check, level, text = KINDS[o["kind"]]
+        if not allowed:
+            # доля ложных тревог не замерена ниже порога: пересечение — сигнал, а не тревога; вердикт дня не красит
+            level = UNMEASURED_LEVEL[o["kind"]]
         fid = audit_store.finding_id(check, " ↔ ".join(o["pair"]))
         findings.append({"id": fid, "url": o["pair"][0], "check": check, "level": level,
                          "detail": f"{text}: {' ↔ '.join(o['pair'])} (слой {o['layer']}: {o['reason']})"
-                                   + ("; задача на склейку — после «утверждаю»" if allowed else ""),
+                                   + ("; задача на склейку — после «утверждаю»" if allowed else
+                                      "; уровень снижен — доля ложных тревог не замерена ниже порога"),
                          "first_seen": first_seen.get(fid, instance.today.isoformat())})
     lines += ["", "## Выпавшие из поиска"]
     articles = sorted(u for u in crawl.pages if section_of(u) in instance.p["site"]["article_sections"]
