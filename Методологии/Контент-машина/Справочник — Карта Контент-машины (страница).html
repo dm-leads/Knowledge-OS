@@ -1,0 +1,559 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Карта Контент-машины</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Unbounded:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: тезис → полоса контуров (навигация) → подключение и основание → пять разделов-контуров с карточками модулей → петли, ритм, человек, стоп-лист → сверка с Васиным. */
+:root{
+  --bg:#F3F5F7; --surface:#FFFFFF; --fg:#16202A; --muted:#5B6773; --line:#D5DCE3; --chip:#EEF2F6;
+  --accent:#1F5FBF; --human:#B4540A;
+  --cA:#2F7D6B; --cB:#1F5FBF; --cC:#7A4FB5; --cD:#B4540A; --cE:#A3324A; --c0:#4A5866;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F151B; --surface:#17202A; --fg:#E6ECF2; --muted:#9AA7B4; --line:#2A3642; --chip:#1E2934;
+  --accent:#6EA3F0; --human:#F0A15C;
+  --cA:#5EC2A8; --cB:#6EA3F0; --cC:#B593E8; --cD:#F0A15C; --cE:#E87A93; --c0:#9AA7B4; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F151B; --surface:#17202A; --fg:#E6ECF2; --muted:#9AA7B4; --line:#2A3642; --chip:#1E2934;
+  --accent:#6EA3F0; --human:#F0A15C;
+  --cA:#5EC2A8; --cB:#6EA3F0; --cC:#B593E8; --cD:#F0A15C; --cE:#E87A93; --c0:#9AA7B4; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,4vw,40px);line-height:1.1;margin:0;text-wrap:balance}
+h2{font-family:var(--f-display);font-weight:500;font-size:20px;margin:0;text-wrap:balance}
+h3{margin:0}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lead{max-width:70ch;color:var(--muted);margin:10px 0 0;font-size:16px}
+.lead b{color:var(--fg);font-weight:600}
+a{color:var(--accent)}
+button{font:inherit;color:inherit}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* полоса контуров */
+.strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.strip a{display:flex;flex-direction:column;gap:2px;text-decoration:none;color:var(--fg);background:var(--surface);
+  border:1px solid var(--line);border-top:4px solid var(--c);border-radius:8px;padding:10px 12px;min-width:0}
+.strip .k{font-family:var(--f-mono);font-size:12px;color:var(--c)}
+.strip b{font-family:var(--f-display);font-weight:500;font-size:15px}
+.strip span.q{font-size:13px;color:var(--muted)}
+.strip span.n{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+@media (max-width:760px){.strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar .eyebrow{margin-right:4px}
+.toolbar .sep{width:1px;height:22px;background:var(--line);margin:0 6px}
+button.f{font-size:14px;border:1px solid var(--line);background:var(--surface);padding:6px 12px;border-radius:999px;cursor:pointer}
+button.f[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.tag{font-family:var(--f-mono);font-size:11px;padding:1px 7px;border-radius:4px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.counters div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}.counters b{font-family:var(--f-display);font-size:28px;font-weight:700}.counters span{font-size:13px;color:var(--muted)}.tag.st-rel{background:transparent;border:1px solid var(--cA);color:var(--cA)}.tag.st-new{background:var(--accent);color:var(--bg)}.tag.st-part{background:transparent;border:1px dashed var(--human);color:var(--human)}.tag.st-no{background:transparent;border:1px dashed var(--muted);color:var(--muted)}.cmds{display:flex;flex-wrap:wrap;gap:4px}.cmd{font-family:var(--f-mono);font-size:12px;padding:1px 6px;border-radius:4px;background:var(--chip)}.gap{font-size:13px;color:var(--human)}.newline{font-size:13px;color:var(--accent)}.tag.own{background:var(--fg);color:var(--bg)}
+.tag.vas{background:transparent;border:1px solid var(--fg);color:var(--fg)}
+.tag.hyb{background:linear-gradient(90deg,var(--chip) 50%,transparent 50%);border:1px solid var(--muted);color:var(--fg)}
+.hand{color:var(--human);font-weight:600}
+
+/* подключение и основание */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.panel p{margin:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 22px}
+.grid2>div{min-width:0}
+.grid2 h3{font-size:14px;font-weight:600;margin-bottom:2px}
+.grid2 p{font-size:13px;color:var(--muted)}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+ul.plain li{font-size:14px}
+
+/* контур */
+.contour{display:flex;flex-direction:column;gap:14px;scroll-margin-top:16px}
+.contour-h{display:flex;flex-direction:column;gap:6px;border-left:4px solid var(--c);padding-left:14px}
+.contour-h .k{font-family:var(--f-mono);font-size:12px;color:var(--c)}
+.contour-h h2{font-size:24px}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.three div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.three .lbl{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:2px}
+.three p{margin:0;font-size:14px}
+@media (max-width:760px){.three{grid-template-columns:1fr}}
+.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.mod{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--c);border-radius:8px;padding:12px 14px;
+  display:flex;flex-direction:column;gap:8px;min-width:0;transition:opacity .2s}
+.mod.dim{opacity:.25}
+.mod-h{display:flex;gap:10px;align-items:baseline;justify-content:space-between}
+.mod-h .code{font-family:var(--f-mono);font-size:13px;color:var(--c)}
+.mod-h h3{font-size:16px;font-weight:600;line-height:1.25;flex:1;min-width:0}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.meta .who{font-size:12px;color:var(--muted)}
+.mod ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.mod li{font-size:14px}
+.mod li b{font-weight:600}
+.mod .go{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:6px}
+.mod .go b{color:var(--fg);font-weight:500}
+.mod .param{font-size:12px;color:var(--muted)}
+
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:28px}
+.two>section{min-width:0;display:flex;flex-direction:column;gap:10px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;font-family:var(--f-mono);font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+td.c{font-family:var(--f-mono);font-size:13px;white-space:nowrap}
+.only{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 18px;font-size:14px;display:flex;flex-direction:column;gap:6px}
+.only p{margin:0}
+.only b{font-weight:600}
+footer{font-size:13px;color:var(--muted);max-width:85ch}
+@media (prefers-reduced-motion:reduce){.mod{transition:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Knowledge-OS · пакет content_engine 1.4.0 · состояние на 28.10.2026</div>
+    <h1>Каждая статья — ставка</h1>
+    <p class="lead">Контент-машина ведёт статью от спроса до денег: <b>Спрос → Решение → Производство → Выпуск → Доказательство</b>.
+      У статьи есть гипотеза, ожидание в заявках, порог провала и дата замера. Итоги и правки возвращаются в начало и решают, куда ставить дальше.
+      Машина одна для любого проекта: меняются профиль и адаптеры, по проектам различается только публикация.</p>
+  </header>
+
+
+  <section style="display:flex;flex-direction:column;gap:12px" aria-label="В числах">
+    <h2>В числах — из кода, на 28.10.2026</h2>
+    <div class="counters">
+      <div><b>5 + 2</b><span>контуров пути статьи + основание и подключение</span></div>
+      <div><b>26</b><span>модулей карты; в коде — 22, частично — 1, нет — 3</span></div>
+      <div><b>151</b><span>механика в карте: 122 из системы К. Васина (4 не берём) + 29 своих</span></div>
+      <div><b>68</b><span>команд движка (каталог операций 1.4.0)</span></div>
+      <div><b>40</b><span>проверок до публикации, держат статью — 25</span></div>
+      <div><b>9</b><span>проверок «доехало» после публикации</span></div>
+      <div><b>674</b><span>автотеста (673 прошли; 1 пропущен — проверка паспорта выпуска, у исходника канона его нет)</span></div>
+      <div><b>27</b><span>проверок технического чек-листа аудита недели</span></div>
+    </div>
+    <div class="grid2">
+      <div><h3>Ещё из кода</h3><p>21 адаптер источников и записи · 33 раздела профиля · 10 отказов, зашитых в код (действие должно
+        быть отклонено) · 10 видов известных ответов · 6 автопроверок сборки · 7 слоёв анти-дублей · около 16 тыс. строк кода
+        без тестов.</p></div>
+      <div><h3>Чего в числах нет — честно</h3><p>Сколько из 151 механики уже работает, поштучно не пересчитано: статус ниже — по
+        модулям, а известные пробелы названы у каждого модуля. Числа результата (сколько статей сыграло в деньгах) появятся,
+        когда у проекта подключат источник денег и наступят окна 90 и 180 дней.</p></div>
+    </div>
+  </section>
+
+  <nav class="strip" id="strip" aria-label="Контуры"></nav>
+
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="toolbar" role="group" aria-label="Фильтр">
+      <span class="eyebrow">Состояние</span>
+      <button class="f" data-k="w" data-v="all" aria-pressed="true">все</button>
+      <button class="f" data-k="w" data-v="rel" aria-pressed="false">выпущено</button>
+      <button class="f" data-k="w" data-v="new" aria-pressed="false">1.4.0</button>
+      <button class="f" data-k="w" data-v="no" aria-pressed="false">нет / частично</button>
+      <span class="sep"></span>
+      <span class="eyebrow">Откуда</span>
+      <button class="f" data-k="s" data-v="all" aria-pressed="true">все</button>
+      <button class="f" data-k="s" data-v="own" aria-pressed="false">своё</button>
+      <button class="f" data-k="s" data-v="vas" aria-pressed="false">Васин</button>
+      <button class="f" data-k="s" data-v="hyb" aria-pressed="false">гибрид</button>
+    </div>
+    <div class="legend">
+      <span><span class="tag own">своё</span> проверено у первого потребителя</span>
+      <span><span class="tag vas">Васин</span> архитектура К. Васина, своими словами</span>
+      <span><span class="tag hyb">гибрид</span> собрано из обоих</span>
+      <span><span class="hand">✋</span> решает человек</span>
+      <span><span class="tag st-rel">выпущено</span> в проекте с 1.0–1.3.1</span>
+      <span><span class="tag st-new">1.4.0</span> код готов и проверен, выпуск — следующий шаг</span>
+      <span><span class="tag st-part">частично</span></span>
+      <span><span class="tag st-no">нет в коде</span> часть 2 (1.5.0)</span>
+    </div>
+  </div>
+
+  <section class="panel" aria-label="Подключение проекта">
+    <div><div class="eyebrow">До машины · один раз</div><h2>Подключение проекта</h2></div>
+    <ul class="plain">
+      <li><b>Ниша со спросом и деньгами</b>: кластер из 10–15 запросов с сотнями показов, топ не занят одними гигантами, у заявки есть цена. Нет спроса — машину не ставим: она забирает спрос, а не создаёт.</li>
+      <li><b>Раздел для статей</b>: рубрики, адреса латиницей, разметка, карта сайта.</li>
+      <li><b>Доступы</b>: Search Console, Вебмастер, Keys.so, сайт; при наличии — CRM через Ядро данных и речевая аналитика.</li>
+      <li><b>Профиль и три файла проекта</b> по канону.</li>
+      <li><b>Приёмка запуска</b>: светофор, вёрстка живых страниц, добор очереди, два решения человека — режим вычитки и ритм; для нового сайта — технический чек-лист.</li>
+      <li><b>Сверка с живым сайтом</b>: собрать всё опубликованное, и написанное людьми, и выпущенное с ИИ, и построить карту спроса.</li>
+    </ul>
+    <p class="param">Признак: самопроверка машины зелёная, карта спроса собрана по всем живым страницам, очередь не пустая.</p>
+  </section>
+
+  <section class="panel" aria-label="Основание">
+    <div><div class="eyebrow">Общее для всех контуров</div><h2>Основание</h2></div>
+    <div class="grid2" id="base"></div>
+  </section>
+
+  <div id="contours" style="display:flex;flex-direction:column;gap:44px"></div>
+
+
+  <section style="display:flex;flex-direction:column;gap:10px" aria-label="Проверки до публикации">
+    <h2>Проверки до публикации — 40, держат статью 25</h2>
+    <p class="lead" style="margin:0">«Держит» — статья остаётся черновиком; «замечание» — в отчёт. Уровень каждой проверки — строка профиля проекта.</p>
+    <div class="grid2">
+      <div><h3>Тема · 7 слоёв анти-дублей (Б2) — держат</h3><ul class="plain">
+        <li>смысловой ключ против журнала, очереди и броней</li><li>тела опубликованных статей</li><li>общая выдача кластера</li>
+        <li>наша страница уже в топ-10 и зарабатывает</li><li>конфликт с продающей страницей</li><li>лимит статей на головной запрос</li>
+        <li>почти-дубль заголовка</li></ul></div>
+      <div><h3>Статья · 27 проверок гейта (В7) — держат 14</h3><ul class="plain">
+        <li><b>держат:</b> длина title и description, слаг, дубль заголовка, структура, чужие целевые ключи в заголовках, FAQ,
+          все ссылки отвечают 200, гигиена тела, разметка, факты (вычитка закрыта, нет просроченных), профиль ниши, alt картинок,
+          кредиты фото</li>
+        <li><b>замечания:</b> скелет как у прошлых, чужой ключ без ссылки, близнец, ссылки на продающие, первоисточники, доля
+          списков, стоп-лист, ритм абзацев, ИИ-интонация, объём в коридоре, норма без ссылки, ссылки на свои статьи,
+          ответ в начале раздела</li></ul></div>
+      <div><h3>Сборка · 6 автопроверок (В6) — держат 4</h3><ul class="plain">
+        <li><b>держат:</b> якоря ведут на существующие id, оглавление = разделы, целые таблицы, HTML без комментариев</li>
+        <li><b>замечания:</b> обязательные элементы эталона, у каждого раздела подзаголовок</li></ul></div>
+      <div><h3>Решения человека до публикации</h3><ul class="plain">
+        <li>бриф утверждён (<code>prepare approve</code>) — правка брифа снимает утверждение</li>
+        <li>непроверенные утверждения вычитки приняты (<code>review accept</code>)</li>
+        <li>спорная тема решена (<code>judge accept</code>)</li></ul></div>
+    </div>
+    <p class="param" style="margin:0">После публикации — «доехало»: 9 проверок по ответу сайта (код ответа, canonical, запрет индексации, title, description, H1, слаг, текст, разметка) и вёрстка браузером на 4 ширинах.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px" aria-label="Основание в командах">
+    <h2>Основание в командах</h2>
+    <div class="cmds"><span class="cmd">check</span><span class="cmd">profile check</span><span class="cmd">profile template</span><span class="cmd">profile migrate</span><span class="cmd">known-answers</span><span class="cmd">spend report</span><span class="cmd">spend add</span><span class="cmd">catalog</span><span class="cmd">status</span><span class="cmd">audit checklist</span><span class="cmd">schedule install</span><span class="cmd">schedule list</span><span class="cmd">schedule remove</span><span class="cmd">week plan</span><span class="cmd">onboard</span></div>
+    <ul class="plain">
+      <li><b>Стражи в коде:</b> платный вызов — только с ценой и «да» (<code>--confirm-spend</code>), без человека — ноль трат; запись
+        вовне — только по праву профиля и с <code>--apply</code>, снимок «до» и откат одной командой; «записано N — прочитано N».</li>
+      <li><b>Каталог операций:</b> у каждой из 68 команд — контракт (нужно до, получится, эффекты, цена, право, решение человека,
+        коды выхода, тесты-доказательства); навык <code>content-engine</code> читает каталог своей версии.</li>
+      <li><b>Расписание</b> одной командой: планировщик Windows (пропущенный запуск — при включении) или cron; ставятся и снимаются только свои задания.</li>
+      <li><b>Приёмка на контур</b> (<code>check --contours</code>): признак работы каждого контура — «да», «нет» или «не подключено».</li>
+    </ul>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px" aria-label="Денежный слой">
+    <h2>Денежный слой — наше</h2>
+    <div class="tbl"><table><thead><tr><th>Механика</th><th>Что делает</th><th>Состояние</th></tr></thead><tbody>
+      <tr><td>Ставка темы</td><td>гипотеза, ожидание в заявках и деньгах, порог провала, окна 90/180</td><td>выпущено (1.3.0)</td></tr>
+      <tr><td>Деньги страницы</td><td>«мы в топе» — стоп, только если страница зарабатывает</td><td>выпущено (1.0)</td></tr>
+      <tr><td>Лесенка ценности</td><td>деньги → заявки × чек → цена клика × частота → нет данных</td><td>выпущено (1.0)</td></tr>
+      <tr><td>Годность ниши</td><td>спрос, деньги, конкуренция, регион до подключения</td><td>выпущено (1.3.0)</td></tr>
+      <tr><td>Учёт расхода и бюджет-гейт</td><td>цена статьи; «нет данных» не ноль; платное — с ценой и «да»</td><td>выпущено (1.2.0)</td></tr>
+      <tr><td>Книга ставок задним числом</td><td>статьи до машины — с днём выкладки из шапки или Search Console</td><td>1.4.0</td></tr>
+      <tr><td>Замер ставки 90/180</td><td>деньги и заявки за окно от дня выкладки, предложение итога</td><td>1.4.0</td></tr>
+      <tr><td>Итог ставки человеком → Движок роста</td><td>принятый итог — файлом-предложением, в Движок машина не пишет</td><td>1.4.0</td></tr>
+      <tr><td>Экономика статьи</td><td>цена против денег за 180 дней; «неполная», а не ноль</td><td>1.4.0</td></tr>
+      <tr><td>Закрытие направления данными</td><td>статьи есть, заявок нет → предложение; решение Движка kill закрывает в очереди</td><td>1.4.0</td></tr>
+      <tr><td>Вес направления</td><td>решение Движка scale поднимает приоритет очереди</td><td>1.4.0</td></tr>
+    </tbody></table></div>
+    <p class="param" style="margin:0">Чего ещё нет: ни одного итога «сыграла / провал» — у первого проекта окна новых статей не наступили, а источник денег за окно не подключён. Это не поломка, а данные, которых пока нет.</p>
+  </section>
+
+  <div class="two">
+    <section>
+      <h2>Петли обратной связи</h2>
+      <div class="tbl"><table><thead><tr><th>Путь</th><th>Что меняет</th></tr></thead><tbody id="loops"></tbody></table></div>
+    </section>
+    <section>
+      <h2>Ритм</h2>
+      <div class="tbl"><table><thead><tr><th>Когда</th><th>Что</th></tr></thead><tbody id="rhythm"></tbody></table></div>
+      <p class="param" style="margin:0">Включать по одному контуру: сначала Спрос и Решение и одна статья в день с вычиткой человеком; Доказательство — когда есть что доказывать.</p>
+    </section>
+  </div>
+
+  <div class="two">
+    <section>
+      <h2>Где решает человек <span class="hand">✋</span></h2>
+      <ul class="plain" id="human"></ul>
+    </section>
+    <section>
+      <h2>Стоп-лист</h2>
+      <ul class="plain" id="stop"></ul>
+    </section>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <h2>Как наша карта соотносится с системой К. Васина</h2>
+    <div class="tbl"><table><thead><tr><th>У К. Васина</th><th>У нас</th><th>Что изменено</th></tr></thead><tbody id="vasin"></tbody></table></div>
+  </section>
+
+  <div class="only">
+    <p><b>Только у нас:</b> книга ставок и замер 90/180 дней; деньги страницы по CRM; направления с квотами и закрытие направления данными; вопросы клиентов как источник спроса; чтение статьи-риска и запас с заложенным отсевом; вычитка фактов без контекста автора; граница честности в мосте; день выкладки отдельно от дня сборки.</p>
+    <p><b>Не берём:</b> модель-писателя в обход маркировки ИИ-текста; пульт с кнопками; серые методы как допустимый риск.</p>
+  </div>
+
+  <footer>Главный источник — справочник «Карта Контент-машины» в каноне Knowledge-OS; при расхождении прав он.
+    Состояние модулей и все числа — из кода пакета content_engine (ветка выпуска 1.4.0, каталог операций и тесты) на 28.10.2026.
+    Архитектура К. Васина — по гайду «SEO-машина» v3.1–3.2 (PDF, 54 с.) и <a href="https://vasinki.ru/ceh/sistema">карте модулей</a> (пакет 1.28.4), прочитано целиком 25.10.2026. Взяты идеи, механики и устройство, пересказаны своими словами; тексты, промпты и чек-листы автора не взяты.</footer>
+</div>
+
+<script>
+const MODINFO={"А1": {"cmd": ["demand collect"], "st": "rel", "gaps": ["опции: карты сайтов конкурентов, отзывы и форумы — в коде нет"], "new": ""}, "А2": {"cmd": ["cluster"], "st": "rel", "gaps": [], "new": ""}, "А3": {"cmd": ["map build"], "st": "rel", "gaps": ["кандидат на заморозку по динамике спроса за два года — в коде нет (часть 2, выпуск 1.5.0)"], "new": ""}, "Б1": {"cmd": ["queue bet", "queue card", "bet propose"], "st": "rel", "gaps": [], "new": "решение Движка роста kill/scale меняет приоритет и закрывает направление (1.4.0)"}, "Б2": {"cmd": ["gate topic"], "st": "rel", "gaps": [], "new": ""}, "Б3": {"cmd": ["judge task", "judge check", "judge accept"], "st": "rel", "gaps": [], "new": ""}, "Б4": {"cmd": ["reserve list", "reserve release", "reserve convert"], "st": "rel", "gaps": [], "new": ""}, "Б5": {"cmd": ["queue build", "queue refill", "queue status", "queue take", "queue retake"], "st": "rel", "gaps": [], "new": "закрытое направление не даёт тем в очередь (1.4.0)"}, "В1": {"cmd": ["prepare top", "prepare donors"], "st": "rel", "gaps": [], "new": ""}, "В2": {"cmd": ["prepare brief", "prepare check", "prepare approve"], "st": "rel", "gaps": [], "new": ""}, "В3": {"cmd": ["write task"], "st": "rel", "gaps": [], "new": ""}, "В4": {"cmd": ["review task", "review check", "review accept"], "st": "rel", "gaps": [], "new": ""}, "В5": {"cmd": ["images plan", "images make", "images photo", "images upload", "images insert", "images backfill"], "st": "rel", "gaps": [], "new": ""}, "В6": {"cmd": ["assemble build", "assemble contract"], "st": "rel", "gaps": [], "new": ""}, "В7": {"cmd": ["gate article"], "st": "rel", "gaps": [], "new": ""}, "Г1": {"cmd": ["publish rollback", "publish apply", "publish prepare", "publish next"], "st": "rel", "gaps": [], "new": "право отката — ключами профиля (1.4.0)"}, "Г2": {"cmd": ["publish verify"], "st": "rel", "gaps": [], "new": "сеть не ответила — «не проверено» с повтором, а не «не доехало» (1.4.0)"}, "Г3": {"cmd": ["index submit", "index status"], "st": "rel", "gaps": [], "new": ""}, "Г4": {"cmd": ["publish record"], "st": "rel", "gaps": [], "new": ""}, "Д1": {"cmd": ["pulse run", "pulse notify"], "st": "new", "gaps": ["позиции — из консолей; Keys.so и Topvisor — не подключались (по решению)", "сводка в мессенджер — общий адаптер есть; у проекта канал не подключён"], "new": ""}, "Д2": {"cmd": ["bet backfill", "bet measure", "bet accept", "economics"], "st": "new", "gaps": ["деньги за окно — общий контракт есть; у проекта источник подключается адаптером (у первого — не подключён)"], "new": ""}, "Д3": {"cmd": ["audit run", "audit advice", "audit accept"], "st": "new", "gaps": ["скорость на мобильном — «не подключено»", "входящие ссылки и ИИ-следы (опции) — в коде нет", "задачи на склейку не выдаются, пока доля ложных тревог не замерена"], "new": ""}, "А4": {"cmd": [], "st": "part", "gaps": ["направления с квотами — есть (профиль, очередь)", "«поле шире освоенного» — в коде нет (1.5.0)", "разведка конкурентов: структура и темп публикаций — в коде нет (1.5.0)"], "new": ""}, "Д4": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0)"], "new": ""}, "Д5": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0)"], "new": ""}, "Д6": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0, опция)"], "new": ""}};
+const ST={rel:'выпущено',new:'1.4.0',part:'частично',no:'нет в коде'};
+const SRC={own:"своё",vas:"Васин",hyb:"гибрид"};
+const BASE=[
+ ["Профиль проекта","Домены, разделы блога и продающих страниц, регион, ритм, режим публикации, направления и квоты, пороги анти-дублей, норма запаса, бюджет, провайдер картинок, роли моделей. Один файл."],
+ ["Правила","Эталон статьи, стоп-лист, тон проекта, мост с границей честности, нормы объёма, профиль ниши. Общее — ссылкой на канон, своё — у проекта."],
+ ["Реестр 1 · Карта спроса","Страница ↔ кластер ↔ ключи, тип страницы, статус кластера, брони."],
+ ["Реестр 2 · Очередь тем","Темы после отсева: приоритет, направление, бронь, карточка ставки, запас в днях."],
+ ["Реестр 3 · Книга ставок","Тема → гипотеза → ожидание → порог провала → день выкладки → замеры 90/180 → итог. Решения — в Движке роста."],
+ ["Журнал отсева","Каждая снятая тема с причиной и слоем, который её снял; можно вернуть руками."],
+ ["Адаптеры","Выдача и семантика (Keys.so, дальше XMLRiver и другие), консоли, публикация, картинки, модели, деньги (Ядро данных), позиции, поведение."],
+ ["Роли моделей","Планировщик, писатель, проверяющий, судья, дешёвая модель; у каждой запасная — конвейер не встаёт."],
+ ["Стражи","Бюджет-гейт (ночью — остановка без трат), только чтение до разрешения, режим «только файлы», «записано N — прочитано N», «не подключено» вместо нуля."],
+ ["Учёт расхода и самопроверка","Цена статьи за 30 дней; светофор по подсистемам и список «что ещё не подключено»."],
+ ["Расписание и план недели","Все запуски — одной командой (планировщик Windows, cron, облако); план работ на неделю из узких мест машины и решений Движка роста."],
+ ["Приёмка на контур","Признак работы, известные ответы и тесты; свой технический чек-лист — основа аудита."]
+];
+const C=[
+ {id:"spros",k:"А",t:"Спрос",q:"что ищут и что у нас не закрыто",c:"--cA",
+  does:"Собирает реальный спрос, чистит, группирует по выдаче и сверяет с тем, что на сайте уже есть. Частоты — из данных.",
+  breaks:"Статьи пишутся мимо спроса; новая статья отнимает запрос у своей же страницы.",
+  sign:"Каждую неделю — новые кластеры; доля закрытого спроса известна числом.",
+  m:[
+  {c:"А1",n:"Сбор спроса",w:1,s:"hyb",who:"скрипт",when:"раз в неделю; глубокий — раз в 1–1,5 мес",
+   l:["<b>Консоли</b>: запросы, по которым сайт уже виден; окно 30 дней, порог показов — параметр (у Васина от 3)",
+      "<b>Keys.so</b>: семантика ниши по региону и запросы конкурентов, которых нет у нас",
+      "<b>Своё ядро</b> файлом — чистится так же",
+      "<b>Wordstat</b>: частоты и динамика за два года по региону",
+      "<b>Подсказки и похожие запросы</b> с отсевом шума",
+      "<b>Вопросы клиентов</b> из звонков и переписок, на которые в корпусе нет ответа",
+      "<b>Слияние и чистка</b>: дубли с суммой показов, отсев брендовых и мусорных фраз",
+      "<b>Проверка базы чтением</b>: цифру по подстроке проверить на 10–15 примерах («гости» ≠ «гостиная»)",
+      "<b>Глубокий сбор</b> по 15–30 корням — новые темы встают в очередь первыми",
+      "Опции: карты сайтов конкурентов, подсказки, отзывы и форумы"],
+   go:"сырые запросы с частотой и источником → А2"},
+  {c:"А2",n:"Кластеры по выдаче",w:1,s:"vas",who:"скрипт",when:"вслед за А1",
+   l:["Два запроса — одна страница, если у них достаточно общих адресов в топ-10 (у Васина от 3); модель кластер только называет",
+      "Нет выдачи — запасной путь: модель группирует по смыслу, кластер помечен «моделью»",
+      "<b>Кэш выдачи</b> на кластер (у Васина 45 дней): квота Keys.so общая на аккаунт"],
+   go:"кластеры → А3"},
+  {c:"А3",n:"Карта спроса",w:1,s:"hyb",who:"скрипт",when:"раз в неделю и после каждой выкладки",
+   l:["Из живого сайта: карта сайта, тексты статей, продающие страницы, запросы консолей по страницам",
+      "<b>Статусы кластера</b>: свободен · забронирован · закрыт страницей · коммерческий · заморожен (спрос умер; кандидат — автоматически по динамике спроса)",
+      "<b>Индекс интентов</b>: один смысл — одна страница, спор решает выдача",
+      "<b>Отчёт покрытия</b>: доля закрытого спроса, отдельно по денежным кластерам"],
+   go:"свободные кластеры → А4; две страницы на кластер → Д3"},
+  {c:"А4",n:"Пробелы и направления",w:1,s:"own",who:"скрипт, решение ✋",when:"раз в неделю",
+   l:["Свободные кластеры и кластеры конкурентов без нашей страницы",
+      "<b>Направления (корзины)</b> с квотой слотов на квартал: вопросы клиентов, форматы, нормы и монтаж, помещения, сезон, «помогает ли X», тесты новых ниш",
+      "<b>Поле шире освоенного</b>: раз в месяц пачка формулировок по новым направлениям",
+      "<b>Разведка конкурентов</b>: структура их страниц и новые адреса в их карте сайта за 14 дней"],
+   go:"кандидаты с направлением → Б2"}]},
+ {id:"reshenie",k:"Б",t:"Решение",q:"что писать и зачем",c:"--cB",
+  does:"Превращает кандидатов в ставки: отсекает закрытое, проверяет выдачу и деньги, бронирует кластер, ставит тему в очередь с ожиданием и порогом провала.",
+  breaks:"Свои страницы делят запрос; темы берутся по новизне, а не по деньгам; отсев — в день публикации.",
+  sign:"Ни одна тема не доходит до текста без брони; запас не ниже нормы.",
+  m:[
+  {c:"Б1",n:"Направление-ставка",w:1,s:"own",who:"модель готовит, ✋ решает",h:1,when:"раз в месяц и по итогам замеров",
+   l:["Гипотеза: «выпустим N статей в направлении X — заявок больше на Y, потому что Z»",
+      "Основание — деньги групп страниц по CRM из Ядра данных",
+      "Направление, закрытое данными (статьи есть — заявок нет), не берём",
+      "Тема наследует карточку ставки: ожидание за 180 дней, порог провала, окна 90 и 180"],
+   go:"направление с квотой → приоритет в Б5"},
+  {c:"Б2",n:"Анти-дубли до модели",w:1,s:"hyb",who:"скрипт",when:"на каждого кандидата",
+   l:["<b>1 · Смысловой ключ</b>: нормализованные слова против журнала, очереди и броней (у Васина 70 %)",
+      "<b>2 · Тела статей</b>: поиск по полным текстам ≥3 формулировками — ловит тему, закрытую разделом другой статьи",
+      "<b>3 · Общая выдача</b>: кластер уже закреплён за страницей",
+      "<b>4 · Наша страница в топ-10</b>: стоп, только если она зарабатывает",
+      "<b>5 · Конфликт с продающей</b> (у Васина 0,75)",
+      "<b>6 · Лимит на головной запрос</b> (у Васина 6)",
+      "<b>7 · Почти-дубль заголовка</b>",
+      "<b>Белый список</b> ложных срабатываний — с причиной и датой"],
+   go:"свободно → Б4 · пересекается → журнал отсева · спорно → Б3"},
+  {c:"Б3",n:"Судья спорного",w:2,s:"own",who:"модель + ✋",h:1,when:"по требованию",
+   l:["Эмбеддинги находят пять ближайших страниц, модель выбирает только из них — порог по косинусу в узкой нише не работает",
+      "<b>Чтение статьи-риска целиком</b>: каких подтем в ней нет; делается при пополнении запаса, а не в день выпуска",
+      "Спорное решает человек"],
+   go:"свободно с углом → Б4 · закрыто → журнал отсева"},
+  {c:"Б4",n:"Гейт темы и бронь",w:1,s:"hyb",who:"скрипт",when:"после Б2–Б3",
+   l:["<b>Тип выдачи</b>: маркетплейсы в топе → тема в очередь продающих страниц, не в блог",
+      "<b>Деньги соседних страниц</b> того же кластера за 180 дней",
+      "<b>Мост к продукту</b>: продукт отвечает на запрос, а не приделан",
+      "<b>Бронь кластера</b> со сроком жизни",
+      "Выдача перепроверяется в день взятия темы"],
+   go:"бронь → Б5 · отказ с причиной → журнал отсева"},
+  {c:"Б5",n:"Очередь тем и запас",w:1,s:"hyb",who:"скрипт",when:"постоянно; запас — раз в неделю",
+   l:["Одна очередь — один источник правды",
+      "<b>Приоритет</b>: деньги направления → коммерческий интент и лид-сигналы → приоритет темы → частота",
+      "<b>Чередование направлений</b>",
+      "<b>Норма запаса</b> (у первого потребителя 8 тем = 2 недели); просело — пополнение в тот же день",
+      "<b>Совет по темпу</b>: сколько статей в день выдержит сайт",
+      "<b>Отсев закладывается</b>: ~40 % на чтении → на 8 тем гнать 12–14 кандидатов",
+      "<b>Запас в днях</b> = темы / ритм; пустая очередь — поломка сбора"],
+   go:"верхняя тема → В1"}]},
+ {id:"proizvodstvo",k:"В",t:"Производство",q:"как сделать лучше топа",c:"--cC",
+  does:"Разбирает лидеров в числа, собирает бриф, пишет, проверяет тон и факты, рисует, собирает страницу и пропускает через ОТК без модели.",
+  breaks:"Статья «не хуже среднего» — для топа мало; ошибка в фактах бьёт по доверию сильнее, чем отсутствие цифры.",
+  sign:"Статья с пустым описанием, битой ссылкой или неподтверждённым фактом физически не проходит гейт.",
+  m:[
+  {c:"В1",n:"Разбор топа в числа",w:2,s:"vas",who:"скрипт + модель",when:"перед каждой статьёй",
+   l:["Топ-10 по региону без своих доменов → до трёх живых конкурентов",
+      "<b>Маркеры</b>: разделы, объём, таблицы, картинки, частотные слова",
+      "<b>Три числа</b>: знаков перебить, картинок (у Васина ~+15 %), нужна ли таблица",
+      "<b>Наш угол и пробелы</b> — без угла статья остаётся пересказом",
+      "<b>Проверка фактуры</b>: не хватает фактов — тема ждёт, а не выдумывается",
+      "Опция: зарубежные доноры — выжимка тезисов, не текст"],
+   go:"разбор → В2 · нет фактуры → тема ждёт в очереди"},
+  {c:"В2",n:"Бриф и структура",w:2,s:"own",who:"модель, ✋ утверждает",h:1,when:"перед текстом",
+   l:["H1, title, description, слаг, разделы, таблица, призыв к действию обычным блоком",
+      "<b>FAQ из живого спроса</b> человеческим языком, порядок слов проверяет код",
+      "<b>Автор</b> по направлению, с ролью и опытом, с учётом нагрузки",
+      "<b>Карта перелинковки до написания</b> по прочитанным текстам — статья не сирота",
+      "<b>Мост к продукту</b>: место, объём (5–10 %), граница честности"],
+   go:"утверждено → В3; текст до утверждения не пишется"},
+  {c:"В3",n:"Текст",w:2,s:"own",who:"модель",when:"по ритму профиля",
+   l:["<b>Роли разнесены</b>: планирует, пишет и проверяет — разные проходы",
+      "Эталон статьи, стоп-лист, информационный стиль",
+      "<b>Против ИИ-интонации</b>: позиция автора, граница применимости, живой синтаксис",
+      "<b>Ритм абзацев</b> как у людей — замер, ровный ритм — замечание",
+      "<b>Каждая норма — ссылкой на первоисточник</b>; свои статьи — только прочитанные",
+      "<b>Объём по задаче</b> в коридоре направления",
+      "<b>Два уровня</b>: обычный и усиленный (сначала пакет проверенных фактов)"],
+   go:"черновик → В4"},
+  {c:"В4",n:"Критика и вычитка фактов",w:2,s:"hyb",who:"модель + отдельный агент",when:"после текста",
+   l:["<b>Критик тона и правил</b>: таблица «было → стало»",
+      "<b>Проход под ИИ-ответы</b>: прямой ответ в начале раздела, таблицы, FAQ",
+      "<b>Структура против корпуса</b> и замер самоплагиата",
+      "<b>Независимая вычитка</b>: агент без контекста автора сверяет каждое утверждение с первоисточником — блокер, уточнение, непроверенное",
+      "<b>Библиотека фактов</b> со сроком годности и статусом",
+      "Юридические риски → черновик"],
+   go:"блокеров нет → В5 · есть → правка и повтор"},
+  {c:"В5",n:"Картинки",w:2,s:"hyb",who:"скрипт + генератор",when:"при сборке; добор ежедневно",
+   l:["<b>Провайдер строкой в профиле</b>: свой шаблон 0 ₽, бесплатный тир, платный, по подписке, без картинок",
+      "Без картинки вёрстка не ломается — заглушка",
+      "Обложка и иллюстрации в тексте; alt; сжатие",
+      "Фото из сети — стоп-лист категорий, проверка кадра, лицензия, кредиты",
+      "<b>Схемы и таймлайны</b> шаблоном, без нейросети",
+      "<b>Добор задним числом</b> пачкой; платное — через бюджет-гейт"],
+   go:"→ В6"},
+  {c:"В6",n:"Разметка и сборка",w:2,s:"hyb",who:"скрипт",when:"после картинок",
+   l:["Разметка из текста: Article, FAQPage, BreadcrumbList; проверка согласованности",
+      "<b>Сборка адаптером</b>: блоки конструктора, HTML, MDX, поля CMS",
+      "<b>Автопроверки сборки</b>: ссылки, таблицы, эталонные элементы, якоря; часть останавливает сборку"],
+   go:"→ В7"},
+  {c:"В7",n:"ОТК — гейт статьи без модели",w:1,s:"hyb",who:"скрипт",when:"перед выпуском, одной командой",
+   l:["title, description, слаг; дубль заголовка; <b>близнец</b> опубликованной",
+      "FAQ; ссылки на продающие страницы по профилю",
+      "Все ссылки отвечают 200; минимум первоисточников",
+      "Доля списков; ритм (замечание); <b>гигиена тела</b>: приписки модели, заглушки, сырая разметка",
+      "Стоп-лист; числа против библиотеки фактов; кредиты картинок",
+      "Разметка валидна; правила профиля ниши",
+      "Результат — «пропуск» или «черновик» с причиной; <b>тема не теряется</b>"],
+   go:"пропуск → Г1 · черновик → правка В3–В6"}]},
+ {id:"vypusk",k:"Г",t:"Выпуск",q:"довести до поиска",c:"--cD",
+  does:"Выкладывает статью способом проекта, доказывает, что доехала, сообщает поисковикам и записывает выпуск в день действия.",
+  breaks:"Статья готова, но не в индексе; замер 90/180 считается от неверной даты.",
+  sign:"Новый адрес в Вебмастере за сутки; день выкладки стоит в тексте, разметке и базе.",
+  m:[
+  {c:"Г1",n:"Публикация",w:2,s:"hyb",who:"адаптер; ✋ в ручном режиме",h:1,when:"по ритму профиля",
+   l:["<b>Единственный модуль, который различается по проектам</b>",
+      "<b>Ручная вставка</b> (конструктор, Битрикс): машина готовит пакет, человек вставляет",
+      "<b>Прямая</b>: файл в репозиторий и пересборка; API CMS черновиком",
+      "<b>«Только файлы» по умолчанию</b>: право публиковать — отдельной настройкой",
+      "Финальная чистка: авторы, битые ссылки, перелинковка",
+      "Очередь черновиков и публикатор без модели; защита от двойного прогона",
+      "Опции: окно публикации, выкладка наперёд, расписание «по включению»"],
+   go:"→ Г2"},
+  {c:"Г2",n:"«Доехало»",w:2,s:"hyb",who:"скрипт",when:"сразу после публикации",
+   l:["<b>Доказательство — ответ сайта</b>: 200, текст, мета, разметка на месте",
+      "<b>Вёрстка браузером</b> на 1440 / 1024 / 390 / 360",
+      "<b>Приёмка живой страницы</b> по эталону: оглавление, врезки, «Читайте также», автор, дата",
+      "<b>День выкладки в день действия</b>; день сборки — отдельным полем"],
+   go:"доехало → Г3, Г4 · нет → повтор Г1 и сигнал в пульс"},
+  {c:"Г3",n:"Индексация",w:2,s:"vas",who:"скрипт",when:"по факту нового адреса",
+   l:["IndexNow — Яндекс и Bing сразу",
+      "Переобход в Вебмастере; карта сайта в Search Console",
+      "Для Google мгновенного нет — карта сайта, внутренние ссылки, запрос в консоли"],
+   go:"→ под наблюдение Д1"},
+  {c:"Г4",n:"Записи",w:2,s:"own",who:"скрипт",when:"в день выкладки",
+   l:["Карта спроса: бронь становится страницей; страница пишет кластер и целевые ключи — из них считается покрытие",
+      "Книга ставок: день выкладки, даты замеров; задачи замера — от дня выкладки",
+      "База проекта: план → применение → сверка чтением",
+      "Журнал действий и отчёт «что вышло + запас»"],
+   go:"→ Д"}]},
+ {id:"dokazatelstvo",k:"Д",t:"Доказательство",q:"что это дало",c:"--cE",
+  does:"Следит за здоровьем сайта и выпуска, раз в неделю проверяет всё, на 90/180 день сверяет ставку, дожимает почти выигранное и возвращает итоги назад.",
+  breaks:"Неизвестно, какие направления сыграли; съехавший canonical замечают через месяц.",
+  sign:"За 5 секунд видно, публиковали ли сегодня; по каждой ставке есть итог.",
+  m:[
+  {c:"Д1",n:"Пульс и панель",w:3,s:"vas",who:"скрипт",when:"ежедневно утром",
+   l:["<b>Позиции</b>: тревога — падение (у Васина от 5), вход или вылет из топ-10 и топ-30",
+      "<b>Дрифт</b> против эталонного снимка: критично — ошибка, noindex, canonical, заголовок, разметка, редирект; важно — мета, картинка для соцсетей, текст −30 %",
+      "<b>Панель-витрина</b>: вердикт дня, публикации против плана, запас в днях, трафик Яндекса и Google раздельно, аудит, цена статьи",
+      "<b>Вердикт</b>: сайт не отвечает / 2 дня без публикаций / критичные ошибки → красный; запас < 3 дней / аудит > 30 дней → жёлтый",
+      "<b>Сводка в мессенджер</b> через адаптер уведомлений — только разница и что сделать",
+      "«Не подключено» вместо нуля; только дельта"],
+   go:"тревога → задание агенту рядом с проблемой"},
+  {c:"Д2",n:"Замер ставки",w:3,s:"own",who:"скрипт, ✋ итог",h:1,when:"90-й и 180-й день",
+   l:["Заявки и продажи по странице входа; деньги — по CRM через Ядро данных",
+      "Против ожидания и порога провала → сыграла · провал · мало данных",
+      "Каждое число — с периодом, источником и статусом"],
+   go:"итог → Движок роста → направление Б1"},
+  {c:"Д3",n:"Аудит недели",w:3,s:"vas",who:"скрипт + дешёвая модель",when:"раз в неделю",
+   l:["<b>Техника</b>: мета, canonical (5 случаев), 4xx/5xx, скорость, разметка, sitemap и robots; 4 уровня важности",
+      "<b>Экспертность — балл</b>: автор с ролью, дата, ссылки, источники, объём, FAQ",
+      "<b>Сироты</b> и граф внутренних ссылок",
+      "<b>Пересечения живых</b>: статья↔продающая, статья↔статья, ≥3 на термин → хаб; склейка ✋",
+      "<b>Директивы</b>: свои сайты не линкуем, призыв не заголовком, FAQ с разметкой, без параметров, слаги латиницей",
+      "<b>Выпавшие из поиска</b>: причина и план; правки после «утверждаю»",
+      "Опция: входящие ссылки — профиль через Keys.so",
+      "Чистота текста; ИИ-следы на сайте (опция); только дельта"],
+   go:"пересечения → А3 · слабые и выпавшие → Д4"},
+  {c:"Д4",n:"Дожим и актуализация",w:3,s:"vas",who:"модель + скрипт",when:"раз в неделю",
+   l:["<b>Зона 4–15</b> с показами: чего не хватает против топ-3",
+      "<b>Старые статьи</b> (у Васина > 120 дней): абзац по существу, мета, честная дата",
+      "Пустой сдвиг даты запрещён",
+      "Кандидаты по поведению: много входов, высокий отказ"],
+   go:"правка → очередь Б5 → тот же гейт В7"},
+  {c:"Д5",n:"ИИ-видимость",w:3,s:"hyb",who:"скрипт",when:"пригодность — неделя, цитирование — месяц",
+   l:["<b>Пригодность — балл</b>: ответ 40–60 слов в начале, цитируемые куски, конкретика в первой трети, дата, источники; ИИ-боты не закрыты",
+      "<b>Цитирование</b>: трекер Keys.so, Алиса, обзоры Google; динамика",
+      "Цитируют прежде всего страницы из обычного топ-10"],
+   go:"слабые → Д4"},
+  {c:"Д6",n:"Поведение на странице",w:3,s:"vas",who:"скрипт + модель, ✋ правка",h:1,when:"раз в месяц",
+   l:["Сырые визиты → воронка по людям, а не по хитам",
+      "Обрыв шага > 70 %, страница-тупик, аномалия устройства, выпавшая страница группы",
+      "Решение — при ≥100 людях на шаге; одна правка → замер через 2–4 недели"],
+   go:"сработало → на соседние страницы · нет → откат"}]}
+];
+const LOOPS=[["Д2 → Б1","Итог ставки: сыграло — больше тем, провал — направление закрывается"],["Д4 → Б5","Дожим: правка в очередь рядом с новыми темами"],["Д3 → А3","Пересечения живых правят карту спроса ✋"],["А4 → Б2","Незакрытый спрос — кандидат"],["Б5 → А1","Пустая очередь — поломка сбора"],["В1 → А1","Фактуры не хватает — тема ждёт, библиотека пополняется"],["Г2 → Г1","Не доехало — повтор и сигнал в пульс"]];
+const RHYTHM=[["Каждый день, утро","Позиции, дрифт, панель (Д1)"],["Каждый день, днём","Статья (В), публикатор (Г1), «доехало» (Г2), добор картинок (В5)"],["Раз в неделю","Спрос и карта (А1–А3), запас (Б5), аудит (Д3), дожим (Д4), пригодность (Д5)"],["90-й и 180-й день","Замер ставки (Д2)"],["Раз в месяц","Цитирование (Д5), поведение (Д6), новые направления (А4), пересмотр направлений (Б1)"],["Раз в 1–1,5 мес","Глубокий сбор спроса (А1)"],["По событию","Публикация → «доехало», индексация, записи (Г2–Г4)"]];
+const HUMAN=["Направление-ставка (Б1)","Спорное пересечение (Б3)","Бриф и структура (В2)","Непроверенные факты (В4)","Ручная публикация (Г1)","Итог ставки (Д2)","Склейка страниц и правки выпавших (Д3)","Правка по поведению (Д6)"];
+const STOP=["Залп из сотни статей на новом домене","Накрутка поведенческих и покупные ссылки в первые месяцы","Кириллица и заглавные в адресах","Перелинковка своих сайтов между собой","Первые статьи без вычитки","Выдуманные цифры","Пустой сдвиг даты","Тема в план без анти-дублей и брони","Ожидание трафика раньше нескольких месяцев"];
+const VASIN=[["Фундамент и память проекта","Основание; три файла проекта","Правила — ссылкой на канон"],["Три вещи до машины","Подключение проекта","Плюс сверка с живым сайтом"],["1 Семантика","А1–А3","Выдача адаптером (Keys.so); вопросы клиентов; проверка чтением"],["2 Подготовка","В1, В2","Бриф утверждает человек; граница честности"],["3 Написание","В3, В4, В7","Вычитка без контекста автора; модель по экономике"],["4 Анти-дубли","Б2–Б4, А3, Д3","Тела статей, «наша в топе», судья из пяти, бронь со сроком"],["5 Обложки","В5","—"],["6 Публикация","Г1–Г3","Ручная вставка — полноправный режим; день выкладки"],["7 Мониторинг","Д1","Панель-витрина без кнопок"],["8 Аудит","Д3","—"],["9 Рост","Д4, Д5","—"],["10 Советник","Движок роста, петля Д2 → Б1","Решения по замеру на числах"],["Поведение на сайте","Д6","—"]];
+
+const esc=s=>s;
+document.getElementById("strip").innerHTML=C.map(c=>`<a href="#${c.id}" style="--c:var(${c.c})"><span class="k">Контур ${c.k}</span><b>${c.t}</b><span class="q">${c.q}</span><span class="n">${c.m.length} модулей</span></a>`).join("");
+document.getElementById("base").innerHTML=BASE.map(([h,p])=>`<div><h3>${h}</h3><p>${p}</p></div>`).join("");
+document.getElementById("contours").innerHTML=C.map(c=>`
+ <section class="contour" id="${c.id}" style="--c:var(${c.c})">
+  <div class="contour-h"><span class="k">Контур ${c.k} · ${c.m.length} модулей</span><h2>${c.t} — ${c.q}</h2></div>
+  <div class="three">
+   <div><span class="lbl">Что делает</span><p>${c.does}</p></div>
+   <div><span class="lbl">Что сломается без него</span><p>${c.breaks}</p></div>
+   <div><span class="lbl">Признак, что работает</span><p>${c.sign}</p></div>
+  </div>
+  <div class="mods">${c.m.map(m=>`
+   <article class="mod" data-w="${(MODINFO[m.c]||{}).st==='part'?'no':(MODINFO[m.c]||{}).st||'rel'}" data-s="${m.s}">
+    <div class="mod-h"><span class="code">${m.c}</span><h3>${m.n}</h3>${m.h?'<span class="hand" title="решает человек">✋</span>':''}</div>
+    <div class="meta"><span class="tag st-${(MODINFO[m.c]||{}).st||'rel'}">${ST[(MODINFO[m.c]||{}).st||'rel']}</span><span class="tag ${m.s}">${SRC[m.s]}</span><span class="who">${m.who} · ${m.when}</span></div>
+    <ul>${m.l.map(x=>`<li>${x}</li>`).join("")}</ul>
+    ${(MODINFO[m.c]||{}).new?`<div class="newline">новое: ${MODINFO[m.c].new}</div>`:''}
+    ${((MODINFO[m.c]||{}).gaps||[]).map(g=>`<div class="gap">пробел: ${g}</div>`).join('')}
+    <div class="cmds">${((MODINFO[m.c]||{}).cmd||[]).map(x=>`<span class="cmd">${x}</span>`).join('')||'<span class="who">команд нет</span>'}</div>
+    <div class="go"><b>Дальше:</b> ${m.go}</div>
+   </article>`).join("")}</div>
+ </section>`).join("");
+document.getElementById("loops").innerHTML=LOOPS.map(([a,b])=>`<tr><td class="c">${a}</td><td>${b}</td></tr>`).join("");
+document.getElementById("rhythm").innerHTML=RHYTHM.map(([a,b])=>`<tr><td style="white-space:nowrap">${a}</td><td>${b}</td></tr>`).join("");
+document.getElementById("human").innerHTML=HUMAN.map(x=>`<li>${x}</li>`).join("");
+document.getElementById("stop").innerHTML=STOP.map(x=>`<li>${x}</li>`).join("");
+document.getElementById("vasin").innerHTML=VASIN.map(([a,b,c])=>`<tr><td>${a}</td><td class="c">${b}</td><td>${c}</td></tr>`).join("");
+
+const st={w:"all",s:"all"};
+document.querySelectorAll("button.f").forEach(btn=>btn.addEventListener("click",()=>{
+  const k=btn.dataset.k; st[k]=btn.dataset.v;
+  document.querySelectorAll(`button.f[data-k="${k}"]`).forEach(x=>x.setAttribute("aria-pressed",String(x===btn)));
+  document.querySelectorAll(".mod").forEach(m=>m.classList.toggle("dim",(st.w!=="all"&&m.dataset.w!==st.w)||(st.s!=="all"&&m.dataset.s!==st.s)));
+}));
+</script>
+
+</body></html>
