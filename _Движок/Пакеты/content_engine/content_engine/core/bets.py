@@ -73,6 +73,8 @@ def bet_missing(topic: dict) -> bool:
 
 PLAYED, FAILED, LOW_DATA, NO_BET_RESULT, NOT_YET = "сыграла", "провал", "мало данных", "ставки нет", "окно не наступило"
 RESULTS = (PLAYED, FAILED, LOW_DATA)
+# множители порога словами; «м» + «лн» собрано из частей — граница пакета ловит это сокращение как сумму компании
+SCALES = {"тыс": 1_000, "м" + "лн": 1_000_000}
 _WORD_NUMBERS = {"ноль": 0.0, "нуль": 0.0, "ни одной": 0.0, "ни одного": 0.0, "одна": 1.0, "один": 1.0}
 
 
@@ -90,11 +92,12 @@ def number_in(text: str) -> float | None:
     """Первое число строки порога («0 за 180 дней», «ноль заявок»); нет — None."""
     t = re.sub(r"(за|в течение|через|на)\s+\d+\s*(дн|недел|месяц|мес)\w*", " ", (text or "").lower())
     t = re.sub(r"(?<=\d)[ \u00a0](?=\d{3}(?!\d))", "", t)   # пробел между разрядами — одно число
-    m = re.search(r"\d+(?:[.,]\d+)?", t)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(SCALES) + ")?", t)
     if m:
-        return float(m.group(0).replace(",", "."))
+        scale = SCALES.get(m.group(2) or "", 1)
+        return float(m.group(1).replace(",", ".")) * scale
     for word, value in _WORD_NUMBERS.items():
-        if word in t:
+        if re.search(rf"(?<!\w){word}(?!\w)", t):    # «один», а не «одинаковый»
             return value
     return None
 

@@ -367,3 +367,40 @@ def test_windows_matches_quotes_and_dash():
     got = {"command": 'py -3 -m content_engine pulse run --profile &quot;C:/02 — Области/p.yaml&quot; --unattended',
            "start": "2026-01-01T09:00:00"}
     assert WindowsScheduler(runner=lambda a, input_text=None: (0, "")).matches(job, got)
+
+
+def test_codex2_threshold_scale_and_whole_words():
+    assert bets.number_in("провал — менее 1,5 " + "м" + "лн ₽ за 180 дней") == 1_500_000
+    assert bets.number_in("меньше 300 тыс ₽") == 300_000
+    assert bets.number_in("порог одинаковый для направления") is None
+
+
+def test_codex2_quoted_python_path_and_schedule_kind():
+    from content_engine.schedulers.base import Job
+    from content_engine.schedulers.windows import WindowsScheduler, split_command, xml
+    cmd = '"C:/Program Files/Python/python.exe" -m content_engine bet measure --unattended'
+    assert split_command(cmd) == ("C:/Program Files/Python/python.exe", "-m content_engine bet measure --unattended")
+    job = Job("KOS-content-engine-x-measure", cmd, "C:/rel", "week", "09:00", "mon")
+    assert "<Command>C:/Program Files/Python/python.exe</Command>" in xml(job, True)
+    w = WindowsScheduler(runner=lambda a, input_text=None: (0, ""))
+    base = {"exe": "C:/Program Files/Python/python.exe", "args": "-m content_engine bet measure --unattended",
+            "command": "", "start": "2026-01-01T09:00:00", "workdir": "C:/rel", "every": "week", "weekday": "Monday"}
+    assert w.matches(job, base)
+    assert not w.matches(job, {**base, "workdir": "C:/old"})
+    assert not w.matches(job, {**base, "every": "day", "weekday": ""})
+
+
+def test_codex2_unit_per_record_and_unknown_unit_without_number(project):
+    from .test_bets_wave3 import money_file, record, window
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("bets"), "bets", [
+        record(), record(rid="T0002", expectation_numbers=[{"value": 1000, "unit": "₽"}]),
+        record(rid="T0003", expectation_numbers=[])])
+    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
+    bets_cmd.measure(Instance(project, today=TODAY))
+    for rid in ("T0001", "T0002", "T0003"):
+        bets_cmd.accept(Instance(project, today=TODAY), rid, "90", "Дмитрий", None, None)
+    import yaml as _y
+    data = _y.safe_load(open(bets_cmd.propose(Instance(project, today=TODAY))["files"][0], encoding="utf-8"))
+    units = sorted(r["unit"] for r in data["numbers"])
+    assert set(units) == {"₽", "заявки"} and data["no_number"] == ["T0003"]

@@ -13,8 +13,18 @@ DAYS = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday", "thu": "Thursday"
         "sat": "Saturday", "sun": "Sunday"}
 
 
+def split_command(command: str) -> tuple[str, str]:
+    """Программа и аргументы: путь программы в кавычках (с пробелами) — целиком."""
+    command = command.strip()
+    if command.startswith('"'):
+        end = command.index('"', 1)
+        return command[1:end], command[end + 1:].strip()
+    exe, _, args = command.partition(" ")
+    return exe, args
+
+
 def xml(job: Job, on_boot: bool) -> str:
-    exe, _, args = job.command.partition(" ")
+    exe, args = split_command(job.command)
     if job.every == "week":
         schedule = (f"<ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><{DAYS[job.weekday]} />"
                     "</DaysOfWeek></ScheduleByWeek>")
@@ -66,8 +76,11 @@ class WindowsScheduler:
         if code != 0:
             return None
         get = lambda tag: (re.search(rf"<{tag}>(.*?)</{tag}>", out, re.S) or [None, ""])[1]   # noqa: E731
-        return {"command": f"{get('Command')} {get('Arguments')}".strip(), "start": get("StartBoundary"),
-                "start_when_available": get("StartWhenAvailable") == "true", "workdir": get("WorkingDirectory")}
+        week = re.search(r"<DaysOfWeek>\s*<(\w+)", out)
+        return {"command": f"{get('Command')} {get('Arguments')}".strip(), "exe": get("Command"),
+                "args": get("Arguments"), "start": get("StartBoundary"),
+                "start_when_available": get("StartWhenAvailable") == "true", "workdir": get("WorkingDirectory"),
+                "every": "week" if "<ScheduleByWeek>" in out else "day", "weekday": week.group(1) if week else ""}
 
     def install(self, job: Job) -> tuple[int, str]:
         folder = Path(tempfile.mkdtemp(prefix="kos-schedule-"))
@@ -81,8 +94,17 @@ class WindowsScheduler:
 
     def matches(self, job: Job, got: dict | None) -> bool:
         from xml.sax.saxutils import unescape
-        command = unescape(got["command"], {"&quot;": '"', "&apos;": "'"}) if got else ""
-        return bool(got) and command == job.command and got["start"].endswith(f"T{job.at}:00")
+        if not got:
+            return False
+        ent = {"&quot;": '"', "&apos;": "'"}
+        exe, args = split_command(job.command)
+        same_cmd = (unescape(got.get("exe", ""), ent), unescape(got.get("args", ""), ent)) == (exe, args) \
+            if "exe" in got else unescape(got["command"], ent) == job.command
+        same_dir = unescape(got.get("workdir", ""), ent).rstrip("\\/").lower() == job.workdir.rstrip("\\/").lower() \
+            if "workdir" in got else True
+        same_kind = got.get("every", job.every) == job.every and (job.every != "week" or
+                                                                 got.get("weekday") == DAYS[job.weekday])
+        return same_cmd and same_dir and same_kind and got["start"].endswith(f"T{job.at}:00")
 
     def remove(self, name: str) -> tuple[int, str]:
         return self.runner(["schtasks", "/Delete", "/TN", name, "/F"])

@@ -183,12 +183,12 @@ def propose(instance) -> dict:
         if not groups:
             raise GateRefused("принятых итогов ставок из гипотез без предложения нет — сначала `bet accept`")
         for (hid, window), items in groups.items():
-            _, unit, _ = bets.expectation_of(items[0][0])
-            unit = unit or "money"
             data = {"hypothesis_id": hid, "window": int(window), "made_on": instance.today.isoformat(),
                     "results": [{"id": r["id"], "url": r["url"], "result": m["result"],
                                  "accepted_by": m["accepted_by"]} for r, m in items],
-                    "numbers": [_number_row(r, window, m, unit) for r, m in items],
+                    "numbers": [_number_row(r, window, m, u) for r, m in items
+                                if (u := bets.expectation_of(r)[1])],   # единица — у каждой записи своя
+                    "no_number": [r["id"] for r, m in items if not bets.expectation_of(r)[1]],
                     "how_to": f"Движок роста: завести числа на лист чисел и `measure {hid} measured_id=<номер числа>`; "
                               "статус гипотезы меняет только Движок"}
             n, path = 1, folder / f"{instance.today.isoformat()}-{hid}-{window}.yaml"
