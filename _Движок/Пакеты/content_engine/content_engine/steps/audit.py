@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from ..core import audit_store
-from ..core.errors import EngineError, NetworkUnreachable, SourceError
+from ..core.errors import EngineError, NetworkUnreachable, SourceError, source_failures
 from ..core.htmldoc import HtmlDoc
 from ..core.urls import host_of, is_own, norm_url, section_of, slug_of
 
@@ -129,7 +129,11 @@ def run_audit(instance, *, transport=None) -> dict:
     try:
         urls = sitemap_urls(instance.p, instance.root, transport=transport if transport is not None
                             else instance.transport)
-    except SourceError as exc:
+    except source_failures() as exc:
+        import requests
+        if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout, NetworkUnreachable)):
+            # сеть устройства не отвечает — это не находка сайта: аудит не проводится, снимок не пишется
+            raise NetworkUnreachable(f"карта сайта: сеть не отвечает — аудит не проведён, повторите позже ({exc})")                 from None
         urls = []
         add("sitemap", domain, f"карта сайта не читается: {exc}")
     if not urls and not any(f["check"] == "sitemap" for f in findings):

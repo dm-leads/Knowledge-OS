@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 
 from ..core import audit_store, store
-from ..core.errors import EngineError, GateRefused, SourceError
+from ..core.errors import EngineError, GateRefused, SourceError, source_failures
 from ..core.urls import norm_url, section_of
 from . import dedup
 
@@ -125,7 +125,7 @@ def _index_state(instance, urls: list[str]) -> dict[str, dict]:
             google = UrlInspection.from_profile(instance)
             for u in urls[:limit]:                   # предел считается до запроса
                 state[u]["google"] = google.inspect("https://" + u)["indexed"]
-        except (SourceError, OSError, ValueError) as exc:
+        except source_failures() as exc:
             for u in urls:
                 state[u].setdefault("google_error", str(exc))
     if src["webmaster"]["enabled"] and instance.p["indexing"]["webmaster"]["enabled"]:
@@ -143,7 +143,7 @@ def _index_state(instance, urls: list[str]) -> dict[str, dict]:
                 offset += PAGE
             for u in urls:
                 state[u]["yandex"] = u in found
-        except (SourceError, OSError) as exc:
+        except source_failures() as exc:
             for u in urls:
                 state[u].setdefault("yandex_error", str(exc))
     return state

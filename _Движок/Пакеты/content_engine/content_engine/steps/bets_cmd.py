@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 
 from ..core import bets
-from ..core.errors import EngineError, GateRefused, SourceError
+from ..core.errors import EngineError, GateRefused, SourceError, source_failures
 from ..core.urls import ascii_url, norm_url, section_of, slug_of
 
 
@@ -33,7 +33,7 @@ def _first_days(instance, urls: list[str]) -> dict[str, str]:
     try:
         sc = SearchConsole(g["site_url"], service_account_token(g["key_file"]), instance.today.isoformat(),
                            transport=instance.transport)
-    except (SourceError, OSError, ValueError):
+    except source_failures():
         return {}
     start = instance.today - timedelta(days=480)                    # предел истории Search Console — 16 месяцев
     edge = (start + timedelta(days=7)).isoformat()
@@ -42,7 +42,7 @@ def _first_days(instance, urls: list[str]) -> dict[str, str]:
         try:                                    # консоль ждёт адрес в punycode: кириллический домен не находится
             day = sc.first_day(ascii_url(url if url.startswith("http") else "https://" + url), start.isoformat(),
                                instance.today.isoformat())
-        except (SourceError, OSError):
+        except source_failures():
             continue
         # первый показ у самого края истории — статья старше истории консоли: день выкладки не установлен
         if day and day > edge:

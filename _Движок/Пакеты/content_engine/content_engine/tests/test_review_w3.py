@@ -200,3 +200,30 @@ def test_real_bet_remeasured_after_corpus_record(project):
     money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
     bets_cmd.measure(Instance(project, today=TODAY))
     assert bets.load(instance)[0]["measures"]["90"]["proposed"] == "сыграла"
+
+
+def test_pulse_survives_google_auth_failure(project, monkeypatch):
+    """Упавший источник не мешает остальным блокам: ошибка авторизации Google — «источник не ответил»."""
+    import content_engine.adapters.gsc as gsc
+    from google.auth.exceptions import TransportError
+
+    def no_token(key_file):
+        raise TransportError("нет сети")
+    monkeypatch.setattr(gsc, "service_account_token", no_token)
+    set_profile(project, lambda d: d["sources"]["gsc"].update(enabled=True))
+    from content_engine.core import positions
+    snap = positions.snapshot(Instance(project, today=TODAY), transport=lambda *a, **k: Page(404, ""))
+    assert snap["engines"]["google"]["status"] == "источник не ответил"
+
+
+def test_audit_without_network_writes_nothing(project):
+    from content_engine.core.errors import NetworkUnreachable
+    set_profile(project, lambda d: d["site"].update(sitemap_url="https://example.ru/sitemap.xml"))
+    instance = Instance(project, today=TODAY)
+    audit.write_checklist(instance, apply=True)
+
+    def down(*a, **k):
+        raise requests.exceptions.ConnectionError("нет сети")
+    with pytest.raises(NetworkUnreachable, match="аудит не проведён"):
+        audit.run_audit(Instance(project, today=TODAY, transport=down))
+    assert audit_store.latest(instance) is None

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from . import store
-from .errors import EngineError, SourceError
+from .errors import EngineError, SourceError, source_failures
 from .urls import norm_url
 
 GOOGLE, YANDEX = "google", "yandex"
@@ -100,7 +100,7 @@ def snapshot(instance, *, transport=None) -> dict:
             continue
         try:
             rows, traffic = fn(instance, keys, transport)
-        except (SourceError, OSError) as exc:
+        except source_failures() as exc:
             out["engines"][engine] = {"status": "источник не ответил", "why": str(exc)}
             continue
         out["rows"] += rows

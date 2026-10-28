@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from importlib import resources
 
 from ..core import audit_store, drift, positions, publications, store
-from ..core.errors import EngineError, NetworkUnreachable, SourceError
+from ..core.errors import EngineError, NetworkUnreachable, SourceError, source_failures
 from ..core.verdict import decide
 
 NOT_CONNECTED = "не подключено"
@@ -125,7 +125,7 @@ def collect(instance, *, transport=None, network: bool = True) -> dict:
         corpus_urls = [pg.url for pg in instance.corpus()[0]] if instance.p["corpus"]["folders"] else []
         try:
             blocks["drift"] = drift.check(instance, transport=transport, extra_urls=corpus_urls)
-        except (SourceError, OSError) as exc:
+        except source_failures() as exc:
             blocks["drift"] = {"error": str(exc), "findings": [], "critical": None}
     else:
         blocks["site"] = {"ok": None, "why": "--no-network"}
