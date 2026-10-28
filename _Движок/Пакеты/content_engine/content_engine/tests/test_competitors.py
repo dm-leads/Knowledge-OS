@@ -93,7 +93,7 @@ def test_sitemap_index_followed_and_foreign_map_skipped(rival):
     out, site = snap_on(rival, TODAY, [("https://rival.ru/blog/a", "")], index=True)
     rec = comp.store.read_json(rival.parent / "data" / "competitors" / f"{TODAY.isoformat()}.json",
                                "competitors")["records"][0]
-    assert rec["status"] == "ок" and "rival.ru/blog/a" in rec["urls"]
+    assert rec["status"] == "неполный" and "rival.ru/blog/a" in rec["urls"]      # карта вне домена не прочитана
     assert any("вне домена" in s for s in rec["skipped"]) and not any("cdn.other.ru" in u for u in site.log)
 
 

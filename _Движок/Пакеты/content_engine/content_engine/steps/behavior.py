@@ -56,9 +56,9 @@ def funnel_findings(b: dict, steps: list[tuple[str, float]]) -> list[dict]:
     drops = []
     for i in range(len(steps) - 1):
         users, nxt = steps[i][1], steps[i + 1][1]
-        drops.append(None if users <= 0 else max(0.0, 1 - nxt / users))
+        drops.append(None if users is None or nxt is None or users <= 0 else max(0.0, 1 - nxt / users))
     for i, share in enumerate(drops):
-        if share is None or steps[i][1] < b["min_people"] or share <= b["drop_share"]:
+        if share is None or steps[i][1] is None or steps[i][1] < b["min_people"] or share <= b["drop_share"]:
             continue
         neighbours = [drops[j] for j in (i - 1, i + 1) if 0 <= j < len(drops) and drops[j] is not None]
         if all(n <= b["drop_share"] / 2 for n in neighbours):
@@ -117,7 +117,9 @@ def scan(instance, *, transport=None) -> dict:
     except source_failures() as exc:
         return {"status": "источник не ответил", "why": str(exc)}
     findings = funnel_findings(b, steps) + page_findings(b, pages, devices)
+    unknown = [s for s, users in steps if users is None]
     out = {"status": "ок", "period": f"{frm} — {to}", "findings": findings,
+           "no_data": [f"шаг «{s}»: отчёт не отдал посетителей — нет данных" for s in unknown],
            "number_status": {"pages": FACT, "funnel": ESTIMATE}, "steps": steps}
     out["write"] = store.write_json(_folder(instance) / f"{instance.today.isoformat()}.json", "behavior", findings,
                                     meta={k: v for k, v in out.items() if k != "findings"})
@@ -151,7 +153,7 @@ def _metric(client, f: dict, frm: str, to: str, funnel: list[str]) -> float | No
         if i < 0 or i + 1 >= len(funnel):
             return None
         a, b = client.step_users(frm, to, funnel[i]), client.step_users(frm, to, funnel[i + 1])
-        return None if a <= 0 else max(0.0, 1 - b / a)
+        return None if a is None or b is None or a <= 0 else max(0.0, 1 - b / a)
     if f["kind"] == "device":
         rows = [d for d in client.by_device(frm, to) if norm_url(d["url"]) == f["url"] and d["device"] == f["device"]]
         return rows[0]["bounce"] if rows else None
@@ -182,7 +184,8 @@ def check(instance, *, transport=None) -> dict:
                 results.append({"id": d["id"], "day": n, "status": f"рано: замер на {n}-й день — "
                                                                    f"{(day + timedelta(days=n)).isoformat()}"})
                 continue
-            before = _metric(client, d, *_window(instance, day - timedelta(days=1)), b["funnel"])
+            before = _metric(client, d, (day - timedelta(days=n)).isoformat(), (day - timedelta(days=1)).isoformat(),
+                             b["funnel"])                           # равные окна: n дней до и n дней после
             after = _metric(client, d, day.isoformat(), (day + timedelta(days=n - 1)).isoformat(), b["funnel"])
             if before is None or after is None:
                 results.append({"id": d["id"], "day": n, "status": "нет данных", "why": "показатель не отдан отчётом"})

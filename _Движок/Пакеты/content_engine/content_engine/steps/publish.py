@@ -91,6 +91,23 @@ def _topic(instance, tid: str) -> dict | None:
         return None
 
 
+def _refresh_of(instance, tid: str, package) -> bool:
+    """Правка страницы (Т36.3): признак — в манифесте пакета или в теме очереди. Слаг и адрес пакета — те же, что у
+    живой страницы; тема правки пропала из очереди — отказ, а не «обычная статья»."""
+    from ..core.urls import norm_url
+    topic = _topic(instance, tid)
+    from_queue = (topic or {}).get("page") if (topic or {}).get("type") == "refresh" else ""
+    page = package.manifest.get("refresh_page") or from_queue
+    if not page:
+        return False
+    if topic is None or topic.get("type") != "refresh":
+        raise GateRefused(f"пакет {tid} — правка страницы {page}, а темы правки в очереди нет — публикация не начата")
+    if package.manifest.get("slug") != topic["slug"] or norm_url(package.manifest.get("canonical", "")) != norm_url(page):
+        raise GateRefused(f"правка {tid}: пакет «{package.manifest.get('slug')}» → {package.manifest.get('canonical')} не "
+                          f"совпал со страницей {page} — публикация не начата")
+    return True
+
+
 def apply_publish(instance, tid: str, apply: bool, transport=None) -> int:
     from ..publishers.base import load_publisher
     publisher = load_publisher(instance, transport)
@@ -106,19 +123,15 @@ def apply_publish(instance, tid: str, apply: bool, transport=None) -> int:
             for line in problems:
                 print(f"  ✗ {line}")
             raise GateRefused(f"финальная чистка не прошла: {len(problems)} — публикация не начата")
-        planned = publisher.plan(package)
+        planned = publisher.plan(package, update_only=_refresh_of(instance, tid, package))
         allowed, refused = rights.split(instance, planned)
         for line in refused:
             print(f"  не в плане — {line}")
         if apply and not allowed:
             raise RightsRefused(f"ни одно действие не проходит ступень прав (publish.allow = "
                                 f"{rights.level(instance, 'publish')})")
-        topic = _topic(instance, tid)
-        if topic and topic.get("type") == "refresh" and package.manifest.get("slug") != topic["slug"]:
-            raise GateRefused(f"правка {tid}: slug пакета «{package.manifest.get('slug')}» не слаг страницы "
-                              f"«{topic['slug']}» — публикация не начата")
-        out = actions_mod.run(instance, tid, allowed, apply=apply,
-                              must_exist=bool(topic and topic.get("type") == "refresh"))
+        refresh = _refresh_of(instance, tid, package)
+        out = actions_mod.run(instance, tid, allowed, apply=apply, must_exist=refresh)
     if apply and out.confirmed:
         publications.log(instance, "apply", id=tid, run=out.run_id, written=out.written, confirmed=out.confirmed,
                          actions=[a.kind for a in allowed])

@@ -673,7 +673,7 @@ operations:
     human: ""
     note: ступень права — строкой профиля; --apply — после «да» владельца на план; правка страницы (тема refresh) — только в существующую запись того же слага, исчезла — отказ без записи
     repeatable: false
-    proof: [test_files_level_plans_nothing_commit_level_has_no_publish, test_publish_then_rollback_returns_snapshot, test_refresh_publish_edits_same_post_and_rollback_restores, test_refresh_publish_refused_when_page_gone]
+    proof: [test_files_level_plans_nothing_commit_level_has_no_publish, test_publish_then_rollback_returns_snapshot, test_refresh_publish_edits_same_post_and_rollback_restores, test_refresh_publish_refused_when_page_gone, test_update_only_never_creates_post_even_if_deleted_after_snapshot, test_refresh_flag_in_package_survives_lost_queue_topic]
     exit_codes: {"0": записано и подтверждено (или план), "1": "ручной режим, нет права или правке некуда писать", "3": запись не подтверждена}
     next: [publish verify]
   publish next:
@@ -1089,7 +1089,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: false
-    proof: [test_take_twice_refused, test_take_weekly_limit, test_take_baseline_immutable_and_hashed, test_take_dead_page_refused]
+    proof: [test_take_twice_refused, test_take_weekly_limit, test_take_baseline_immutable_and_hashed, test_take_dead_page_refused, test_failed_serp_leaves_no_baseline_and_retry_works, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing]
     exit_codes: {"0": взята, "1": "уже в очереди, предел недели, страница не живая или выдачи нет", "2": бюджет-гейт без «да», "3": сайт не ответил — не проверено}
     next: [prepare top]
   ai score:
@@ -1119,7 +1119,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY]
     repeatable: true
-    proof: [test_citations_not_connected, test_citations_without_quota_limit_refused_no_call, test_citations_percent_encoded_host_counted, test_tracker_whitelist_has_no_create]
+    proof: [test_citations_not_connected, test_citations_without_quota_limit_refused_no_call, test_citations_percent_encoded_host_counted, test_tracker_whitelist_has_no_create, test_keysso_ai_no_retry_no_polling]
     exit_codes: {"0": снимок или «не подключено», "1": предел квоты не задан — запроса нет, "3": источник не ответил}
     note: по расписанию — только при ai_visibility.max_quota > 0; рублей нет
     next: []

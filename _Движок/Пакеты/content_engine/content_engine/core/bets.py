@@ -44,7 +44,7 @@ def mark_refreshed(instance, topic: dict, url: str, day: str) -> tuple[bool, str
         if record is None:
             return False, "книга ставок: записи страницы нет — правка не отмечена (страница вне книги)"
         done = record.setdefault("refreshed", [])
-        if any(x["id"] == topic["id"] for x in done):
+        if any(x.get("id") == topic["id"] for x in done):
             return False, "книга ставок: правка уже отмечена"
         done.append({"day": day, "id": topic["id"]})
     return True, box["write"] + "; книга ставок: правка отмечена у записи страницы"

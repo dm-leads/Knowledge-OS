@@ -15,8 +15,9 @@ class Publisher(Protocol):
 
     def __init__(self, instance, *, transport=None): ...
 
-    def plan(self, package) -> list:
-        """Все действия публикации пакета по ступеням (commit, publish); фильтр по правам — в ядре."""
+    def plan(self, package, update_only: bool = False) -> list:
+        """Все действия публикации пакета по ступеням (commit, publish); фильтр по правам — в ядре. `update_only` —
+        правка страницы: запись цели, которой нет в момент записи, — ошибка, а не новая страница."""
 
     def read_back(self, url: str) -> tuple[int, str]:
         """Что сейчас на сайте по адресу: код ответа и текст."""

@@ -171,10 +171,12 @@ class KeyssoAi:
         self.tracker = f"ai_tracker/{tracker_id}/citation" if tracker_id else ""
         if self.tracker:
             allowed.add(self.tracker)
+        # каждый HTTP-запрос — единица предела квоты: без повторов и без ожидания «отчёт готовится» (202 — вернуть
+        # «готовится, повторить позже», а не опрашивать)
         self.client = ReadOnlyClient(
             "Keys.so", API, allowed,
             {"X-Keyso-TOKEN": api_key, "Content-Type": "application/json", "Accept": "application/json"},
-            transport=transport, sleep=sleep)
+            transport=transport, sleep=sleep, retries=1, max_wait=0)
 
     def answers(self, domain: str, *, pages: int) -> dict:
         """Запросы, в ответах Алисы на которые домен — среди источников; `pages` — предел страниц отчёта (запросов)."""
@@ -187,7 +189,7 @@ class KeyssoAi:
             rows += data.get("data") or []
             if page >= int(data.get("last_page") or 1):
                 break
-        return {"rows": rows, "total": total, "requests": used}
+        return {"rows": rows, "total": total, "requests": self.client.calls}
 
     def tracker_citation(self) -> dict:
         if not self.tracker:

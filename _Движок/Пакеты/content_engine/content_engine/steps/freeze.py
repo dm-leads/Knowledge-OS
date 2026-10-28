@@ -41,6 +41,11 @@ def months_back(today: date, n: int = 24) -> list[str]:
 
 def merge(instance, rows: list[dict]) -> int:
     """Пополнить историю: (фраза, месяц) — одна строка, новый съём заменяет старый. Вернуть число новых или заменённых."""
+    with locks.held(instance, "demand_history", "write"):
+        return _merge(instance, rows)
+
+
+def _merge(instance, rows: list[dict]) -> int:
     path = history_path(instance)
     have = {(r["phrase"], r["month"]): r for r in store.read_jsonl(path, missing_ok=True)}
     changed = 0
@@ -151,12 +156,12 @@ def accept(instance, cluster_id: str, who: str, *, reject: bool = False) -> dict
         raise GateRefused(f"кластера {cluster_id} в последнем `freeze scan` нет")
     decision = {"date": instance.today.isoformat(), "cluster_id": cluster_id, "head": row["head"],
                 "decision": "не заморожено" if reject else "заморожено", "who": who, "why": row["why"]}
+    if not reject and row["status"] != CANDIDATE:
+        raise GateRefused(f"кластер {cluster_id}: «{row['status']}» — заморозка только кандидата по правилу")
     with locks.held(instance, "frozen", "write"):
         log = store.append_jsonl(instance.root / "data" / "freeze_decisions.jsonl", [decision])
         if reject:
             return {"decision": decision["decision"], "write": log}
-        if row["status"] != CANDIDATE:
-            raise GateRefused(f"кластер {cluster_id}: «{row['status']}» — заморозка только кандидата по правилу")
         records = store.read_json(instance.file("frozen"), "frozen", missing_ok=True)["records"]
         if not any(r["cluster_id"] == cluster_id for r in records):
             records.append({"cluster_id": cluster_id, "reason": f"динамика спроса: {row['why']}", "who": who,

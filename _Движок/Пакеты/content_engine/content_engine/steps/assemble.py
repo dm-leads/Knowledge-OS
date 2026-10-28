@@ -23,6 +23,7 @@ from ..core import approval
 from ..core.errors import GateRefused
 from ..core.htmldoc import HtmlDoc, comments_left, strip_comments
 from ..core.markdown_html import convert
+from . import queue as queue_mod
 
 CONTRACT_ARTICLE = """---
 title: Синтетическая статья для проверки сборщика
@@ -233,6 +234,9 @@ def build(instance, tid: str) -> tuple[Package, list[dict]]:
     meta = {k: v for k, v in package.manifest.items() if k not in ("files", "schema_version", "kind")}
     meta.update(checks=results, ready=ready, notes=notes, brief_sha256=approval.digest(folder / "brief.yaml"),
                 article_sha256=approval.digest(folder / "article.md"))
+    topic = next((t for t in queue_mod.load(instance) if t["id"] == tid), None)
+    if topic and topic.get("type") == "refresh":   # правка страницы: пакет сам помнит, что пишет в живую запись
+        meta.update(refresh_page=topic["page"], refresh_slug=topic["slug"])
     package = write_manifest(out, meta, list(package.manifest["files"]))
     return package, results
 

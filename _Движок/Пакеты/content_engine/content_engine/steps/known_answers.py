@@ -256,7 +256,8 @@ def _empty_refresh(box):
     from . import queue as queue_mod
     from .gate_article import _refresh_change
     text = " ".join(f"Слово{n} второе третье четвёртое пятое шестое седьмое восьмое девятое." for n in range(30))
-    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    from .refresh import _digest
+    sha = _digest({"url": "ka/ka", "day": box.today.isoformat(), "markers": {}, "text": text})
     path = box.root / "data" / "refresh" / "baseline" / "KA-REFRESH.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"url": "ka/ka", "day": box.today.isoformat(), "sha256": sha, "markers": {},

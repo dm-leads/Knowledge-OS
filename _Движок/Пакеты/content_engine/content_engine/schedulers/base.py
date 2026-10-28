@@ -26,6 +26,11 @@ class Job:
     weekday: str         # mon … sun или ""
     month_day: int = 0   # день месяца у every: month (schedule.month_day), иначе 0
 
+    def __post_init__(self):
+        if self.every == "month" and not 1 <= self.month_day <= 28:
+            from ..core.errors import EngineError
+            raise EngineError(f"задание {self.name}: every: month без дня месяца 1–28 (schedule.month_day)")
+
 
 def run_program(args: list[str], *, input_text: str | None = None, encoding: str = "utf-8") -> tuple[int, str]:
     done = subprocess.run(args, capture_output=True, text=True, encoding=encoding, errors="replace",

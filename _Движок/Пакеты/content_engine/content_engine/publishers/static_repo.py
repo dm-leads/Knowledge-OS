@@ -138,7 +138,7 @@ class StaticRepoPublisher:
             raise SourceError("push: репозиторий сайта не на ветке — не отправлено")
         return branch
 
-    def plan(self, package) -> list[Action]:
+    def plan(self, package, update_only: bool = False) -> list[Action]:
         import re
         m = package.manifest
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(m.get("slug", ""))):
@@ -147,6 +147,8 @@ class StaticRepoPublisher:
         if self.folder.resolve() not in path.resolve().parents:
             raise EngineError(f"static_repo: путь {path} вне publish.repo_path — записи нет")
         content = package.main.read_text(encoding="utf-8")
+        if update_only and not path.is_file():
+            raise EngineError(f"правка {m['slug']}: файла {path.name} нет — новая страница не создаётся")
         return [self._commit(path, content, f"content-engine: статья {m['slug']}"),
                 self._push(m["canonical"], m["h1"], f"публикация статьи {m['slug']}")]
 

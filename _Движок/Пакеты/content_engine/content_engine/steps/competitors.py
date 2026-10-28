@@ -90,7 +90,8 @@ def read_domain(instance, fetcher, domain: str) -> dict:
                 urls[norm_url(u)] = mod
     if queue:
         skipped.append(f"карт больше {MAX_MAPS} — {len(queue)} не прочитаны")
-    return {"domain": domain, "status": "ок", "maps": seen, "urls": urls, "skipped": skipped}
+    return {"domain": domain, "status": "ок" if not skipped else "неполный", "maps": seen, "urls": urls,
+            "skipped": skipped}
 
 
 def snap(instance) -> dict:
@@ -139,7 +140,9 @@ def compare(instance) -> dict:
     for domain, r in now.items():
         old = was.get(domain)
         if r["status"] != "ок" or not old or old.get("status") != "ок":
-            rows.append({"domain": domain, "status": NO_DATA, "why": r.get("why") or "в прошлом снимке домена нет"})
+            why = r.get("why") or ("; ".join(r.get("skipped") or []) if r["status"] == "неполный" else "") \
+                or ("прошлый снимок неполный" if old else "в прошлом снимке домена нет")
+            rows.append({"domain": domain, "status": NO_DATA, "why": why})
             continue
         new = sorted(set(r["urls"]) - set(old["urls"]))
         mods = [m for m in r["urls"].values() if m]
@@ -160,7 +163,9 @@ def pages(instance, *, limit: int | None = None) -> dict:
     if cmp["status"] != "ок":
         raise GateRefused(f"новых адресов нет: {cmp['why']}")
     c = instance.p["competitors"]
-    cap = min(limit or c["max_pages"], c["max_pages"])
+    if limit is not None and limit < 1:
+        raise GateRefused(f"--limit {limit}: страниц за прогон — от 1")
+    cap = c["max_pages"] if limit is None else min(limit, c["max_pages"])
     todo = [(r["domain"], u) for r in cmp["rows"] if r.get("new_urls") for u in r["new_urls"]][:cap]
     from ..adapters.page_fetch import PageFetcher
     pr = instance.p["prepare"]

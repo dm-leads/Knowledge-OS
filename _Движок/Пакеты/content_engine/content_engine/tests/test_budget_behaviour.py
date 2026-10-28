@@ -98,7 +98,17 @@ def _prepare_retake(project):
     return ["queue", "retake", TID]
 
 
-COMMANDS = {"cluster": _prepare_cluster, "queue take": _prepare_take, "queue retake": _prepare_retake, "map build": _prepare_map, "gate topic": _prepare_gate,
+def _prepare_refresh(project):
+    from content_engine.core import store
+    from content_engine.core.instance import Instance
+    url = "https://example.ru/blog/otoplenie-teplicy"
+    store.append_jsonl(Instance(project, today=TODAY).file("positions"), [
+        {"date": TODAY.isoformat(), "engine": "google", "query": "отопление теплицы", "url": url, "position": 6.0,
+         "impressions": 80}])
+    return ["refresh", "take", url]
+
+
+COMMANDS = {"refresh take": _prepare_refresh, "cluster": _prepare_cluster, "queue take": _prepare_take, "queue retake": _prepare_retake, "map build": _prepare_map, "gate topic": _prepare_gate,
             "queue refill": _prepare_refill, "known-answers": _prepare_known}
 
 

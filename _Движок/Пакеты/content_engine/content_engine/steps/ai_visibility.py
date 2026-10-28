@@ -102,7 +102,7 @@ def page_features(instance, page) -> dict:
     hosts = {host_unicode(unquote(h)) for h in LINK.findall(text)}
     fresh = None
     if page.date:
-        fresh = (instance.today - date.fromisoformat(page.date)).days <= FRESH_DAYS
+        fresh = 0 <= (instance.today - date.fromisoformat(page.date)).days <= FRESH_DAYS
     return {"answer": lo <= n <= hi, "sections": len(h2) >= 2 and longest <= a["section_max_words"],
             "specifics": bool(re.search(r"\d", third)), "date": fresh,
             "source": any(not is_own(f"https://{h}/", own) for h in hosts)}
@@ -123,8 +123,10 @@ def score(instance, *, offline: bool = False) -> dict:
                      "max": len(known), "missing": [NAMES[k] for k, v in known.items() if not v],
                      "no_data": [NAMES[k] for k, v in f.items() if v is None]})
     path = instance.root / "data" / "ai_visibility.jsonl"
-    old = [r for r in store.read_jsonl(path, missing_ok=True) if r["date"] != instance.today.isoformat()]
-    line = store.write_jsonl(path, old + rows, source_count=len(old) + len(rows))
+    from ..core import locks
+    with locks.held(instance, "ai_visibility", "write"):
+        old = [r for r in store.read_jsonl(path, missing_ok=True) if r["date"] != instance.today.isoformat()]
+        line = store.write_jsonl(path, old + rows, source_count=len(old) + len(rows))
     floor = instance.p["ai_visibility"]["min_score"]
     return {"rows": rows, "robots": robots, "weak": [r for r in rows if r["score"] < floor], "write": line}
 

@@ -194,7 +194,7 @@ def save_baseline(instance, tid: str, url: str) -> dict:
     if m["chars"] == 0:
         raise GateRefused(f"{url}: текст страницы не разобран — эталон пуст, правка не ставится")
     text = m.pop("text")
-    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    sha = _digest({"url": url, "day": instance.today.isoformat(), "markers": m, "text": text})
     path = baseline_path(instance, tid)
     if path.exists():
         raise GateRefused(f"эталон {path.name} уже снят сегодня — повторно не перезаписывается")
@@ -204,6 +204,11 @@ def save_baseline(instance, tid: str, url: str) -> dict:
     return {"path": str(path), "sha256": sha}
 
 
+def _digest(body: dict) -> str:
+    """Сумма всего эталона — адрес, день, маркеры и текст: правка любого поля видна."""
+    return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def baseline_of(instance, topic: dict) -> dict:
     """Эталон темы со сверкой суммы: подменённый или правленый файл — ошибка, а не тихое сравнение не с тем."""
     ref = topic.get("baseline") or {}
@@ -211,7 +216,8 @@ def baseline_of(instance, topic: dict) -> dict:
     if not ref or not path.is_file():
         raise EngineError(f"тема {topic['id']}: эталона страницы нет — `refresh take` заново")
     data = json.loads(path.read_text(encoding="utf-8"))
-    if hashlib.sha256(data["text"].encode("utf-8")).hexdigest() != ref["sha256"] or data["sha256"] != ref["sha256"]:
+    body = {k: data.get(k) for k in ("url", "day", "markers", "text")}
+    if _digest(body) != ref["sha256"] or data.get("sha256") != ref["sha256"]:
         raise EngineError(f"тема {topic['id']}: эталон {path.name} не совпал с суммой темы — файл изменён")
     return data
 
@@ -245,14 +251,14 @@ def take(instance, url: str, max_quota: int | None = None) -> dict:
         if not queries:
             raise GateRefused(f"{url}: запросов страницы нет ни в позициях, ни в карте спроса — выдачу не с чем снять")
         topic_id = tid if not any(t["id"] == tid for t in topics) else f"{tid}-{instance.today:%Y%m%d}"
-        baseline = save_baseline(instance, topic_id, url)
         ctx = dedup.Context(instance, fresh=True, max_quota=max_quota)
         try:
             serp = ctx.serp(queries)
         finally:
             queue_mod._spend_objects(instance, topic_id, ctx)
-        if serp is None or any(q not in base for base in serp.values() for q in queries):
+        if not serp or any(q not in base for base in serp.values() for q in queries):
             raise GateRefused(f"{url}: выдачи на сегодня по всем запросам нет (квота) — правка не взята")
+        baseline = save_baseline(instance, topic_id, url)     # эталон — последним: отказ выше файла не оставляет
         topic = {"id": topic_id, "type": TYPE, "page": url, "slug": slug, "topic": queries[0],
                  "formulations": queries, "direction": _direction(instance, url), "status": queue_mod.TAKEN,
                  "taken": instance.today.isoformat(), "baseline": baseline, "cluster_id": None}

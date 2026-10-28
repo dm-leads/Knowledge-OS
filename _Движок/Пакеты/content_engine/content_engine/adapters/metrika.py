@@ -44,10 +44,10 @@ class Metrika:
         return [{"url": r["dims"][0], "device": r["dims"][1], "users": r["m"][0], "bounce": r["m"][1] / 100}
                 for r in rows if len(r["dims"]) == 2 and r["dims"][0]]
 
-    def step_users(self, frm: str, to: str, step: str) -> float:
+    def step_users(self, frm: str, to: str, step: str) -> float | None:
         """Посетители шага: адрес — страница в визите; «goal:<id>» — достигшие цели."""
         if step.startswith("goal:"):
             rows = self._rows(frm, to, "", f"ym:s:goal{step[5:]}users")
         else:
             rows = self._rows(frm, to, "", "ym:s:users", filters=f"EXISTS(ym:pv:URL=@'{step}')")
-        return float(rows[0]["m"][0]) if rows and rows[0]["m"] else 0.0
+        return float(rows[0]["m"][0]) if rows and rows[0]["m"] and rows[0]["m"][0] is not None else None
