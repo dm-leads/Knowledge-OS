@@ -1092,3 +1092,34 @@ operations:
     proof: [test_take_twice_refused, test_take_weekly_limit, test_take_baseline_immutable_and_hashed, test_take_dead_page_refused]
     exit_codes: {"0": взята, "1": "уже в очереди, предел недели, страница не живая или выдачи нет", "2": бюджет-гейт без «да», "3": сайт не ответил — не проверено}
     next: [prepare top]
+  ai score:
+    operation_id: ai.score
+    name: ИИ-видимость — пригодность статей к цитированию
+    phrases: [ии-видимость, готовы ли статьи к нейросетям, цитируют ли нас нейросети, балл для нейропоиска]
+    module: Д5
+    requires: корпус статей
+    produces: data/ai_visibility.jsonl — балл 0–6 и недостающие признаки по статье; слабые — кандидаты дожима
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_read, when: robots.txt своего сайта — без --offline}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_score_answer_first_and_without, test_closed_ai_bots_are_finding, test_robots_down_is_no_data_not_zero]
+    exit_codes: {"0": балл собран, "3": корпус или профиль не читаются}
+    note: по расписанию — с --unattended; трат нет
+    next: [refresh scan]
+  ai citations:
+    operation_id: ai.citations
+    name: цитирование сайта в ответах ИИ — Keys.so
+    phrases: [цитирует ли алиса сайт, цитирование в нейросетях, сайт в ответах алисы]
+    module: Д5
+    requires: ai_visibility.citations — keysso или keysso_tracker; предел квоты
+    produces: data/ai_citations/<день>.json — запросы с сайтом в источниках, страницы, динамика против прошлого снимка
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: отчёт или трекер Keys.so — квота подписки}, {type: filesystem_write}]
+    human: ""
+    secrets: [KEYSO_API_KEY]
+    repeatable: true
+    proof: [test_citations_not_connected, test_citations_without_quota_limit_refused_no_call, test_citations_percent_encoded_host_counted, test_tracker_whitelist_has_no_create]
+    exit_codes: {"0": снимок или «не подключено», "1": предел квоты не задан — запроса нет, "3": источник не ответил}
+    note: по расписанию — только при ai_visibility.max_quota > 0; рублей нет
+    next: []

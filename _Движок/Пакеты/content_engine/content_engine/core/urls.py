@@ -32,7 +32,7 @@ def norm_url(url: str, default_host: str = "") -> str:
         url = ("//" + url) if not url.startswith("/") else ("//" + default_host + url)
     parts = urlsplit(url)
     path = unquote(parts.path).rstrip("/")
-    return host_unicode(parts.netloc) + path
+    return host_unicode(unquote(parts.netloc)) + path       # хост в процентной кодировке (Keys.so) — тоже текстом
 
 
 def host_of(url: str) -> str:
