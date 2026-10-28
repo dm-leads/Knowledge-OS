@@ -13,7 +13,7 @@ operations:
     phrases: [проверь машину, светофор контент-машины, всё ли подключено, самопроверка контент-машины]
     module: Основание
     requires: профиль инстанса
-    produces: светофор в консоли
+    produces: светофор в консоли; с --contours — признак работы контуров и модули карты (в коде и подключено у проекта)
     side_writes: освобождает истёкшие брони темы (реестр броней)
     effects:
       - {type: filesystem_read}
@@ -393,7 +393,7 @@ operations:
     phrases: [разбери топ, сколько писать, разбор конкурентов по теме, что у лидеров выдачи]
     module: В1
     requires: тема taken, свежий снимок выдачи
-    produces: top.json и top.md — объём, картинки, таблица, пробелы
+    produces: top.json и top.md — объём, картинки, таблица, пробелы; у правки страницы — раздел refresh (чего нет у эталона против топ-3)
     side_writes: освобождает истёкшие брони; кэш страниц
     effects: [{type: external_read, when: страницы конкурентов из снимка выдачи}, {type: filesystem_write}]
     human: ""
@@ -671,10 +671,10 @@ operations:
     effects: [{type: external_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони освобождаются}]
     write: {right: publish.allow = commit/publish, apply: true, snapshot: состояние страницы до записи, rollback: publish rollback <id>}
     human: ""
-    note: ступень права — строкой профиля; --apply — после «да» владельца на план
+    note: ступень права — строкой профиля; --apply — после «да» владельца на план; правка страницы (тема refresh) — только в существующую запись того же слага, исчезла — отказ без записи
     repeatable: false
-    proof: [test_files_level_plans_nothing_commit_level_has_no_publish, test_publish_then_rollback_returns_snapshot]
-    exit_codes: {"0": записано и подтверждено (или план), "1": ручной режим или нет права, "3": запись не подтверждена}
+    proof: [test_files_level_plans_nothing_commit_level_has_no_publish, test_publish_then_rollback_returns_snapshot, test_refresh_publish_edits_same_post_and_rollback_restores, test_refresh_publish_refused_when_page_gone]
+    exit_codes: {"0": записано и подтверждено (или план), "1": "ручной режим, нет права или правке некуда писать", "3": запись не подтверждена}
     next: [publish verify]
   publish next:
     operation_id: publish.next
