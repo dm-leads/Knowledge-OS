@@ -1,6 +1,7 @@
 """Находки проверки кода волны 3 (З66): секрет вебхука, proxy в итоге, cron, «не проверено» в вердикте и сводке,
 расписание без броней, перенос непроверенных находок аудита, имена заданий, перемер, мелкие."""
 import json
+from pathlib import Path
 
 import pytest
 import requests
@@ -254,3 +255,65 @@ def test_notify_second_process_waits_for_lock(project, monkeypatch):
     with locks.held(instance, "pulse", "notify"):
         with pytest.raises(LockBusy):
             pulse.run_notify(Instance(project, today=TODAY), apply=True)
+
+
+
+def test_map_build_reads_overlaps_and_keeps_them(project):
+    """З61.1: map build показывает пересечения аудита и не трогает их реестр."""
+    import hashlib
+    from content_engine.steps.demand_map import build_map
+    from .test_demand_map import setup as map_setup
+    from .test_queue import SERP, FakeSerp
+    map_setup(project)
+    instance = Instance(project, today=TODAY, serp=FakeSerp(SERP))
+    store.write_json(instance.file("overlaps"), "overlaps", [{"pair": ["a", "b"], "kind": "sales", "layer": 5,
+                                                              "decision": None}])
+    before = hashlib.sha256(instance.file("overlaps").read_bytes()).hexdigest()
+    report = build_map(instance)
+    assert report["audit_overlaps"] == {"pairs": 1, "undecided": 1, "sales": 1}
+    assert hashlib.sha256(instance.file("overlaps").read_bytes()).hexdigest() == before
+
+
+def test_propose_twice_a_day_keeps_both_files(project):
+    from .test_bets_wave3 import money_file, record, window
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("bets"), "bets", [record(), record(rid="T0002")])
+    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
+    bets_cmd.measure(Instance(project, today=TODAY))
+    bets_cmd.accept(Instance(project, today=TODAY), "T0001", "90", "Дмитрий", None, None)
+    first = bets_cmd.propose(Instance(project, today=TODAY))["files"]
+    bets_cmd.accept(Instance(project, today=TODAY), "T0002", "90", "Дмитрий", None, None)
+    second = bets_cmd.propose(Instance(project, today=TODAY))["files"]
+    assert first != second and all(Path(f).is_file() for f in first + second)
+
+
+def test_schtasks_read_back_in_oem(monkeypatch):
+    """Вывод schtasks — в OEM-кодировке: планировщик по умолчанию читает его именно так."""
+    import subprocess
+    from content_engine.schedulers.windows import WindowsScheduler
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    WindowsScheduler().list()
+    assert seen.get("encoding") == "oem"
+
+
+def test_threshold_window_words_and_half_expectation_at_90():
+    assert bets.number_in("за 90 дней — ни одной заявки") == 0.0
+    rec = {"bet_missing": False, "expectation_numbers": [{"value": 4, "unit": "заявки"}], "fail_threshold": "0"}
+    got, why = bets.decide(rec, {"step": 1, "money": {"value": 1, "status": "факт"}, "leads": {"value": 2}}, 2, "90")
+    assert got == "сыграла" and "половина" in why
+
+
+def test_leads_without_average_check_kept(project):
+    from content_engine.adapters.money_windows import MoneyWindows
+    path = project.parent / "m.csv"
+    path.write_text("slug;money;leads;period_from;period_to;source;as_of\na;;3;2025-01-01;2025-03-31;crm;2025-04-01\n",
+                    encoding="utf-8")
+    set_profile(project, lambda d: (d["bets"]["money"].update(kind="file", file="m.csv"),
+                                    d["sources"]["value"].update(average_check=None)))
+    got = MoneyWindows(Instance(project, today=TODAY)).money("example.ru/blog/a", "2025-01-01", "2025-03-31")
+    assert got["leads"].value == 3 and got["money"].status == "нет данных"

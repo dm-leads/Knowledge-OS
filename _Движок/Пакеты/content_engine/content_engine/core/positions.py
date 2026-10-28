@@ -125,6 +125,13 @@ def alarms(instance, today_rows: list[dict], before: list[dict]) -> list[dict]:
     m = instance.p["monitor"]
     old = {(r["engine"], r["query"]): r["position"] for r in before if r["position"] is not None}
     out = []
+    seen = {(r["engine"], r["query"]) for r in today_rows}
+    engines = {r["engine"] for r in today_rows}         # источник ответил сегодня — пропажа ключа значима
+    for r in before:
+        key = (r["engine"], r["query"])
+        if r["engine"] in engines and key not in seen and r["position"] is not None and r["position"] <= max(m["tops"]):
+            out.append({"kind": "выпал из данных консоли", "engine": r["engine"], "query": r["query"],
+                        "url": r["url"], "was": r["position"], "now": None})
     for r in today_rows:
         was, now = old.get((r["engine"], r["query"])), r["position"]
         if was is None or now is None:

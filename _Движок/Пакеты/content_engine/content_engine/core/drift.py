@@ -100,7 +100,11 @@ def check(instance, *, transport=None, extra_urls=()) -> dict:
         doc = HtmlDoc(page.text, instance.p["prepare"]["main_blocks"])
         got = picture(instance, doc, url, page.status)
         if ref is None:
-            if page.status == 200 and slug_of(url):
+            if page.status != 200:
+                findings.append({"url": url, "level": IMPORTANT, "what": "страница корпуса не отвечает 200",
+                                 "was": "", "now": f"HTTP {page.status}"})
+                continue
+            if slug_of(url):
                 save_live(instance, slug_of(url), {**got, "note": f"эталон снят пульсом {instance.today.isoformat()}"})
                 based.append(url)
             continue

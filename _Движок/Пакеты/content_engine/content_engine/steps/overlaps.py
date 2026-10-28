@@ -155,8 +155,16 @@ def _index_state(instance, urls: list[str]) -> dict[str, dict]:
 def dropped(instance, urls: list[str]) -> list[dict]:
     path = audit_store.folder(instance) / "index.json"
     old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    # Search Console проверяет по давности: сначала адреса, которые не проверялись дольше всех (предел за прогон)
+    urls = sorted(urls, key=lambda u: (old.get(u) or {}).get("checked", ""))
     now = _index_state(instance, urls)
-    merged = {**old, **{u: s for u, s in now.items() if s}}
+    merged = dict(old)
+    for u, s in now.items():                 # строка с ошибкой не затирает прежнее «в индексе»
+        keep = {k: v for k, v in (old.get(u) or {}).items()}
+        keep.update({k: v for k, v in s.items() if not k.endswith("_error")})
+        if "google" in s:
+            keep["checked"] = instance.today.isoformat()
+        merged[u] = keep
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(merged, ensure_ascii=False), encoding="utf-8", newline="\n")
     out = []
@@ -167,15 +175,20 @@ def dropped(instance, urls: list[str]) -> list[dict]:
     return out
 
 
-def _value_of(instance, url: str) -> float:
+def _value_of(instance, url: str) -> float | None:
+    """Деньги страницы из карты спроса; неизвестно — None («нет данных»), не ноль."""
     try:
         pages = store.read_json(instance.file("demand_map"), "demand_map", missing_ok=True)["records"]
     except EngineError:
-        return 0.0
+        return None
     for pg in pages:
         if norm_url(pg["url"]) == url:
             return float(((pg.get("value") or {}).get("money") or {}).get("value") or 0)
     return 0.0
+
+
+def _money_text(value) -> str:
+    return "нет данных" if value is None else f"{value:g}"
 
 
 ADVICE_SCHEMA = """advice:
@@ -255,10 +268,11 @@ def run_all(instance, out: dict, *, full: bool) -> dict:
     articles = sorted(u for u in crawl.pages if section_of(u) in instance.p["site"]["article_sections"]
                       and crawl.pages[u].get("status") == 200 and u in scope)
     gone = dropped(instance, articles)
-    for g in sorted(gone, key=lambda g: -_value_of(instance, g["url"])):
+    for g in sorted(gone, key=lambda g: -(_value_of(instance, g["url"]) or 0)):
         fid = audit_store.finding_id("dropped", f"{g['url']}|{g['engine']}")
         findings.append({"id": fid, "url": g["url"], "check": "dropped", "level": "high",
-                         "detail": f"выпала из {g['engine']}; деньги страницы {_value_of(instance, g['url']):g}; "
+                         "detail": f"выпала из {g['engine']}; деньги страницы "
+                                   f"{_money_text(_value_of(instance, g['url']))}; "
                                    "правка — после «утверждаю»",
                          "first_seen": first_seen.get(fid, instance.today.isoformat())})
     lines.append(f"проверено адресов {len(articles)} (предел проверок Search Console {instance.p['audit']['inspect_limit']}"

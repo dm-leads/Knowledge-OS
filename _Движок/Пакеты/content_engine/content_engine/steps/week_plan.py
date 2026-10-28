@@ -35,8 +35,9 @@ def candidates(instance) -> list[dict]:
                 task("пульс", f"разобрать «{a['query']}» — {a['url']}", f"{a['engine']}: {a['kind']}",
                      f"позиция {a['was']} → {a['now']}", str(last[-1]), "малая")
     rows = publications.read(instance)
+    arrived = {r.get("id") for r in rows if r["event"] == "published"}
     for r in rows[-50:]:
-        if r["event"] == "unverified":
+        if r["event"] == "unverified" and r.get("id") not in arrived:
             task("пульс", f"`publish verify {r.get('id')}` повторить", "«доехало» не проверено — сеть не ответила",
                  r.get("reason", ""), "data/publications.jsonl", "малая")
     soon = (instance.today + timedelta(days=14)).isoformat()

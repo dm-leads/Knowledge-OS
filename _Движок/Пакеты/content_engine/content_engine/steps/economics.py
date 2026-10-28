@@ -33,7 +33,7 @@ def report(instance) -> dict:
     rows = spend.rows(instance)
     articles, by_dir = [], defaultdict(lambda: {"cost": 0.0, "money": 0.0, "articles": 0, "status": 3,
                                                  "incomplete": 0, "matured": 0, "leads": 0.0, "low_data": 0,
-                                                 "money_known": 0, "cost_known": 0})
+                                                 "money_known": 0, "cost_known": 0, "money_missing": 0})
     for rec in bets.load(instance):
         cost = _cost(rows, rec["id"])
         m180 = (rec.get("measures") or {}).get("180")
@@ -49,6 +49,8 @@ def report(instance) -> dict:
         d["cost"] += cost["rub"]
         d["cost_known"] += cost["known"]
         d["incomplete"] += not cost["complete"]
+        if m180 and (not money or money.get("value") is None):
+            d["money_missing"] += 1
         if money and money.get("value") is not None:
             d["money"] += float(money["value"])
             d["money_known"] += 1
@@ -87,7 +89,8 @@ def render(data: dict) -> str:
     for d in data["directions"]:
         cost = "нет данных" if not d["cost_known"] else (f"{d['cost']:g}" + (f" (неполная у {d['incomplete']})"
                                                                               if d["incomplete"] else ""))
-        money = f"{d['money']:g}" if d["money_known"] else "нет данных"
+        money = (f"{d['money']:g}" + (f" (нет данных у {d['money_missing']})" if d["money_missing"] else "")
+                 if d["money_known"] else "нет данных")
         lines.append(f"| {d['direction']} | {d['articles']} | {cost} | {money} | "
                      f"{d['payback'] if d['payback'] is not None else '—'} | {d['status']} |")
     lines += [""] + (data["proposals"] or ["Предложений закрыть направление нет."])

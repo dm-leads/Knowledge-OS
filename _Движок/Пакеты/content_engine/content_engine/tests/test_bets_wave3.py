@@ -133,7 +133,8 @@ def test_missing_row_is_no_data_not_failure(project):
 
 def test_between_threshold_and_expectation_is_low_data(project):
     instance = Instance(project, today=TODAY)
-    store.write_json(instance.file("bets"), "bets", [record(fail_threshold="1 заявка")])
+    store.write_json(instance.file("bets"), "bets", [record(fail_threshold="1 заявка", expectation_numbers=[
+        {"value": 8, "unit": "заявки"}])])                        # на 90-й день ожидание — половина: 4
     money_file(project, [("otoplenie-teplicy", 9000, 2, *window("2025-10-01", 90))])
     bets_cmd.measure(Instance(project, today=TODAY))
     m = bets.load(instance)[0]["measures"]["90"]

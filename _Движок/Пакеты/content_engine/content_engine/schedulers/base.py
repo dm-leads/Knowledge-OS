@@ -26,8 +26,8 @@ class Job:
     weekday: str         # mon … sun или ""
 
 
-def run_program(args: list[str], *, input_text: str | None = None) -> tuple[int, str]:
-    done = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+def run_program(args: list[str], *, input_text: str | None = None, encoding: str = "utf-8") -> tuple[int, str]:
+    done = subprocess.run(args, capture_output=True, text=True, encoding=encoding, errors="replace",
                           input=input_text)
     return done.returncode, (done.stdout or "") + (done.stderr or "")
 

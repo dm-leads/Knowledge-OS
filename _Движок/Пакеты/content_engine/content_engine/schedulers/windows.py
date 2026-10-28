@@ -37,7 +37,9 @@ def xml(job: Job, on_boot: bool) -> str:
 class WindowsScheduler:
     kind = "windows"
 
-    def __init__(self, runner=run_program, on_boot: bool = True):
+    def __init__(self, runner=None, on_boot: bool = True):
+        # schtasks пишет в OEM-кодировке консоли (cp866): прочитанный как UTF-8 путь с кириллицей не совпал бы
+        runner = runner or (lambda args, input_text=None: run_program(args, input_text=input_text, encoding="oem"))
         self.runner = runner
         self.on_boot = on_boot
 

@@ -24,6 +24,11 @@ COLUMNS = ("slug", "money", "leads", "period_from", "period_to", "source", "as_o
 NOT_CONNECTED = "не подключено"
 
 
+def _num(text) -> float:
+    """Число с пробелами в разрядах и запятой вместо точки — одно число."""
+    return float(str(text).replace("\u00a0", "").replace(" ", "").replace(",", "."))
+
+
 class FileWindows:
     def __init__(self, path: Path):
         if not path.is_file():
@@ -79,12 +84,16 @@ class MoneyWindows:
         row = self.source.money(slug, period_from, period_to)
         if row:
             src, row_as_of = f"{self.kind.split(':')[0]}:{row['source']}", row["as_of"] or as_of
-            leads = (Number(float(row["leads"]), period_from, period_to, src, FACT, row_as_of)
+            leads = (Number(_num(row["leads"]), period_from, period_to, src, FACT, row_as_of)
                      if str(row.get("leads") or "").strip() else None)
             if str(row.get("money") or "").strip():
                 return {"step": 1, "connected": True, "leads": leads,
-                        "money": Number(float(row["money"]), period_from, period_to, src, FACT, row_as_of, "ступень 1")}
+                        "money": Number(_num(row["money"]), period_from, period_to, src, FACT, row_as_of, "ступень 1")}
             check = self.instance.p["sources"]["value"]["average_check"]
+            if leads is not None and not check:     # заявки есть, чека нет — заявки не теряются, деньги — нет данных
+                return {"step": 2, "connected": True, "leads": leads,
+                        "money": Number(None, period_from, period_to, src, NO_DATA, row_as_of,
+                                        "ступень 2: нет среднего чека (sources.value.average_check)")}
             if leads is not None and check:
                 return {"step": 2, "connected": True, "leads": leads,
                         "money": Number(leads.value * check, period_from, period_to, src, ESTIMATE, row_as_of,

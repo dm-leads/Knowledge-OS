@@ -86,39 +86,54 @@ def _direction(instance, title: str) -> str:
     return direction_of(instance, instance.norm.key(title))
 
 
+def _due(rec: dict, key: str, today: date) -> bool:
+    """Окно наступило и не замерено окончательно («мало данных» без принятия перемеряется)."""
+    first = date.fromisoformat(rec["published"])
+    if first + timedelta(days=int(key)) > today:
+        return False
+    old = (rec.get("measures") or {}).get(key)
+    return not (old and (old.get("result") is not None or old.get("proposed") != bets.LOW_DATA))
+
+
 def measure(instance, *, only: str | None = None, as_of: date | None = None) -> dict:
+    """Деньги за окна считаются БЕЗ блокировки книги (адаптер денег может идти долго), затем под короткой блокировкой
+    записываются только окна, которые за это время никто не замерил и не принял (перечитывание внутри блокировки)."""
     from ..adapters.money_windows import MoneyWindows
     today = as_of or instance.today
     money = MoneyWindows(instance)
     min_step = instance.p["bets"]["min_step"]
     counts = {"окно не наступило": 0, "замерено": 0, "уже замерено": 0, "без дня выкладки": 0}
-    lines = []
+    lines, fresh = [], {}
+    for rec in bets.load(instance):
+        if only and rec["id"] != only:
+            continue
+        if not rec.get("published"):
+            counts["без дня выкладки"] += 1
+            continue
+        first = date.fromisoformat(rec["published"])
+        for window in bets.WINDOWS:
+            key, end = str(window), first + timedelta(days=window)
+            if end > today:
+                counts["окно не наступило"] += 1
+                continue
+            if not _due(rec, key, today):
+                counts["уже замерено"] += 1
+                continue
+            got = money.money(rec["url"], first.isoformat(), (end - timedelta(days=1)).isoformat())
+            measured = {"step": got["step"], "money": got["money"].to_dict(),
+                        "leads": got["leads"].to_dict() if got["leads"] else None}
+            result, why = bets.decide(rec, measured, min_step, key)
+            fresh[(rec["id"], key)] = {**measured, "proposed": result, "why": why,
+                                       "measured_on": today.isoformat(), "result": None}
     with bets.update(instance) as box:
         for rec in box["records"]:
-            if only and rec["id"] != only:
-                continue
-            if not rec.get("published"):
-                counts["без дня выкладки"] += 1
-                continue
-            rec.setdefault("measures", {})
-            first = date.fromisoformat(rec["published"])
-            for window in bets.WINDOWS:
-                key, end = str(window), first + timedelta(days=window)
-                if end > today:
-                    counts["окно не наступило"] += 1
-                    continue
-                old = rec["measures"].get(key)
-                if old and (old.get("result") is not None or old.get("proposed") != bets.LOW_DATA):
-                    counts["уже замерено"] += 1
-                    continue
-                got = money.money(rec["url"], first.isoformat(), (end - timedelta(days=1)).isoformat())
-                measured = {"step": got["step"], "money": got["money"].to_dict(),
-                            "leads": got["leads"].to_dict() if got["leads"] else None}
-                result, why = bets.decide(rec, measured, min_step)
-                rec["measures"][key] = {**measured, "proposed": result, "why": why,
-                                        "measured_on": today.isoformat(), "result": None}
+            for key in [str(w) for w in bets.WINDOWS]:
+                m = fresh.get((rec["id"], key))
+                if m is None or not rec.get("published") or not _due(rec, key, today):
+                    continue                        # за время замера окно приняли или замерили — не перезаписываем
+                rec.setdefault("measures", {})[key] = m
                 counts["замерено"] += 1
-                lines.append(f"{rec['id']} +{key}: {result} — {why}")
+                lines.append(f"{rec['id']} +{key}: {m['proposed']} — {m['why']}")
     upcoming = sorted((v, r["id"], k) for r in box["records"] for k, v in (r.get("measure") or {}).items()
                       if v and date.fromisoformat(v) > today)
     return {"counts": counts, "lines": lines, "upcoming": upcoming[:10], "write": box["write"]}
@@ -176,7 +191,10 @@ def propose(instance) -> dict:
                     "numbers": [_number_row(r, window, m, unit) for r, m in items],
                     "how_to": f"Движок роста: завести числа на лист чисел и `measure {hid} measured_id=<номер числа>`; "
                               "статус гипотезы меняет только Движок"}
-            path = folder / f"{instance.today.isoformat()}-{hid}-{window}.yaml"
+            n, path = 1, folder / f"{instance.today.isoformat()}-{hid}-{window}.yaml"
+            while path.exists():                   # второй прогон за день не перезаписывает переданные итоги
+                n += 1
+                path = folder / f"{instance.today.isoformat()}-{hid}-{window}-{n}.yaml"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8",
                             newline="\n")
