@@ -4,10 +4,10 @@
 contours:
   А:
     name: Спрос
-    sign: карта спроса свежая и в ней есть новые кластеры без страницы
+    sign: карта спроса свежая и в ней есть новые кластеры без страницы; вымерший спрос замораживает человек; видно, что публикуют конкуренты
     check: demand_fresh
-    known: [pair]
-    tests: [test_owner_live_overlap_statuses, test_answered_questions_go_to_report_others_become_demand]
+    known: [pair, freeze]
+    tests: [test_owner_live_overlap_statuses, test_answered_questions_go_to_report_others_become_demand, test_steady_drop_is_candidate_not_frozen, test_new_urls_between_two_snapshots_proxy, test_field_spends_no_quota]
   Б:
     name: Решение
     sign: ни одна тема не доходит до текста без брони; запас тем не ниже нормы
@@ -28,10 +28,10 @@ contours:
     tests: [test_all_records_after_verify, test_never_answers_is_unverified_not_failed]
   Д:
     name: Доказательство
-    sign: пульс свежий; по каждой ставке с наступившим окном есть замер; итоги меняют приоритет направлений
+    sign: пульс свежий; по каждой ставке с наступившим окном есть замер; итоги меняют приоритет направлений; почти выигранные и старые страницы дожимаются той же очередью
     check: proof_running
-    known: [pulse, bet, audit]
-    tests: [test_verdict_rules_first_match, test_measure_from_publication_day_not_build, test_kill_closes_direction_and_scale_raises_weight]
+    known: [pulse, bet, audit, refresh, ai_score]
+    tests: [test_verdict_rules_first_match, test_measure_from_publication_day_not_build, test_kill_closes_direction_and_scale_raises_weight, test_zone_candidate_by_impressions, test_empty_refresh_refused_by_gate, test_score_answer_first_and_without, test_drop_on_hundred_people_found_on_sixty_not]
   Основание:
     name: Основание
     sign: профиль текущей версии; запуски по расписанию идут; запись вовне — только с правом и --apply

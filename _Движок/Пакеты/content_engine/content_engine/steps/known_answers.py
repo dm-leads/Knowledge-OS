@@ -37,6 +37,9 @@
         check: title_empty
         level: critical
 Отказы волны 3: notify_without_right, schedule_without_right, propose_without_accept.
+Виды части 2 волны 3: `refresh` (url, expect: кандидат | нет) — кандидат дожима по реестрам инстанса без записи;
+`freeze` (series — 24 числа по месяцам, expect — статус правила профиля); `ai_score` (text, expect — балл по пяти
+признакам без robots). Отказ части 2: empty_refresh — новая дата без изменения текста.
 Совпадение слоя: слой с этим номером дал «пересекается» на этой странице (первым он быть не обязан). «Спорно»
 пересечением не считается. Печать — «совпало N из M»; любое расхождение — код 1.
 
@@ -180,12 +183,32 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
         ok = hit is not None and ("level" not in case or hit["level"] == case["level"])
         return ok, (f"{hit['check']}: {hit['level']}" if hit else f"находки {case['check']} у {case['url']} нет") \
             + f" (аудит {snap['date']})"
+    if kind == "refresh":                       # часть 2: адрес → кандидат дожима или нет
+        from ..core.urls import norm_url
+        from . import refresh
+        cands, _, _ = refresh.collect(instance)
+        got = "кандидат" if norm_url(case["url"]) in cands else "нет"
+        why = "; ".join(r["note"] for r in cands.get(norm_url(case["url"]), {}).get("reasons", []))
+        return got == case["expect"], f"«{got}»" + (f" ({why})" if why else "") + f", ожидалось «{case['expect']}»"
+    if kind == "freeze":                        # часть 2: ряд за 24 месяца → статус правила заморозки
+        from . import freeze
+        months = freeze.months_back(instance.today, 24)
+        got = freeze.judge(instance.p["freeze"], months, {"months": dict(zip(months, case["series"])), "as_of": ""})
+        return got["status"] == case["expect"], f"«{got['status']}» ({got['why']}), ожидалось «{case['expect']}»"
+    if kind == "ai_score":                      # часть 2: текст статьи → балл пригодности без robots
+        from ..adapters.corpus import Page, split_sections
+        from . import ai_visibility
+        sections, _ = split_sections(case["text"], instance.p["corpus"]["toc_marker"])
+        page = Page(slug="ka", url="https://ka/ka", title="", sections=sections, date=case.get("date", ""))
+        f = ai_visibility.page_features(instance, page)
+        got = sum(1 for v in f.values() if v)
+        return got == case["expect"], f"балл {got} ({', '.join(k for k, v in f.items() if not v)}), ожидалось {case['expect']}"
     raise EngineError(f"случай «{case.get('name')}»: неизвестный вид {kind}")
 
 
 REFUSALS = ("assemble_unapproved", "second_run_locked", "above_rights", "no_snapshot",
             "writer_without_brief", "paid_without_budget", "factcheck_with_context",
-            "notify_without_right", "schedule_without_right", "propose_without_accept")
+            "notify_without_right", "schedule_without_right", "propose_without_accept", "empty_refresh")
 
 
 def refuse_case(instance, case: dict) -> tuple[bool, str]:
@@ -214,6 +237,7 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
             "notify_without_right": (RightsRefused, lambda: rights.require(box, "notify", "write")),
             "schedule_without_right": (RightsRefused, lambda: _schedule_without_right(box)),
             "propose_without_accept": (GateRefused, lambda: _propose_without_accept(box)),
+            "empty_refresh": (GateRefused, lambda: _empty_refresh(box)),
         }[action]
         try:
             run()
@@ -222,6 +246,29 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
         except EngineError as exc:
             return False, f"отказ другого вида: {type(exc).__name__}: {exc}"
         return False, "отказа нет — действие прошло бы"
+
+
+def _empty_refresh(box):
+    """Т36.4: правка страницы с тем же текстом и новой датой — гейт статьи держит её черновиком."""
+    import hashlib
+    import json
+    from ..core.errors import GateRefused
+    from . import queue as queue_mod
+    from .gate_article import _refresh_change
+    text = " ".join(f"Слово{n} второе третье четвёртое пятое шестое седьмое восьмое девятое." for n in range(30))
+    sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    path = box.root / "data" / "refresh" / "baseline" / "KA-REFRESH.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"url": "ka/ka", "day": box.today.isoformat(), "sha256": sha, "markers": {},
+                                "text": text}, ensure_ascii=False), encoding="utf-8")
+    queue_mod.save(box, [{"id": "KA-REFRESH", "type": "refresh", "page": "ka/ka", "slug": "ka", "topic": "ka",
+                          "formulations": ["ka"], "status": queue_mod.TAKEN,
+                          "baseline": {"path": str(path), "sha256": sha}}])
+    results = []
+    _refresh_change(box, lambda name, ok, detail: results.append((ok, detail)), "KA-REFRESH",
+                    text + "\n\nОбновлено сегодня.")
+    if results and not results[0][0]:
+        raise GateRefused(results[0][1])
 
 
 def _writer_without_brief(box):

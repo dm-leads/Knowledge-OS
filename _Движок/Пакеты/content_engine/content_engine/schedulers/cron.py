@@ -11,7 +11,8 @@ DOW = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 0}
 def line(job: Job) -> str:
     hh, mm = job.at.split(":")
     dow = str(DOW[job.weekday]) if job.every == "week" else "*"
-    return f"{int(mm)} {int(hh)} * * {dow} cd '{job.workdir}' && {job.command}  # {job.name}"
+    dom = str(job.month_day) if job.every == "month" else "*"
+    return f"{int(mm)} {int(hh)} {dom} * {dow} cd '{job.workdir}' && {job.command}  # {job.name}"
 
 
 class CronScheduler:

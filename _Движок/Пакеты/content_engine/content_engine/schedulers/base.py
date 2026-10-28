@@ -21,9 +21,10 @@ class Job:
     name: str            # полное имя задания
     command: str         # строка запуска
     workdir: str
-    every: str           # day | week
+    every: str           # day | week | month
     at: str              # ЧЧ:ММ
     weekday: str         # mon … sun или ""
+    month_day: int = 0   # день месяца у every: month (schedule.month_day), иначе 0
 
 
 def run_program(args: list[str], *, input_text: str | None = None, encoding: str = "utf-8") -> tuple[int, str]:
@@ -50,7 +51,8 @@ def jobs(instance) -> list[Job]:
     for j in s["jobs"]:
         cmd = f'{s["python"]} -m content_engine {j["command"]} --profile "{prof}" --unattended'
         out.append(Job(f"{PREFIX}-{instance_id(instance)}-{j['name']}", cmd, str(release_dir(instance)),
-                       j["every"], j["at"], j["weekday"]))
+                       j["every"], j["at"], j["weekday"],
+                       s.get("month_day", 0) if j["every"] == "month" else 0))
     return out
 
 

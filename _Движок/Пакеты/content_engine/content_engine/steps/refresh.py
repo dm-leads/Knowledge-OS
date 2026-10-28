@@ -128,11 +128,17 @@ def _open_pages(instance) -> set[str]:
     return {norm_url(t["page"]) for t in queue_mod.load(instance) if t.get("type") == TYPE and t["status"] in OPEN}
 
 
-def scan(instance) -> dict:
+def collect(instance) -> tuple[dict, dict, list]:
+    """Кандидаты без записи: (адрес → причины, блоки, «нет данных»). Для `scan` и известных ответов."""
     cands: dict[str, dict] = {}
     no_data: list[dict] = []
     blocks = {"zone": _zone(instance, cands, no_data), "age": _age(instance, cands, no_data),
               "ai": _ai(instance, cands), "behavior": _behavior(instance, cands)}
+    return cands, blocks, no_data
+
+
+def scan(instance) -> dict:
+    cands, blocks, no_data = collect(instance)
     busy = _open_pages(instance)
     out = []
     for c in cands.values():

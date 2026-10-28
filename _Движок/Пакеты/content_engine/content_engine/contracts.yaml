@@ -1231,3 +1231,18 @@ operations:
     proof: [test_pages_structure_parsed]
     exit_codes: {"0": разобрано, "1": сравнения ещё нет}
     next: []
+  field probe:
+    operation_id: field.probe
+    name: поле шире освоенного — темы новых направлений через гейт без сети
+    phrases: [поле шире, новые направления для блога, стоит ли идти в новое направление]
+    module: А4
+    requires: field.file — «направление;тема;формулировка»
+    produces: data/field/<день>.json и reports/<день>/field.md — свободно, пересекается, спорно по направлению
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_field_spends_no_quota, test_field_report_by_direction, test_field_bad_line_number]
+    exit_codes: {"0": отчёт или «не подключено», "1": файла нет, "3": строка файла не по формату}
+    note: по расписанию раз в месяц — с --unattended; трат и квоты нет
+    next: []
