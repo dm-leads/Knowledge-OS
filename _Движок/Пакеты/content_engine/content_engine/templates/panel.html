@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пульс {{date}}</title>
+<style>
+:root { --bg: #fbfbf9; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc; --red: #c0392b; --yellow: #b7950b; --green: #1e8449; }
+@media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ecebe6; --muted: #9a9993; --line: #2e2d2a; } }
+body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; }
+.verdict { border-left: 6px solid var(--muted); padding: 8px 16px; margin-bottom: 24px; }
+.verdict.red { border-color: var(--red); } .verdict.yellow { border-color: var(--yellow); } .verdict.green { border-color: var(--green); }
+.verdict strong { font-size: 22px; }
+section { border-top: 1px solid var(--line); padding: 8px 0; }
+h2 { font-size: 15px; margin: 8px 0; color: var(--muted); font-weight: 600; }
+pre { white-space: pre-wrap; font-size: 13px; }
+p { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+<div class="verdict {{color}}">
+<strong>{{verdict}}</strong> — {{why}}
+<p>Что сделать: {{todo}}</p>
+<p>Не проверено: {{unchecked}}</p>
+</div>
+<section><h2>Изменилось со вчера</h2><ul>{{diff}}</ul></section>
+{{blocks}}
+</main>
+</body>
+</html>

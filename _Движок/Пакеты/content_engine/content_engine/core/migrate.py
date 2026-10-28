@@ -52,6 +52,9 @@ STEPS = {
                     ("gate_article", "norm_patterns"), ("gate_article", "answer_words"),
                     ("assemble.levels", "comments"))
             + tuple(("gate_article.levels", name) for name in ('rhythm', 'ai_tone', 'volume', 'norm_links', 'internal_links', 'ai_answers', 'facts', 'niche', 'image_alt', 'image_credits'))),
+    3: Step(to=4, sections=("monitor", "notify", "bets", "economics", "audit", "schedule", "week_plan"),
+            fields=(("publish", "verify_retries"), ("publish", "verify_retry_seconds")),
+            item_fields=(("directions", "hypothesis_id"),)),
 }
 
 

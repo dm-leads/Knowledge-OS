@@ -23,7 +23,7 @@ from ..core.urls import norm_url, section_of, slug_of
 
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
-ROLES = ("id", "slug", "title", "url")
+ROLES = ("id", "slug", "title", "url", "date")   # date — день публикации из шапки (книга ставок задним числом)
 
 
 @dataclass
@@ -42,6 +42,7 @@ class Page:
     sections: list[Section] = field(default_factory=list)
     split: str = "none"                # headings | toc | none — как найдены разделы
     path: str = ""                     # файл текста
+    date: str = ""                     # день публикации из шапки (роль date), ГГГГ-ММ-ДД; пусто — не указан
 
     @property
     def section(self) -> str:
@@ -54,6 +55,24 @@ class Page:
     @property
     def text(self) -> str:
         return "\n".join(f"{s.heading}\n{s.text}" for s in self.sections)
+
+
+MONTHS = {"янв": 1, "фев": 2, "мар": 3, "апр": 4, "мая": 5, "май": 5, "июн": 6, "июл": 7, "авг": 8, "сен": 9,
+          "окт": 10, "ноя": 11, "дек": 12}
+
+
+def iso_day(value) -> str:
+    """День публикации из шапки: ГГГГ-ММ-ДД (в том числе с временем), ДД.ММ.ГГГГ или «02 марта 2022»; иначе пусто."""
+    text = str(value or "").strip()
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})", text)
+    if m:
+        return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    m = re.match(r"^(\d{1,2})\s+([а-яё]+)\s+(\d{4})", text.lower())   # «02 марта 2022» — как пишет сайт
+    month = MONTHS.get(m.group(2)[:3]) if m else None
+    return f"{m.group(3)}-{month:02d}-{int(m.group(1)):02d}" if month else ""
 
 
 def _clean(line: str) -> str:
@@ -212,7 +231,7 @@ def markdown_folder(profile: dict, root: Path) -> tuple[list[Page], dict]:
             if slug in by_slug:
                 report["replaced"] += 1
             by_slug[slug] = Page(slug=slug, url=url, title=title, id=value.get("id", ""), sections=sections,
-                                 split=how, path=str(path))
+                                 split=how, path=str(path), date=iso_day(value.get("date", "")))
             read += 1
         report["folders"].append({"path": str(folder), "read": read})
     pages = list(by_slug.values())

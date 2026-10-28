@@ -25,6 +25,10 @@ class NotFound(SourceError):
     """HTTP 404: источник не нашёл объект запроса (у Keys.so check-top — ни одной фразы пачки нет в базе)."""
 
 
+class NetworkUnreachable(SourceError):
+    """Сеть не ответила (тайм-аут, обрыв соединения): это «не проверено», а не ответ сайта (О1 волны 3)."""
+
+
 class EndpointNotAllowed(SourceError):
     """Адрес вне белого списка адаптера: запрос не отправлен."""
 
@@ -55,3 +59,16 @@ class BudgetRefused(EngineError):
 
 class WriteUnconfirmed(EngineError):
     """Запись ушла, но подтверждение (чтение обратно, код ответа, заявка) не получено (Т16.3)."""
+
+
+def source_failures() -> tuple:
+    """Сбой внешнего источника любого рода: ошибка машины, сети, `requests`, авторизации Google. Блок с таким сбоем
+    пишет «источник не ответил», а не роняет всю команду (упавший источник не мешает остальным блокам, Т34.4)."""
+    import requests
+    out = [SourceError, OSError, ValueError, requests.exceptions.RequestException]
+    try:
+        from google.auth.exceptions import GoogleAuthError
+        out.append(GoogleAuthError)
+    except ImportError:
+        pass
+    return tuple(out)

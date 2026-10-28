@@ -100,7 +100,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": всё совпало, "1": есть расхождение — разбирать с владельцем, "2": бюджет-гейт без «да», "3": ошибка входа}
     next: []
 
@@ -141,7 +141,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": кластеры собраны, "2": бюджет-гейт без «да», "3": нет спроса или ошибка источника}
     next: [map build]
   map build:
@@ -160,7 +160,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": карта собрана, "2": бюджет-гейт без «да», "3": ошибка источника}
     next: [queue build]
 
@@ -222,7 +222,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": свободно, "1": пересекается или коммерческая выдача, "2": спорно (судья) или бюджет-гейт без «да» — различать по тексту, "3": ошибка входа}
     next: [judge task, queue take]
   queue build:
@@ -255,7 +255,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
-    proof: [test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags, test_run_limit_and_yes_cover_whole_command]
+    proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend, test_run_limit_and_yes_cover_whole_command]
     exit_codes: {"0": пополнено, "2": бюджет-гейт без «да», "3": ошибка источника}
     agent_step: по «спорно» — `task_judge.md` в папке темы, ответ `judge.json`, проверка `judge check`
     next: [judge task, queue take]
@@ -289,7 +289,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: false
-    proof: [test_take_spends_keysso_objects_equal_to_client_counter, test_yandex_search_answers_when_keysso_refuses, test_serp_commands_take_budget_flags]
+    proof: [test_take_spends_keysso_objects_equal_to_client_counter, test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": взята, "1": снята — пересечение в выдаче сегодня или гейт устарел, "2": бюджет-гейт без «да», "3": ошибка источника}
     note: тему выбирает владелец — лучше под гипотезу со ставкой
     next: [prepare top]
@@ -309,7 +309,7 @@ operations:
     human: ""
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: false
-    proof: [test_retake_with_live_reservation_and_refused_when_expired, test_serp_commands_take_budget_flags]
+    proof: [test_retake_with_live_reservation_and_refused_when_expired, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend]
     exit_codes: {"0": взята заново, "1": бронь или гейт истекли — полный гейт заново, "2": бюджет-гейт без «да»}
     next: [prepare top]
   queue bet:
@@ -705,8 +705,8 @@ operations:
     write: {right: [records.allow = write, paths.allow = write], apply: true, snapshot: строка базы и папка до записи, rollback: publish rollback <id>}
     human: ""
     repeatable: true
-    proof: [test_all_records_after_verify, test_transfer_needs_right_and_apply_then_corpus_sees_article, test_inserted_on_is_publication_day_with_source]
-    exit_codes: {"0": доехало и записи сделаны, "1": не доехало — причины по пунктам или отказ права с --apply, "3": ошибка входа или запись не подтверждена}
+    proof: [test_all_records_after_verify, test_transfer_needs_right_and_apply_then_corpus_sees_article, test_inserted_on_is_publication_day_with_source, test_never_answers_is_unverified_not_failed, test_timeout_then_answer_arrives]
+    exit_codes: {"0": доехало и записи сделаны, "1": не доехало — причины по пунктам или отказ права с --apply, "3": "не проверено (сеть не ответила после повторов — день выкладки не записан, повторить позже), ошибка входа или запись не подтверждена"}
     note: в тот же день после вставки; позже — --inserted-on вместе с --who
     next: [index submit]
   publish record:
@@ -734,10 +734,10 @@ operations:
     produces: прежнее состояние; строки «откатить вручную» там, где удалять нельзя
     side_writes: освобождает истёкшие брони; снимки отката
     effects: [{type: external_write, requires_apply: true}, {type: filesystem_write}, {type: human_approval_required}]
-    write: {right: "та же ступень, что у записи", apply: true, snapshot: состояние перед откатом, rollback: —}
+    write: {right: [paths.allow = write, images.allow = files, images.allow = write, publish.allow = commit, publish.allow = publish, records.allow = write], apply: true, snapshot: состояние перед откатом, rollback: —}
     human: откат — решение человека
     repeatable: false
-    proof: [test_publish_then_rollback_returns_snapshot, test_rollback_keeps_file_edited_after_transfer]
+    proof: [test_publish_then_rollback_returns_snapshot, test_rollback_keeps_file_edited_after_transfer, test_rollback_without_right_writes_nothing, test_rollback_right_is_profile_keys_from_code]
     exit_codes: {"0": откат выполнен или напечатан план и инструкция, "1": нет права, "3": снимков нет или откат не подтверждён}
     next: []
   index submit:
@@ -825,4 +825,234 @@ operations:
     repeatable: true
     proof: [test_status_writes_nothing]
     exit_codes: {"0": напечатано}
+    next: []
+
+  # --- доказательство (волна 3) ---
+  pulse run:
+    operation_id: pulse.run
+    name: пульс дня — вердикт и панель
+    phrases: [пульс машины, что с сайтом сегодня, панель машины, вердикт дня]
+    module: Д1
+    requires: профиль версии 4; для позиций — консоли и карта спроса
+    produces: data/pulse/<дата>.json, reports/<дата>/panel.html, data/positions.jsonl; эталоны страниц без эталона
+    side_writes: освобождает истёкшие брони; эталонные снимки data/snapshots/live/ для страниц корпуса без эталона
+    effects: [{type: external_read, when: сайт, Search Console, Вебмастер — без --no-network}, {type: filesystem_write}]
+    human: ""
+    secrets: [YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    proof: [test_verdict_rules_first_match, test_silence_depends_on_rhythm, test_panel_not_connected_not_zero, test_failed_source_is_not_zero_and_does_not_stop_other]
+    exit_codes: {"0": собрано (вердикт любой — в выводе), "3": профиль или реестры не читаются}
+    note: по расписанию — с --unattended; платных вызовов нет
+    next: [pulse notify]
+  pulse notify:
+    operation_id: pulse.notify
+    name: сводка пульса в мессенджер
+    phrases: [пришли сводку пульса, отправь пульс в ларк]
+    module: Д1
+    requires: пульс за сегодня
+    produces: сообщение — разница со вчера и что сделать; событие notify в журнале выпуска
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_write, requires_apply: true}, {type: filesystem_write, when: истёкшие брони и событие notify}]
+    write: {right: notify.allow = write, apply: true, snapshot: не нужен (сообщение), rollback: —}
+    human: ""
+    secrets: [NOTIFY_LARK_WEBHOOK]
+    repeatable: false
+    proof: [test_notify_needs_right_and_apply, test_notify_confirmed_by_code_and_once_a_day]
+    exit_codes: {"0": "отправлено и подтверждено, план без --apply или сводка не подключена", "1": нет права notify.allow с --apply, "3": пульса за сегодня нет или ответ сервиса не подтвердил}
+    next: []
+  bet backfill:
+    operation_id: bet.backfill
+    name: книга ставок задним числом для статей корпуса
+    phrases: [заведи старые статьи в книгу ставок, книга ставок задним числом]
+    module: Д2
+    requires: корпус; для дня выкладки без шапки — Search Console
+    produces: записи data/bets.json (origin corpus, «ставки нет»), источник дня выкладки у каждой
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_read, when: день выкладки из Search Console}, {type: filesystem_write, when: истёкшие брони освобождаются}, {type: filesystem_write, when: data/bets.json — файл инстанса, requires_apply: true}]
+    human: ""
+    secrets: []
+    repeatable: true
+    locks: bets/write
+    proof: [test_backfill_plan_writes_nothing_and_repeat_adds_nothing, test_backfill_day_sources, test_machine_article_gets_no_second_record]
+    exit_codes: {"0": план или записано, "1": книгу пишет другой прогон, "3": корпус не читается}
+    note: --apply здесь пишет только в файл инстанса (ступень files) — права не нужно
+    next: [bet measure]
+  bet measure:
+    operation_id: bet.measure
+    name: замер ставок на 90-й и 180-й день
+    phrases: [замерь ставки, замер ставки, книга ставок, что сыграло в деньгах]
+    module: Д2
+    requires: книга ставок с днём выкладки; деньги по окну (bets.money)
+    produces: measures окон в data/bets.json — деньги, заявки, ступень, предложенный итог; reports/<дата>/bets.md
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: external_read, when: адаптер денег проекта (module:…)}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    locks: bets/write
+    proof: [test_measure_from_publication_day_not_build, test_proxy_is_low_data, test_window_not_yet_with_date, test_missing_row_is_no_data_not_failure, test_between_threshold_and_expectation_is_low_data]
+    exit_codes: {"0": замерено (итоги — предложение), "1": книгу пишет другой прогон, "3": источник денег не читается}
+    note: итог ставит человек — `bet accept`; по расписанию — с --unattended
+    next: [bet accept]
+  bet accept:
+    operation_id: bet.accept
+    name: принять итог ставки
+    phrases: [принимаю итог ставки, итог ставки, ставка сыграла, ставка провалилась]
+    module: Д2
+    requires: замер окна
+    produces: result окна, кто и когда принял
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: итог ставки — решение человека; --who — его имя; свой итог — с --reason
+    repeatable: true
+    locks: bets/write
+    proof: [test_result_needs_human_before_proposal]
+    exit_codes: {"0": принят, "1": замера нет или книгу пишет другой прогон, "3": неверный итог или нет причины}
+    next: [bet propose]
+  bet propose:
+    operation_id: bet.propose
+    name: предложение итогов в Движок роста
+    phrases: [передай итоги ставок в движок роста, предложение по гипотезе]
+    module: Б1
+    requires: принятые итоги ставок из гипотез
+    produces: файлы bets.proposal_dir/<дата>-<гипотеза>-<окно>.yaml в формате листа чисел Движка
+    side_writes: освобождает истёкшие брони; отметка proposed_file в книге ставок
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: false
+    locks: bets/write
+    proof: [test_result_needs_human_before_proposal, test_proposal_in_engine_format_no_engine_calls]
+    exit_codes: {"0": предложения записаны, "1": принятых итогов нет}
+    note: в реестр Движка машина не пишет — число и замер заводит Движок своими командами
+    next: []
+  economics:
+    operation_id: economics.report
+    name: экономика статей и направлений
+    phrases: [экономика статей, окупилась ли статья, окупаемость направлений, закрыть ли направление]
+    module: Д2
+    requires: книга ставок с замерами; учёт расхода
+    produces: reports/<дата>/economics.md — цена статьи против денег за 180 дней, окупаемость, предложения закрыть направление
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects: [{type: filesystem_read}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_incomplete_cost_named, test_direction_without_leads_proposed_to_close, test_proxy_direction_not_proposed]
+    exit_codes: {"0": отчёт собран}
+    note: закрытие направления решают Движок роста и человек
+    next: []
+  audit run:
+    operation_id: audit.run
+    name: аудит недели по техническому чек-листу
+    phrases: [аудит недели машины, проверь сайт целиком, технический аудит сайта, пересечения живых страниц]
+    module: Д3
+    requires: tech_checklist.yaml в инстансе; карта сайта
+    produces: data/audit/<дата>.json, data/link_graph.json, data/overlaps.json, reports/<дата>/audit.md (дельта), задание советов роли cheap
+    side_writes: освобождает истёкшие брони; суммы страниц и состояние индекса в data/audit/
+    effects: [{type: external_read, when: свой сайт (GET с паузой), проверка адреса Search Console, выборка Вебмастера}, {type: filesystem_write}, {type: agent_task_required, when: есть слабые, сироты или выпавшие}]
+    agent_step: reports/<дата>/task_audit_advice.md → агент роли cheap кладёт advice.json → `audit advice <файл>`
+    human: ""
+    secrets: [YANDEX_WEBMASTER_TOKEN]
+    repeatable: true
+    proof: [test_planted_errors_found_with_levels, test_second_run_reports_only_delta, test_pair_found_by_audit_and_gate_alike, test_merge_tasks_only_below_threshold, test_dropped_page_in_plan_and_limit_before_request]
+    exit_codes: {"0": аудит собран (находки — в отчёте), "3": чек-листа нет или карта сайта не читается}
+    note: по расписанию — с --unattended; платных вызовов нет
+    next: [audit accept, week plan]
+  audit checklist:
+    operation_id: audit.checklist
+    name: шаблон технического чек-листа в инстанс
+    phrases: [заведи технический чек-лист, чек-лист аудита]
+    module: Основание
+    requires: ""
+    produces: tech_checklist.yaml в инстансе (существующий не перезаписывается)
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write, when: истёкшие брони освобождаются}, {type: filesystem_write, when: файл чек-листа в инстансе, requires_apply: true}]
+    human: ""
+    repeatable: true
+    exit_codes: {"0": план или записано}
+    next: [audit run]
+  audit advice:
+    operation_id: audit.advice
+    name: проверить советы агента по находкам аудита
+    phrases: [проверь советы аудита]
+    module: Д3
+    requires: advice.json по заданию аудита
+    produces: «советы приняты» или список ошибок
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_read}, {type: filesystem_write, when: истёкшие брони освобождаются}]
+    human: ""
+    repeatable: true
+    proof: [test_advice_checked_against_audit]
+    exit_codes: {"0": советы приняты, "1": находка не из аудита или кандидат связи не из списка кода}
+    next: []
+  audit accept:
+    operation_id: audit.accept
+    name: «утверждаю» правку выпавшей страницы или склейку
+    phrases: [утверждаю правку страницы, утверждаю склейку, не утверждаю склейку]
+    module: Д3
+    requires: находка в последнем аудите
+    produces: строка data/audit/decisions.jsonl; утверждённое идёт в план недели
+    side_writes: освобождает истёкшие брони
+    effects: [{type: filesystem_write}, {type: human_approval_required}]
+    human: правка выпавшей страницы и склейка пересечения — решение человека; --who — его имя
+    repeatable: true
+    proof: [test_merge_tasks_only_below_threshold]
+    exit_codes: {"0": записано, "1": находки нет или задачи на склейку не выдаются (доля ложных тревог)}
+    next: [week plan]
+  schedule install:
+    operation_id: schedule.install
+    name: поставить расписание машины
+    phrases: [поставь расписание, расписание машины, запускай машину по расписанию]
+    module: Основание
+    requires: schedule.jobs в профиле; право schedule.allow = write
+    produces: задания планировщика KOS-content-engine-<id>-<job>, каждое с --unattended
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true, when: планировщик Windows или cron}, {type: filesystem_write}]
+    write: {right: schedule.allow = write, apply: true, snapshot: что стоит в планировщике до записи, rollback: schedule remove}
+    human: ""
+    repeatable: true
+    proof: [test_install_without_right_or_apply_is_plan_only, test_install_confirmed_by_read_back, test_xml_has_start_when_available_and_cyrillic_path]
+    exit_codes: {"0": поставлено и подтверждено или план, "1": нет права schedule.allow, "3": планировщик не подтвердил}
+    next: [schedule list]
+  schedule list:
+    operation_id: schedule.list
+    name: что стоит в расписании и когда отработало
+    phrases: [что в расписании, когда машина запускалась]
+    module: Основание
+    requires: ""
+    produces: свои задания и последний запуск по журналу data/schedule_runs.jsonl
+    side_writes: ""
+    effects: [{type: filesystem_read}, {type: external_read, when: планировщик}]
+    human: ""
+    repeatable: true
+    proof: [test_list_reads_only]
+    exit_codes: {"0": напечатано}
+    note: только чтение — истёкшие брони не освобождаются
+    next: []
+  schedule remove:
+    operation_id: schedule.remove
+    name: снять своё расписание
+    phrases: [сними расписание машины, убери задания машины]
+    module: Основание
+    requires: право schedule.allow = write
+    produces: свои задания сняты; чужие не тронуты
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_write, requires_apply: true}, {type: filesystem_write}]
+    write: {right: schedule.allow = write, apply: true, snapshot: задание до снятия, rollback: schedule install}
+    human: ""
+    repeatable: true
+    proof: [test_remove_takes_only_own]
+    exit_codes: {"0": снято или план, "1": нет права, "3": планировщик не подтвердил}
+    next: []
+  week plan:
+    operation_id: week.plan
+    name: план работ на неделю
+    phrases: [план недели машины, что делать на этой неделе с машиной, план работ контент-машины]
+    module: Основание
+    requires: пульс, книга ставок, аудит — что есть
+    produces: reports/<дата>/week_plan.md — 5–8 задач, у каждой число-основание и файл
+    side_writes: освобождает истёкшие брони; отчёт дня
+    effects: [{type: filesystem_read}, {type: external_read, when: самопроверка источников}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_week_plan_five_to_eight_with_basis, test_week_plan_fewer_marked]
+    exit_codes: {"0": план собран}
     next: []

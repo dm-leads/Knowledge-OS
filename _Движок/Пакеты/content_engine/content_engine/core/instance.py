@@ -19,6 +19,7 @@ FILES = {
     "known_answers": "known_answers.yaml",
     "publications": "data/publications.jsonl", "spend": "data/spend.jsonl", "bets": "data/bets.json",
     "judgements": "data/judgements.jsonl", "facts": "data/facts.jsonl",
+    "positions": "data/positions.jsonl", "overlaps": "data/overlaps.json",
 }
 
 

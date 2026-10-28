@@ -185,6 +185,7 @@ def build_map(instance, *, offline: bool = False, max_quota: int | None = None) 
         "covered_share": round(covered / total, 4) if total else None,
         "money_share": round(with_money / total, 4) if total else None,
         "live_overlaps": live_overlaps, "without_sections": corpus_report["without_sections"],
+        "audit_overlaps": _audit_overlaps(instance),
         "candidates": len(candidates), "serp_heads": plan.line(),
     }
     line = store.write_json(instance.file("demand_map"), "demand_map", list(pages.values()),
@@ -192,6 +193,14 @@ def build_map(instance, *, offline: bool = False, max_quota: int | None = None) 
                             source_count=len(pages))
     report["write"] = line
     return report
+
+
+def _audit_overlaps(instance) -> dict:
+    """Д3 → А3: пересечения живых страниц из аудита недели (`data/overlaps.json`) — только чтение: карта их
+    показывает, но реестр не перестраивает и не стирает."""
+    records = store.read_json(instance.file("overlaps"), "overlaps", missing_ok=True)["records"]
+    return {"pairs": len(records), "undecided": sum(1 for r in records if not r.get("decision")),
+            "sales": sum(1 for r in records if r.get("kind") == "sales")}
 
 
 def load(instance) -> dict:
@@ -211,6 +220,10 @@ def render(report: dict) -> str:
                   f"  переехали между разделами (не расхождение): {len(rec['moved_section'])}"]
     else:
         lines.append(f"Сверка с картой сайта: не сделана — {report['sitemap_error'] or 'карта сайта не задана'}")
+    ao = report.get("audit_overlaps") or {}
+    if ao.get("pairs"):
+        lines.append(f"Пересечения живых из аудита: пар {ao['pairs']}, без решения {ao['undecided']}, статья↔продающая "
+                     f"{ao['sales']} — `audit accept`")
     lines.append("Кластеры по статусам: " + ", ".join(f"{k} — {v}" for k, v in report["clusters"].items()))
     share = report["covered_share"]
     money = report["money_share"]

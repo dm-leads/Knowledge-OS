@@ -14,7 +14,7 @@ from .core.errors import BudgetRefused, EngineError, GateRefused, WriteUnconfirm
 
 STEPS = ("check", "profile_cmd", "demand", "cluster", "demand_map", "reservations", "gate_topic", "queue",
          "gate_article", "known_answers", "publish", "spend_cmd", "prepare", "assemble", "indexing", "judge", "write", "review", "images", "onboard",
-         "catalog_cmd", "status_cmd")
+         "catalog_cmd", "status_cmd", "pulse", "bets_cmd", "economics", "audit", "schedule", "week_plan")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +33,30 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "unattended", False):
+        return _run(args)
+    # запуск без человека (расписание, Т42.2): строка в журнал запусков инстанса — по ней `schedule list` и `check`
+    # видят, когда задание отработало последний раз
+    from datetime import datetime
+    start = datetime.now().isoformat(timespec="seconds")
+    code = _run(args)
+    try:
+        from pathlib import Path
+        from .core import store
+        command = " ".join(x for x in (args.command, getattr(args, "action", "") or "") if x)
+        root = Path(args.profile).resolve().parent
+        store.append_jsonl(root / "data" / "schedule_runs.jsonl", [{"command": command, "start": start, "code": code}])
+        if code:                             # Т42.2: остановка без человека — строкой в отчёт дня
+            day = root / "reports" / start[:10]
+            day.mkdir(parents=True, exist_ok=True)
+            with open(day / "unattended.md", "a", encoding="utf-8", newline="\n") as handle:
+                handle.write(f"- {start} `{command}` — код {code}: ждёт человека или ошибка; см. вывод команды\n")
+    except Exception as exc:                 # журнал запусков не должен ломать сам запуск
+        print(f"журнал запусков не записан: {exc}", file=sys.stderr)
+    return code
+
+
+def _run(args) -> int:
     try:
         return int(args.func(args) or 0)
     except GateRefused as exc:
@@ -68,6 +92,8 @@ def open_instance(args, *, read_only: bool = False, **kwargs):
     # платный запасной источник выдачи (Н6) берёт «да» человека из флагов команды
     instance.confirm_spend = getattr(args, "confirm_spend", None)
     instance.unattended = getattr(args, "unattended", False)
+    if instance.unattended:                  # расписание не пишет очередь и брони параллельно с чатом контента
+        return instance
     released = expire(instance)
     if released:
         print(f"брони истекли и освобождены: {released}")

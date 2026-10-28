@@ -20,9 +20,9 @@ def base_profile() -> dict:
         "fields": {"id": "id", "slug": "slug", "title": "title", "url": "url"},
         "url_template": "https://{domain}/{section}/{slug}", "section": "blog", "index_csv": ""}]
     data["directions"] = [{"name": "теплицы", "words": ["теплица"], "weight": 2, "quarter_quota": 4,
-                           "volume": [6000, 12000]},
+                           "volume": [6000, 12000], "hypothesis_id": ""},
                           {"name": "полив", "words": ["полив"], "weight": 1, "quarter_quota": 0,
-                           "volume": [3000, 8000]}]
+                           "volume": [3000, 8000], "hypothesis_id": ""}]
     data["thresholds"]["section_block"] = 4
     data["thresholds"]["section_warn"] = 3
     return data
@@ -100,6 +100,12 @@ def no_network(monkeypatch):
     def refuse(self, method, url, *args, **kwargs):
         raise requests.exceptions.ConnectionError(f"сеть в тестах запрещена: {method} {url}")
     monkeypatch.setattr(requests.Session, "request", refuse)
+    from content_engine.steps import verify as verify_mod
+    monkeypatch.setattr(verify_mod, "SLEEP", lambda seconds: None)     # повтор «доехало» без настоящей паузы (О1)
+    from content_engine.core import drift as drift_mod
+    monkeypatch.setattr(drift_mod, "SLEEP", lambda seconds: None)      # обход своего сайта без паузы
+    from content_engine.steps import audit as audit_mod
+    monkeypatch.setattr(audit_mod, "SLEEP", lambda seconds: None)
 
 
 @pytest.fixture

@@ -80,9 +80,41 @@ def record_gate(instance, tid: str, report: dict, path: str):
     save(instance, topics)
 
 
+def direction_decisions(instance) -> dict[str, dict]:
+    """Б1 (волна 3): решение Движка роста по гипотезе направления — `directions[].hypothesis_id`, только чтение.
+    kill — направление закрыто данными; scale — вес на шаг выше; без связи — «не подключено», очередь как раньше."""
+    if getattr(instance, "_decisions", None) is not None:
+        return instance._decisions
+    from ..adapters import growth
+    out = {}
+    src = growth.source(instance)
+    for d in instance.p["directions"]:
+        hid = (d.get("hypothesis_id") or "").strip()
+        if not hid or src is None:
+            continue
+        try:
+            out[d["name"]] = {"hypothesis_id": hid, **src.decision(hid)}
+        except EngineError as exc:
+            out[d["name"]] = {"hypothesis_id": hid, "decision": "", "decided_at": "", "note": str(exc)}
+    instance._decisions = out
+    return out
+
+
+def closed_direction(instance, direction: str) -> str:
+    """Причина, если направление закрыто данными (решение kill), иначе пусто."""
+    d = direction_decisions(instance).get(direction) or {}
+    if d.get("decision") == "kill":
+        return f"направление закрыто данными: {d['hypothesis_id']}, решение kill от {d.get('decided_at') or '—'}"
+    return ""
+
+
 def priority_key(instance, topic: dict) -> tuple:
-    """Т12.2: вес направления → коммерческий интент и лид-сигналы → ручной приоритет → частота."""
+    """Т12.2: вес направления → коммерческий интент и лид-сигналы → ручной приоритет → частота. Решение Движка
+    scale по направлению поднимает его вес на шаг (Б1, волна 3)."""
     weights = {d["name"]: d["weight"] for d in instance.p["directions"]}
+    for name, d in direction_decisions(instance).items():
+        if d.get("decision") == "scale" and name in weights:
+            weights[name] += 1
     signal_words = instance.p["queue"]["commercial_words"] + instance.p["queue"]["lead_words"]
     text_key = instance.norm.key(" ".join(topic["formulations"]))
     signal = any((wk := instance.norm.key(w)) and wk.similarity(text_key) == 1.0 for w in signal_words)
@@ -122,7 +154,12 @@ def build(instance, limit: int = BUILD_LIMIT) -> dict:
     fresh = [c for c in data["candidates"] if c["cluster_id"] not in known]
     fresh.sort(key=lambda c: priority_key(instance, {"id": c["cluster_id"], "direction": c["direction"],
                                                     "formulations": c["queries"][:3], "weight": c["weight"]}))
+    closed = 0
     for cand in fresh[:limit]:
+        why = closed_direction(instance, cand["direction"])
+        if why:
+            closed += 1                               # кандидат закрытого направления в очередь не идёт
+            continue
         tid = f"T{len(topics) + 1:04d}"
         topic = {"id": tid, "topic": cand["head"], "formulations": _formulations(instance, cand, rows),
                  "cluster_id": cand["cluster_id"], "direction": cand["direction"], "weight": cand["weight"],
@@ -149,7 +186,7 @@ def build(instance, limit: int = BUILD_LIMIT) -> dict:
             added += 1
     line = save(instance, topics)
     return {"candidates": len(data["candidates"]), "considered": min(limit, len(fresh)), "added": added,
-            "rejected": rejected, "write": line}
+            "rejected": rejected, "closed_direction": closed, "write": line}
 
 
 def _log(instance, topic, layer, reason, page="", section=""):
@@ -202,6 +239,14 @@ def refill(instance, count: int | None = None, max_quota: int | None = None) -> 
     for topic in order:
         if done >= count or stock(instance) >= instance.p["queue"]["norm"]:
             break
+        why = closed_direction(instance, topic["direction"])
+        if why:
+            current = load(instance)
+            _find(current, topic["id"]).update(status=REJECTED, rejected={"layer": 0, "reason": why})
+            save(instance, current)
+            _log(instance, topic, 0, why)
+            results.append((topic["id"], f"снята: {why}"))
+            continue
         quota = quotas.get(topic["direction"], 0)
         if quota and _quarter_used(instance, load(instance), topic["direction"]) >= quota:
             results.append((topic["id"], "пропущена: квота направления на квартал выбрана"))
@@ -364,6 +409,7 @@ def status(instance) -> tuple[dict, int]:
               "hint": refill_hint(instance)[1]}
     from .onboard import pace
     report["pace"] = pace(instance)                  # совет по темпу (Т32.1)
+    report["directions"] = {name: d for name, d in direction_decisions(instance).items()}   # Б1: решения Движка
     return report, (1 if s <= q["refill_at"] else 0)
 
 

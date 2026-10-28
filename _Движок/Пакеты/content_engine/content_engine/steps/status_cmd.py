@@ -76,6 +76,17 @@ def report(instance, topic: str | None = None) -> list[str]:
     upcoming.sort()
     lines.append("Ближайшие замеры ставок: " + ("; ".join(f"{d} — {t} (+{w}, {h})" for d, w, t, h in upcoming[:5])
                                              or "нет"))
+    pulse_dir = instance.root / "data" / "pulse"
+    days = sorted(pulse_dir.glob("????-??-??.json")) if pulse_dir.is_dir() else []
+    if days:
+        import json
+        v = json.loads(days[-1].read_text(encoding="utf-8"))["verdict"]
+        lines.append(f"Пульс {days[-1].stem}: {v['color']} — {v['why']}")
+    else:
+        lines.append("Пульс: ещё не было (`pulse run`)")
+    from ..core import audit_store
+    snap = audit_store.latest(instance)
+    lines.append(f"Аудит: {snap['date']}, находок {len(snap['findings'])}" if snap else "Аудит: ещё не было")
     last = [r for r in publications.read(instance) if r["event"] == "published"][-5:]
     lines.append("Последние выпуски: " + ("; ".join(f"{r['day']} {r.get('id')} {r['url']}" for r in last) or "нет"))
     if topic:

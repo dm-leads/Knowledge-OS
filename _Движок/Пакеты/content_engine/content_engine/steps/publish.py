@@ -60,7 +60,10 @@ def rollback(instance, tid: str | None, run_id: str | None, apply: bool, transpo
             return 0
         raise EngineError("ручной режим без публикатора: откат — инструкция пакета `rollback.md` "
                           "(сначала `publish prepare <id>`)")
+    unknown = [s for s in steps if tuple(s.right) not in restore.RIGHTS]
+    steps = [s for s in steps if tuple(s.right) in restore.RIGHTS]
     allowed, refused = rights.split(instance, steps)
+    refused += [f"{s.kind} → {s.target}: ступень {restore.right_text(s.right)} не из прав отката" for s in unknown]
     for line in refused:
         print(f"  не в плане — {line}")
     if apply and not allowed:

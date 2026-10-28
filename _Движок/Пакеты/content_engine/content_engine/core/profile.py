@@ -4,8 +4,8 @@
 умолчанию «молча» нет: всё, что машина использует, записано в профиле. Секреты — только именами переменных
 (поля `*_env`) и путями к ключам; значение секрета в профиле — ошибка.
 
-Версия профиля поднимается с каждым выпуском, который добавляет поля (Т15.1): 1.2.0 — версия 2, 1.3.0 — версия 3.
-Схемы прошлых версий (`SCHEMA_V1`, `SCHEMA_V2`) и их наборы проверок остались в коде только для перевода `profile
+Версия профиля поднимается с каждым выпуском, который добавляет поля (Т15.1): 1.2.0 — версия 2, 1.3.0 — версия 3,
+1.4.0 — версия 4. Схемы прошлых версий (`SCHEMA_V1`, `SCHEMA_V2`, `SCHEMA_V3`) и их наборы проверок остались в коде только для перевода `profile
 migrate`: общие разделы и списки проверок разведены по версиям, иначе поле новой версии сломало бы проверку старого
 профиля перед переводом. Профиль старой версии в любой другой команде — ошибка с названием команды перевода.
 """
@@ -20,7 +20,7 @@ import yaml
 
 from .errors import ProfileError
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
@@ -87,7 +87,7 @@ ROLE = S(primary=F("str"), fallback=F("str"))
 AUTHOR = L(name=F("str"), role=F("str"), experience=F("str"), directions=F("list"), month_limit=F("int"))
 ASSEMBLE_CHECKS_V2 = ("anchors", "toc", "tables", "required", "section_borders")
 ASSEMBLE_CHECKS = ASSEMBLE_CHECKS_V2 + ("comments",)       # Н5: публикуемый HTML без комментариев
-ASSEMBLE_BY_VERSION = {2: ASSEMBLE_CHECKS_V2, 3: ASSEMBLE_CHECKS}
+ASSEMBLE_BY_VERSION = {2: ASSEMBLE_CHECKS_V2, 3: ASSEMBLE_CHECKS, 4: ASSEMBLE_CHECKS}
 GROWTH_KINDS = ("none", "markdown", "file")
 WORDSTAT_SOURCES = ("keysso", "cloud")
 SERP_SOURCES = ("keysso", "yandex_search")
@@ -136,7 +136,7 @@ GATE_ARTICLE_V3.update(rhythm_min_cv=F("number"), ai_tone_patterns=F("list"), no
                        answer_words=F("int"))
 COMMON_V3 = dict(COMMON, sources=SOURCES_V3, queue=QUEUE_V3, gate_article=GATE_ARTICLE_V3)
 
-SCHEMA = S(
+SCHEMA_V3 = S(
     **COMMON_V3,
     budget=S(**BUDGET_V2, usd_rub=F("number"), usd_rub_source=F("str")),
     **PART1,
@@ -152,7 +152,30 @@ SCHEMA = S(
              cover=F("bool")),
     onboard=S(min_cluster_frequency=F("int"), sample_pages=F("int"), answers=F("strmap")),
 )
-SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA}
+
+# Версия 4 (волна 3, часть 1, выпуск 1.4.0): пульс, книга ставок и замер, экономика, аудит, расписание, план недели.
+# Разделы `publish` и `directions` получают поля — строятся заново из версии 3, а не правкой PART1.
+PUBLISH_V4 = dict(PART1["publish"], verify_retries=F("int"), verify_retry_seconds=F("int"))
+DIRECTIONS_V4 = dict(PART1["directions"], hypothesis_id=F("str"))
+SCHEMA = dict(
+    SCHEMA_V3,
+    publish=PUBLISH_V4,
+    directions=DIRECTIONS_V4,
+    monitor=S(positions=F("str"), keys=F("str"), drop=F("int"), tops=F("list"), silence_intervals=F("number"),
+              stock_yellow_days=F("number"), audit_stale_days=F("int"), drift_shrink=F("number"),
+              index_days_alarm=F("int")),
+    notify=S(allow=F("str"), kind=F("str"), url_env=F("str"), chat_env=F("str")),
+    bets=S(money=S(kind=F("str"), file=F("str")), min_step=F("int"), proposal_dir=F("str"),
+           backfill_section=F("str")),
+    economics=S(close_min_articles=F("int"), close_window=F("int"), close_leads_max=F("number")),
+    audit=S(checklist=F("str"), false_alarm=S(rate=F("number"), as_of=F("str"), source=F("str")),
+            false_alarm_max=F("number"), neighbours=F("int"), inspect_limit=F("int"), speed=F("str"),
+            delay_seconds=F("number")),
+    schedule=S(allow=F("str"), kind=F("str"), python=F("str"), on_boot=F("bool"),
+               jobs=L(name=F("str"), command=F("str"), every=F("str"), at=F("str"), weekday=F("str"))),
+    week_plan=S(min=F("int"), max=F("int")),
+)
+SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3, 4: SCHEMA}
 
 GATE_ARTICLE_CHECKS_V2 = (
     "title_length", "description_length", "slug", "title_duplicate", "structure", "skeleton", "foreign_keys",
@@ -161,14 +184,19 @@ GATE_ARTICLE_CHECKS_V2 = (
 GATE_ARTICLE_CHECKS = GATE_ARTICLE_CHECKS_V2 + (
     "rhythm", "ai_tone", "volume", "norm_links", "internal_links", "ai_answers", "facts", "niche", "image_alt",
     "image_credits")
-GATE_CHECKS_BY_VERSION = {1: GATE_ARTICLE_CHECKS_V2, 2: GATE_ARTICLE_CHECKS_V2, 3: GATE_ARTICLE_CHECKS}
+GATE_CHECKS_BY_VERSION = {1: GATE_ARTICLE_CHECKS_V2, 2: GATE_ARTICLE_CHECKS_V2, 3: GATE_ARTICLE_CHECKS, 4: GATE_ARTICLE_CHECKS}
 LEVELS = ("block", "warn", "off")
 VALUE_KINDS = ("file", "keysso", "none")
 # Ступени прав (Т16.1): выше `files` — только строкой профиля по разрешению владельца.
 ALLOW_V2 = {"publish": ("files", "commit", "publish"), "indexing": ("files", "write"), "records": ("files", "write")}
 # Часть 2: загрузка картинок (Т30) и передача статьи в папку проекта (Н1) — свои ступени
-ALLOW = dict(ALLOW_V2, images=("files", "write"), paths=("files", "write"))
-ALLOW_BY_VERSION = {2: ALLOW_V2, 3: ALLOW}
+ALLOW_V3 = dict(ALLOW_V2, images=("files", "write"), paths=("files", "write"))
+# Волна 3: сводка в мессенджер (Т34.5) и расписание (Т42.1) — запись вовне со своими ступенями
+ALLOW = dict(ALLOW_V3, notify=("files", "write"), schedule=("files", "write"))
+ALLOW_BY_VERSION = {2: ALLOW_V2, 3: ALLOW_V3, 4: ALLOW}
+NOTIFY_KINDS = ("none", "lark_webhook", "telegram")
+MONEY_KINDS = ("none", "file")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 MIGRATE_HINT = "content-engine profile migrate --profile {path}"
 
 
@@ -415,6 +443,86 @@ def _semantics_v3(data: dict):
         _one_of(f"onboard.answers.{key}", key, ("vychitka", "rhythm"))
 
 
+def _semantics_v4(data: dict):
+    m = data["monitor"]
+    _adapter("monitor.positions", m["positions"], ("consoles", "none"))
+    _one_of("monitor.keys", m["keys"], ("demand_map",))
+    for name in ("drop", "audit_stale_days", "index_days_alarm"):
+        if m[name] <= 0:
+            raise ProfileError(f"поле «monitor.{name}»: положительное число")
+    if m["silence_intervals"] <= 0 or m["stock_yellow_days"] < 0:
+        raise ProfileError("поля «monitor.silence_intervals», «stock_yellow_days»: положительное число")
+    if not 0 < m["drift_shrink"] < 1:
+        raise ProfileError("поле «monitor.drift_shrink»: доля от 0 до 1")
+    if not m["tops"] or not all(isinstance(x, int) and not isinstance(x, bool) and x > 0 for x in m["tops"]):
+        raise ProfileError("поле «monitor.tops»: список положительных целых (например [10, 30])")
+    n = data["notify"]
+    _adapter("notify.kind", n["kind"], NOTIFY_KINDS)
+    if n["kind"] != "none" and not n["url_env"]:
+        raise ProfileError("поле «notify.url_env»: сводка включена — нужно имя переменной адреса или токена")
+    if n["kind"] == "telegram" and not n["chat_env"]:
+        raise ProfileError("поле «notify.chat_env»: Telegram — нужно имя переменной с id чата")
+    b = data["bets"]
+    _adapter("bets.money.kind", b["money"]["kind"], MONEY_KINDS)
+    if b["money"]["kind"] == "file" and not b["money"]["file"]:
+        raise ProfileError("поле «bets.money.file»: kind: file — нужен путь к CSV денег по окнам")
+    if b["min_step"] not in (1, 2):
+        raise ProfileError("поле «bets.min_step»: ступень лесенки 1 или 2 — proxy и «нет данных» итога не дают (Т39.2)")
+    if not b["proposal_dir"]:
+        raise ProfileError("поле «bets.proposal_dir»: папка файлов-предложений для Движка роста")
+    e = data["economics"]
+    if e["close_min_articles"] <= 0 or e["close_window"] <= 0 or e["close_leads_max"] < 0:
+        raise ProfileError("поля «economics.*»: положительные числа (close_leads_max — не меньше нуля)")
+    a = data["audit"]
+    rate = a["false_alarm"]["rate"]
+    if rate != -1 and not 0 <= rate <= 1:
+        raise ProfileError("поле «audit.false_alarm.rate»: доля от 0 до 1 или -1 (не замерено)")
+    if rate != -1 and not (a["false_alarm"]["as_of"] and a["false_alarm"]["source"]):
+        raise ProfileError("поля «audit.false_alarm.as_of», «source»: у замера доли — дата и источник")
+    if not 0 < a["false_alarm_max"] <= 1:
+        raise ProfileError("поле «audit.false_alarm_max»: доля от 0 до 1")
+    for name in ("neighbours", "inspect_limit"):
+        if a[name] <= 0:
+            raise ProfileError(f"поле «audit.{name}»: положительное число")
+    if a["delay_seconds"] < 0:
+        raise ProfileError("поле «audit.delay_seconds»: не меньше нуля")
+    if not a["checklist"]:
+        raise ProfileError("поле «audit.checklist»: путь к техническому чек-листу от инстанса")
+    _adapter("audit.speed", a["speed"], ("none",))
+    s = data["schedule"]
+    _adapter("schedule.kind", s["kind"], ("windows", "cron"))
+    if not s["python"].strip():
+        raise ProfileError("поле «schedule.python»: чем запускать Python (например «py -3»)")
+    names = set()
+    for i, job in enumerate(s["jobs"]):
+        where = f"schedule.jobs[{i}]"
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", job["name"]) or job["name"] in names:
+            raise ProfileError(f"поле «{where}.name»: латиница в нижнем регистре, без повторов")
+        names.add(job["name"])
+        _one_of(f"{where}.every", job["every"], ("day", "week"))
+        if not re.fullmatch(r"\d\d:\d\d", job["at"]):
+            raise ProfileError(f"поле «{where}.at»: время «ЧЧ:ММ»")
+        if job["every"] == "week":
+            _one_of(f"{where}.weekday", job["weekday"], WEEKDAYS)
+        elif job["weekday"]:
+            raise ProfileError(f"поле «{where}.weekday»: только у every: week")
+        _scheduled_command(where, job["command"])
+    w = data["week_plan"]
+    if not 0 < w["min"] <= w["max"]:
+        raise ProfileError("поля «week_plan.min», «max»: 0 < min ≤ max")
+
+
+def _scheduled_command(where: str, command: str):
+    """Задание расписания — подкоманда машины с флагом `--unattended`: иначе запуск без человека встанет на коде 2."""
+    from ..cli import build_parser
+    from .contract import flags, leaves
+    found = dict(leaves(build_parser())).get(command.strip())
+    if found is None:
+        raise ProfileError(f"поле «{where}.command»: «{command}» — нет такой команды машины")
+    if "--unattended" not in flags(found):
+        raise ProfileError(f"поле «{where}.command»: у «{command}» нет --unattended — по расписанию её не запускать")
+
+
 def validate(data, version: int = SCHEMA_VERSION) -> dict:
     """Проверить профиль по схеме версии; вернуть его же. Ошибка — `ProfileError` с именем поля."""
     if not isinstance(data, dict):
@@ -428,6 +536,8 @@ def validate(data, version: int = SCHEMA_VERSION) -> dict:
         _semantics_v2(data, version)
     if version >= 3:
         _semantics_v3(data)
+    if version >= 4:
+        _semantics_v4(data)
     return data
 
 

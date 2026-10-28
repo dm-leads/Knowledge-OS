@@ -78,7 +78,7 @@ def article(tmp_path, body):
 def test_text_checks_find_problems(inst, project, tmp_path):  # noqa: F811
     set_profile(project, lambda d: (d["gate_article"].update(ai_tone_patterns=["в современном мире"]),
                                     d["directions"].append({"name": "огород", "words": ["чеснок"], "weight": 1,
-                                                            "quarter_quota": 0, "volume": [100, 300]})))
+                                                            "quarter_quota": 0, "volume": [100, 300], "hypothesis_id": ""})))
     instance = Instance(project, today=TODAY)
     long_first = " ".join(["Подробный рассказ о том, что бывает с почвой и погодой."] * 9)
     body = ("# Посадка чеснока под зиму\n\n" + "\n\n".join([FLAT] * 6) + "\n\n## Когда сажать чеснок\n\n"

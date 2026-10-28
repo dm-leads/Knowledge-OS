@@ -24,6 +24,19 @@
         action: assemble_unapproved      # assemble_unapproved | second_run_locked | above_rights | no_snapshot
         area: publish                    # для above_rights: область и ступень, которой у проекта нет
         level: publish
+      - name: тишина дольше ритма — красный
+        kind: pulse                      # волна 3: состояние → вердикт дня (facts — как у core/verdict.decide)
+        facts: {site_ok: true, last_publication: "2026-01-01", stock_days: 10, audit_age: 3}
+        expect: {color: красный, rule: 2}
+      - name: proxy — мало данных
+        kind: bet                        # волна 3: запись книги и замер окна → итог (record, measured)
+        expect: мало данных
+      - name: пустой title найден аудитом
+        kind: audit                      # волна 3: находка последнего аудита у адреса; expect: absent — её нет
+        url: https://…
+        check: title_empty
+        level: critical
+Отказы волны 3: notify_without_right, schedule_without_right, propose_without_accept.
 Совпадение слоя: слой с этим номером дал «пересекается» на этой странице (первым он быть не обязан). «Спорно»
 пересечением не считается. Печать — «совпало N из M»; любое расхождение — код 1.
 
@@ -114,7 +127,10 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
     if kind == "publish":
         from .verify import check_page, reference
         ref = reference(instance, str(case["id"]), case.get("url"))
-        items = check_page(instance, ref, case["url"])["items"]
+        page = check_page(instance, ref, case["url"])
+        if page.get("unverified"):
+            return None, f"не проверено: {page['unverified']}"      # О1: сеть — «отложен», не «не совпало»
+        items = page["items"]
         got = "доехало" if all(i["ok"] for i in items) else "не доехало"
         why = "; ".join(f"{i['check']}: {i['detail']}" for i in items if not i["ok"])
         return got == case["expect"], f"«{got}», ожидалось «{case['expect']}»" + (f" ({why})" if why else "")
@@ -140,11 +156,36 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
         hit = str(fact["value"]) in case["text"]
         got = "черновик" if stale and hit else "пропуск"
         return got == case["expect"], f"факт «{fact['fact']}»: «{got}», ожидалось «{case['expect']}»"
+    if kind == "pulse":                         # волна 3: состояние → вердикт дня по правилам профиля
+        from ..core.verdict import decide
+        got = decide(instance, case["facts"])
+        exp = case["expect"]
+        ok = got["color"] == exp["color"] and ("rule" not in exp or got["rule"] == exp["rule"])
+        return ok, f"«{got['color']}» (правило {got['rule']}: {got['why']}), ожидалось «{exp['color']}»"
+    if kind == "bet":                           # волна 3: запись книги и замер окна → итог
+        from ..core import bets
+        got, why = bets.decide(case["record"], case["measured"], instance.p["bets"]["min_step"])
+        return got == case["expect"], f"«{got}» ({why}), ожидалось «{case['expect']}»"
+    if kind == "audit":                         # волна 3: страница → находка последнего аудита с уровнем
+        from ..core import audit_store
+        from ..core.urls import norm_url
+        snap = audit_store.latest(instance)
+        if snap is None:
+            return False, "аудита нет — `audit run`"
+        hit = next((f for f in snap["findings"] if f["check"] == case["check"]
+                    and norm_url(f["url"]) == norm_url(case["url"])), None)
+        exp = case.get("expect", "found")
+        if exp == "absent":
+            return hit is None, "находки нет" if hit is None else f"находка есть: {hit['level']} — {hit['detail']}"
+        ok = hit is not None and ("level" not in case or hit["level"] == case["level"])
+        return ok, (f"{hit['check']}: {hit['level']}" if hit else f"находки {case['check']} у {case['url']} нет") \
+            + f" (аудит {snap['date']})"
     raise EngineError(f"случай «{case.get('name')}»: неизвестный вид {kind}")
 
 
 REFUSALS = ("assemble_unapproved", "second_run_locked", "above_rights", "no_snapshot",
-            "writer_without_brief", "paid_without_budget", "factcheck_with_context")
+            "writer_without_brief", "paid_without_budget", "factcheck_with_context",
+            "notify_without_right", "schedule_without_right", "propose_without_accept")
 
 
 def refuse_case(instance, case: dict) -> tuple[bool, str]:
@@ -170,6 +211,9 @@ def refuse_case(instance, case: dict) -> tuple[bool, str]:
             "above_rights": (RightsRefused, lambda: rights.require(box, case.get("area", "publish"),
                                                                     case.get("level", "publish"))),
             "no_snapshot": (SnapshotMissing, lambda: _no_snapshot(box, actions_mod)),
+            "notify_without_right": (RightsRefused, lambda: rights.require(box, "notify", "write")),
+            "schedule_without_right": (RightsRefused, lambda: _schedule_without_right(box)),
+            "propose_without_accept": (GateRefused, lambda: _propose_without_accept(box)),
         }[action]
         try:
             run()
@@ -228,6 +272,27 @@ def _no_snapshot(box, actions_mod):
             raise EngineError("запись выполнена без снимка «до»")
 
 
+def _schedule_without_right(box):
+    """Т42.1: расписание без `schedule.allow: write` — отказ, ни одного вызова планировщика."""
+    from . import schedule
+    box.profile["schedule"]["allow"] = "files"
+    box.profile["schedule"]["jobs"] = [{"name": "ka", "command": "pulse run", "every": "day", "at": "09:00",
+                                        "weekday": ""}]
+    calls = []
+    schedule.install(box, apply=True, runner=lambda args, input_text=None: (calls.append(args), (1, ""))[1])
+    if any(a[:2] == ["schtasks", "/Create"] or a[:2] == ["crontab", "-"] for a in calls):
+        raise EngineError("расписание поставлено без права")
+
+
+def _propose_without_accept(box):
+    """Т39.3: итог без принятия человеком в Движок не уходит."""
+    from ..core import store
+    from .bets_cmd import propose
+    store.write_json(box.file("bets"), "bets", [{"id": "KA-BET", "url": "example.invalid/a", "hypothesis_id": "H-KA",
+                                                 "measures": {"90": {"proposed": "сыграла", "result": None}}}])
+    propose(box)
+
+
 def _why(report) -> str:
     s = report.get("stopped_by")
     return f" (слой {s['layer']}: {s['reason']} — {s['page']})" if s else ""
@@ -270,6 +335,10 @@ def run(args) -> int:
     lines, ok, pending = [], 0, 0
     for case in cases:
         good, detail = run_case(instance, case, args.offline)
+        if good is None:
+            pending += 1
+            lines.append(f"  … {case['name']}: отложен: сеть — {detail}")
+            continue
         until = str(case.get("pending_until") or "")
         if not good and until and instance.today.isoformat() < until:
             pending += 1

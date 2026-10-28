@@ -31,10 +31,10 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_template_is_version_3_and_v2_template_still_valid():
-    data = yaml.safe_load(profile_mod.template_text())
+def test_v3_and_v2_templates_still_valid():
+    data = yaml.safe_load(profile_mod.template_text(3))
     assert data["schema_version"] == 3
-    profile_mod.validate(data)
+    profile_mod.validate(data, 3)                                          # схема версии 3 не тронута версией 4
     profile_mod.validate(yaml.safe_load(profile_mod.template_text(2)), 2)   # схема версии 2 не тронута
 
 
@@ -60,9 +60,9 @@ def test_migrate_2_to_3_keeps_calibration_and_comments(tmp_path, capsys):
     old = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert main(["profile", "migrate", "--profile", str(path), "--apply"]) == 0
     assert re.search(r"записано строк \d+ — прочитано \d+", capsys.readouterr().out)
-    assert main(["profile", "check", "--profile", str(path)]) == 0
     text = path.read_text(encoding="utf-8")
     new = yaml.safe_load(text)
+    profile_mod.validate(new, 3)
     assert new["schema_version"] == 3
     assert new["gate_article"]["levels"]["skeleton"] == "block"
     assert new["assemble"]["levels"]["required"] == "block" and new["assemble"]["levels"]["comments"] == "block"
@@ -91,6 +91,8 @@ def test_v1_reaches_v3_in_two_runs(tmp_path):
     second = migrate.plan(path)
     assert (second.version_from, second.version_to) == (2, 3)
     migrate.apply(path, second)
+    profile_mod.validate(yaml.safe_load(path.read_text(encoding="utf-8")), 3)
+    migrate.apply(path, migrate.plan(path))                  # 3 → 4
     profile_mod.load(path)
 
 

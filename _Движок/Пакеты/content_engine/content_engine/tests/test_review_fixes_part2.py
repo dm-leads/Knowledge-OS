@@ -66,6 +66,20 @@ def test_rollback_keeps_file_edited_after_transfer(released, project):  # noqa: 
     assert not (folder / "schema.json").exists()
 
 
+def test_rollback_without_right_writes_nothing(released, project, capsys):  # noqa: F811
+    """О3: откат передачи при `paths.allow: files` — не в плане, код 1, файлы на месте."""
+    from .conftest import set_profile
+    instance, day = released
+    _published(project, "write")
+    records_mod.record(Instance(project, today=day), TID_OF(instance), apply=True)
+    folder = instance.root / "vypusk" / "posadka-chesnoka-pod-zimu"
+    before = sorted(p.name for p in folder.iterdir())
+    set_profile(project, lambda d: d["paths"].update(allow="files"))
+    assert main(["publish", "rollback", TID_OF(instance), "--apply", "--profile", str(project)]) == 1
+    assert "paths.allow" in capsys.readouterr().out
+    assert sorted(p.name for p in folder.iterdir()) == before
+
+
 def TID_OF(instance):
     from .test_brief import TID
     return TID
