@@ -317,3 +317,53 @@ def test_leads_without_average_check_kept(project):
                                     d["sources"]["value"].update(average_check=None)))
     got = MoneyWindows(Instance(project, today=TODAY)).money("example.ru/blog/a", "2025-01-01", "2025-03-31")
     assert got["leads"].value == 3 and got["money"].status == "нет данных"
+
+
+def test_window_90_halves_threshold_too():
+    rec = {"bet_missing": False, "expectation_numbers": [{"value": 8, "unit": "заявки"}], "fail_threshold": "5 заявок"}
+    got, why = bets.decide(rec, {"step": 1, "money": {"value": 100, "status": "факт"},
+                                 "leads": {"value": 3, "status": "факт"}}, 2, "90")
+    assert got == bets.LOW_DATA and "порогом 2.5" in why                  # темп 6 за 180 — выше порога 5
+    got, _ = bets.decide(rec, {"step": 1, "money": {"value": 100, "status": "факт"},
+                               "leads": {"value": 2, "status": "факт"}}, 2, "90")
+    assert got == bets.FAILED
+
+
+def test_leads_bet_decides_without_average_check():
+    rec = {"bet_missing": False, "expectation_numbers": [{"value": 8, "unit": "заявки"}], "fail_threshold": "0"}
+    got, _ = bets.decide(rec, {"step": 2, "money": {"value": None, "status": "нет данных"},
+                               "leads": {"value": 10, "status": "факт"}}, 2, "180")
+    assert got == bets.PLAYED
+
+
+def test_thousands_with_space_in_threshold():
+    assert bets.number_in("менее 50" + " " + "000 ₽ за окно") == 50000.0      # число собрано: граница пакета
+
+
+def test_accept_writes_decision_into_pairs_registry(project):
+    from content_engine.steps import overlaps
+    set_profile(project, lambda d: d["audit"]["false_alarm"].update(rate=0.1, as_of="2026-02-20", source="П10"))
+    instance = Instance(project, today=TODAY)
+    store.write_json(instance.file("overlaps"), "overlaps", [{"pair": ["a", "b"], "kind": "article", "layer": 2,
+                                                              "decision": None}])
+    audit_store.write(instance, "full", 1, [{"id": "overlap_article|a ↔ b", "url": "a", "check": "overlap_article",
+                                             "level": "high", "detail": "", "first_seen": TODAY.isoformat()}])
+    overlaps.accept(instance, "overlap_article|a ↔ b", "Дмитрий")
+    rec = store.read_json(instance.file("overlaps"), "overlaps")["records"][0]
+    assert rec["decision"] == "утверждено" and rec["decided_by"] == "Дмитрий"
+
+
+def test_windows_list_error_is_not_silent():
+    from content_engine.schedulers.windows import WindowsScheduler
+    with pytest.raises(EngineError, match="не прочитан"):
+        WindowsScheduler(runner=lambda a, input_text=None: (1, "ОШИБКА")).list()
+
+
+def test_windows_matches_quotes_and_dash():
+    from content_engine.schedulers.base import Job
+    from content_engine.schedulers.windows import WindowsScheduler
+    job = Job("KOS-content-engine-x-pulse", 'py -3 -m content_engine pulse run --profile "C:/02 — Области/p.yaml" '
+              '--unattended', "C:/w", "day", "09:00", "")
+    got = {"command": 'py -3 -m content_engine pulse run --profile &quot;C:/02 — Области/p.yaml&quot; --unattended',
+           "start": "2026-01-01T09:00:00"}
+    assert WindowsScheduler(runner=lambda a, input_text=None: (0, "")).matches(job, got)

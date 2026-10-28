@@ -176,15 +176,16 @@ def dropped(instance, urls: list[str]) -> list[dict]:
 
 
 def _value_of(instance, url: str) -> float | None:
-    """Деньги страницы из карты спроса; неизвестно — None («нет данных»), не ноль."""
+    """Деньги страницы из карты спроса; неизвестно (нет страницы, нет денег) — None («нет данных»), не ноль."""
     try:
         pages = store.read_json(instance.file("demand_map"), "demand_map", missing_ok=True)["records"]
     except EngineError:
         return None
     for pg in pages:
         if norm_url(pg["url"]) == url:
-            return float(((pg.get("value") or {}).get("money") or {}).get("value") or 0)
-    return 0.0
+            value = ((pg.get("value") or {}).get("money") or {}).get("value")
+            return None if value is None else float(value)
+    return None
 
 
 def _money_text(value) -> str:
@@ -307,8 +308,16 @@ def accept(instance, fid: str, who: str, *, reject: bool = False) -> str:
     if f["check"].startswith("overlap") and not reject and not merge_tasks_allowed(instance)[0]:
         raise GateRefused(merge_tasks_allowed(instance)[1])
     path = audit_store.folder(instance) / "decisions.jsonl"
+    decision = "не утверждено" if reject else "утверждено"
     store.append_jsonl(path, [{"date": instance.today.isoformat(), "id": fid, "check": f["check"], "url": f["url"],
-                               "decision": "не утверждено" if reject else "утверждено", "who": who}])
+                               "decision": decision, "who": who}])
+    if f["check"].startswith("overlap"):          # решение по паре — и в реестр пар: карта спроса его видит
+        pair = sorted(fid.split("|", 1)[1].split(" ↔ "))
+        records = store.read_json(instance.file("overlaps"), "overlaps", missing_ok=True)["records"]
+        for r in records:
+            if sorted(r["pair"]) == pair:
+                r.update(decision=decision, decided_by=who)
+        store.write_json(instance.file("overlaps"), "overlaps", records)
     return f"{fid}: {'не утверждено' if reject else 'утверждено'} ({who}) — " + \
         ("в план недели" if not reject else "в план не идёт")
 

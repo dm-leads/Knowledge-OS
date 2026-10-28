@@ -89,6 +89,7 @@ def unit_of(text: str) -> str:
 def number_in(text: str) -> float | None:
     """Первое число строки порога («0 за 180 дней», «ноль заявок»); нет — None."""
     t = re.sub(r"(за|в течение|через|на)\s+\d+\s*(дн|недел|месяц|мес)\w*", " ", (text or "").lower())
+    t = re.sub(r"(?<=\d)[ \u00a0](?=\d{3}(?!\d))", "", t)   # пробел между разрядами — одно число
     m = re.search(r"\d+(?:[.,]\d+)?", t)
     if m:
         return float(m.group(0).replace(",", "."))
@@ -112,26 +113,37 @@ def expectation_of(record: dict) -> tuple[float | None, str, str]:
 
 
 def decide(record: dict, measured: dict, min_step: int, window: str = "180") -> tuple[str, str]:
-    """Итог окна (Т39.2): ступень ниже порога данных или «нет данных» — «мало данных»; ставки нет — «ставки нет»;
-    иначе сравнение в единице ставки: ≥ ожидания — «сыграла», ≤ порога провала — «провал», между — «мало данных»."""
-    money, leads = measured["money"], measured.get("leads")
-    if measured["step"] > min(min_step, 2) or money.get("status") in ("нет данных", "proxy"):
-        return LOW_DATA, f"ступень {measured['step']}: {money.get('note') or money.get('status')}"
+    """Итог окна (Т39.2). Ставки нет — «ставки нет». Иначе — сравнение в единице ставки (заявки или деньги): нужны
+    данные именно этой единицы ступени 1–2; proxy и «нет данных» — «мало данных». ≥ ожидания — «сыграла»,
+    ≤ порога провала — «провал», между — «мало данных», решает человек. Ожидание и порог карточки — за 180 дней:
+    на окне 90 оба берутся пополам (темп), иначе статья в темпе выше порога получила бы «провал»."""
+    money, leads = measured["money"], measured.get("leads") or {}
     if record.get("bet_missing"):
+        if measured["step"] > min(min_step, 2) or money.get("status") in ("нет данных", "proxy"):
+            return LOW_DATA, f"ступень {measured['step']}: {money.get('note') or money.get('status')}"
         return NO_BET_RESULT, "ставки нет — деньги страницы записаны, сравнивать не с чем"
     expected, unit, note = expectation_of(record)
-    if expected is not None and str(window) == "90":   # ожидание карточки — за 180 дней; на 90-й день — половина
-        expected, note = expected / 2, (note + "; " if note else "") + "окно 90 — половина ожидания за 180"
     if expected is None:
         return LOW_DATA, "ожидание не числом — решает человек в `bet accept`"
-    got = money["value"] if unit == "money" else (leads or {}).get("value")
-    if got is None:
-        return LOW_DATA, f"нет замера в единице ставки ({'заявки' if unit == 'leads' else 'деньги'})"
+    if measured["step"] > min(min_step, 2):
+        return LOW_DATA, f"ступень {measured['step']}: {money.get('note') or money.get('status')}"
+    if unit == "money":
+        if money.get("status") in ("нет данных", "proxy") or money.get("value") is None:
+            return LOW_DATA, f"денег за окно нет: {money.get('note') or money.get('status')}"
+        got = money["value"]
+    else:
+        if leads.get("value") is None or leads.get("status") in ("нет данных", "proxy"):
+            return LOW_DATA, "заявок за окно нет — нет замера в единице ставки"
+        got = leads["value"]
     threshold = number_in(str(record.get("fail_threshold") or ""))
+    if str(window) == "90":
+        expected = expected / 2
+        threshold = None if threshold is None else threshold / 2
+        note = (note + "; " if note else "") + "окно 90 — половина ожидания и порога за 180"
     if got >= expected:
         return PLAYED, f"{got:g} ≥ ожидания {expected:g}" + (f" ({note})" if note else "")
     if threshold is not None and got <= threshold:
-        return FAILED, f"{got:g} ≤ порога провала {threshold:g}"
+        return FAILED, f"{got:g} ≤ порога провала {threshold:g}" + (f" ({note})" if note else "")
     if threshold is None:
         return LOW_DATA, f"{got:g} < ожидания {expected:g}, порог провала не числом — решает человек"
     return LOW_DATA, f"{got:g} между порогом {threshold:g} и ожиданием {expected:g} — решает человек в `bet accept`"

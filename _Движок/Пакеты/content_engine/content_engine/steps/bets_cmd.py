@@ -173,7 +173,7 @@ def propose(instance) -> dict:
     не помечается переданным, если в файл он не вошёл (отмечаются ровно записанные пары «запись, окно»)."""
     folder = Path(instance.p["bets"]["proposal_dir"])
     folder = folder if folder.is_absolute() else instance.root / folder
-    written, sent = [], set()
+    written, sent, failure = [], set(), None
     with bets.update(instance) as box:
         groups: dict[tuple[str, str], list] = {}
         for rec in box["records"]:
@@ -196,14 +196,20 @@ def propose(instance) -> dict:
                 n += 1
                 path = folder / f"{instance.today.isoformat()}-{hid}-{window}-{n}.yaml"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8",
-                            newline="\n")
-            if yaml.safe_load(path.read_text(encoding="utf-8"))["hypothesis_id"] != hid:
-                raise EngineError(f"{path.name}: предложение не прочиталось обратно")
+            try:
+                path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8",
+                                newline="\n")
+                if yaml.safe_load(path.read_text(encoding="utf-8"))["hypothesis_id"] != hid:
+                    raise EngineError(f"{path.name}: предложение не прочиталось обратно")
+            except (OSError, EngineError, yaml.YAMLError) as exc:  # записанные отметим, остальное — ошибкой после
+                failure = exc
+                break
             written.append(str(path))
             for r, m in items:
                 m["proposed_file"] = instance.today.isoformat()
                 sent.add((r["id"], window))
+    if failure is not None:
+        raise EngineError(f"предложения записаны частично ({len(written)} файлов, отмечены): {failure}")
     return {"files": written, "sent": len(sent), "write": box["write"]}
 
 

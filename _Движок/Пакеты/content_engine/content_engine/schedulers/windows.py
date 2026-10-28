@@ -39,6 +39,7 @@ class WindowsScheduler:
 
     def __init__(self, runner=None, on_boot: bool = True):
         # schtasks пишет в OEM-кодировке консоли (cp866): прочитанный как UTF-8 путь с кириллицей не совпал бы
+        self.ps_runner = runner or (lambda args, input_text=None: run_program(args, input_text=input_text))
         runner = runner or (lambda args, input_text=None: run_program(args, input_text=input_text, encoding="oem"))
         self.runner = runner
         self.on_boot = on_boot
@@ -46,7 +47,8 @@ class WindowsScheduler:
     def list(self) -> list[str]:
         code, out = self.runner(["schtasks", "/Query", "/FO", "CSV", "/NH"])
         if code != 0:
-            return []
+            from ..core.errors import EngineError
+            raise EngineError(f"schtasks /Query: код {code} — список заданий не прочитан: {out.strip()[:200]}")
         names = []
         for line in out.splitlines():
             m = re.match(r'^"\\?([^"]+)"', line.strip())
@@ -55,7 +57,12 @@ class WindowsScheduler:
         return sorted(set(names))
 
     def read(self, name: str) -> dict | None:
-        code, out = self.runner(["schtasks", "/Query", "/TN", name, "/XML"])
+        # PowerShell отдаёт XML задания в UTF-8: в OEM-кодировке консоли нет длинного тире и части знаков пути
+        code, out = self.ps_runner(["powershell", "-NoProfile", "-Command",
+                                    "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                                    f"Export-ScheduledTask -TaskName '{name}'"])
+        if code != 0 or "<Task" not in out:
+            code, out = self.runner(["schtasks", "/Query", "/TN", name, "/XML"])
         if code != 0:
             return None
         get = lambda tag: (re.search(rf"<{tag}>(.*?)</{tag}>", out, re.S) or [None, ""])[1]   # noqa: E731
@@ -74,7 +81,8 @@ class WindowsScheduler:
 
     def matches(self, job: Job, got: dict | None) -> bool:
         from xml.sax.saxutils import unescape
-        return bool(got) and unescape(got["command"]) == job.command and got["start"].endswith(f"T{job.at}:00")
+        command = unescape(got["command"], {"&quot;": '"', "&apos;": "'"}) if got else ""
+        return bool(got) and command == job.command and got["start"].endswith(f"T{job.at}:00")
 
     def remove(self, name: str) -> tuple[int, str]:
         return self.runner(["schtasks", "/Delete", "/TN", name, "/F"])

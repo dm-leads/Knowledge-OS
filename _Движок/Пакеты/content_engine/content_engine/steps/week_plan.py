@@ -39,7 +39,7 @@ def candidates(instance) -> list[dict]:
     for r in rows[-50:]:
         if r["event"] == "unverified" and r.get("id") not in arrived:
             task("пульс", f"`publish verify {r.get('id')}` повторить", "«доехало» не проверено — сеть не ответила",
-                 r.get("reason", ""), "data/publications.jsonl", "малая")
+                 r.get("reason") or f"событие unverified {r.get('id')}", "data/publications.jsonl", "малая")
     soon = (instance.today + timedelta(days=14)).isoformat()
     due, accepted = 0, 0
     for rec in bets.load(instance):
