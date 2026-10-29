@@ -123,3 +123,29 @@ def test_only_top_clusters_by_weight(project):
     _clusters(i, {"c1": "обогрев теплицы", "c2": "полив газона"})
     out = freeze.scan(i)
     assert [r["cluster_id"] for r in out["rows"]] == ["c1"]
+
+
+def test_zero_month_without_count_and_rows_kept_on_failure(project, monkeypatch):
+    from content_engine.adapters import wordstat
+
+    class Client:
+        def call(self, method, endpoint, json=None):
+            if json["phrase"] == "полив газона":
+                raise wordstat.SourceError("облако не ответило")
+            return {"results": [{"date": f"{m}-01T00:00:00Z", **({"count": "30"} if n % 2 else {})}
+                                for n, m in enumerate(MONTHS)]}
+    monkeypatch.setenv("YANDEX_SEARCH_API_KEY", "x")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "x")
+    real = wordstat.CloudWordstat.__init__
+
+    def init(self, instance):
+        real(self, instance)
+        self.client = Client()
+    monkeypatch.setattr(wordstat.CloudWordstat, "__init__", init)
+    i = Instance(project, today=TODAY)
+    i.confirm_spend = 1.0
+    _clusters(i, {"c1": "обогрев теплицы", "c2": "полив газона"})
+    with pytest.raises(Exception):
+        freeze.scan(i, fetch=True)
+    rows = store.read_jsonl(freeze.history_path(i))
+    assert len(rows) == 24 and {r["count"] for r in rows} == {0.0, 30.0}      # ряд до сбоя сохранён, ноль — ноль

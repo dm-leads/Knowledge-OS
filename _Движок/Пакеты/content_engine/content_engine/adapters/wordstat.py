@@ -90,7 +90,8 @@ class CloudWordstat:
         data = self.client.call("POST", DYNAMICS, json=self._body({
             "phrase": phrase, "period": "PERIOD_MONTHLY", "regions": [self.region],
             "fromDate": f"{date(y, m, 1):%Y-%m-%d}T00:00:00Z", "toDate": f"{end:%Y-%m-%d}T00:00:00Z"}))
-        return [(r["date"][:7], float(r["count"])) for r in data.get("results") or []]
+        # нулевую частоту API не передаёт (поле `count` опущено, как у protobuf): месяц без поля — ноль показов
+        return [(r["date"][:7], float(r.get("count") or 0)) for r in data.get("results") or []]
 
 
 def seeds(instance) -> list[str]:
