@@ -19,7 +19,8 @@ def series(values):
 
 def _clusters(i, heads):
     store.write_json(i.file("clusters"), "clusters",
-                     [{"id": cid, "head": h, "queries": [{"query": h}]} for cid, h in heads.items()])
+                     [{"id": cid, "head": h, "queries": [{"query": h}], "weight": 10 - n}
+                      for n, (cid, h) in enumerate(heads.items())])
 
 
 def _history(i, phrase, values):
@@ -113,3 +114,12 @@ def test_freeze_only_by_accept_and_only_candidate(project):
     assert [r["cluster_id"] for r in frozen] == ["c1"] and "динамика спроса" in frozen[0]["reason"]
     freeze.accept(i, "c1", "Человек")
     assert len(store.read_json(i.file("frozen"), "frozen")["records"]) == 1
+
+
+def test_only_top_clusters_by_weight(project):
+    from .conftest import set_profile
+    set_profile(project, lambda d: d["freeze"].update(top=1))
+    i = Instance(project, today=TODAY)
+    _clusters(i, {"c1": "обогрев теплицы", "c2": "полив газона"})
+    out = freeze.scan(i)
+    assert [r["cluster_id"] for r in out["rows"]] == ["c1"]

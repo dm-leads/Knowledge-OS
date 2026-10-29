@@ -92,6 +92,7 @@ def _age(instance, cands: dict, no_data: list) -> dict:
 
 
 def _ai(instance, cands: dict) -> dict:
+    from .ai_visibility import weak
     path = instance.root / "data" / "ai_visibility.jsonl"
     rows = store.read_jsonl(path, missing_ok=True)
     if not rows:
@@ -100,10 +101,10 @@ def _ai(instance, cands: dict) -> dict:
     floor = instance.p["ai_visibility"]["min_score"]
     found = 0
     for x in rows:
-        if x["date"] == last and x["score"] < floor:
+        if x["date"] == last and weak(x, floor):
             found += 1
             _reason(cands, x["url"], {"kind": "ai", "score": x["score"], "missing": x.get("missing", []),
-                                      "note": f"балл ИИ-видимости {x['score']} < {floor}"})
+                                      "note": f"балл ИИ-видимости {x['score']} из {x['max']} измеренных (порог {floor} из 6)"})
     return {"status": "ок", "snapshot": last, "found": found}
 
 

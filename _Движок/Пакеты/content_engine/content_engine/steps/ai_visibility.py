@@ -29,6 +29,7 @@ NAMES = {"answer": "прямой ответ в начале", "sections": "ра�
          "конкретика в первой трети", "date": "свежая дата", "source": "источник", "bots": "ИИ-краулеры открыты"}
 LINK = re.compile(r"https?://([^/\s)\]>\"']+)", re.IGNORECASE)
 FRESH_DAYS = 365
+CAPTION_WORDS = 12
 
 
 def blocked_bots(robots: str, bots: list[str]) -> list[str]:
@@ -92,7 +93,8 @@ def page_features(instance, page) -> dict:
     """Признаки одной статьи корпуса: True, False или None («нет данных»)."""
     a = instance.p["ai_visibility"]
     lo, hi = a["answer_words"]
-    first = next((p for s in page.sections for p in _paragraphs(s.text)), "")
+    # подписи и кредиты фото («Источник фото: …») — не начало текста: первый абзац — от CAPTION_WORDS слов
+    first = next((p for s in page.sections for p in _paragraphs(s.text) if len(re.findall(r"\w+", p)) >= CAPTION_WORDS), "")
     n = len(re.findall(r"\w+", first))
     h2 = [s for s in page.sections if s.heading]
     longest = max((len(re.findall(r"\w+", s.text)) for s in h2), default=0)
@@ -106,9 +108,13 @@ def page_features(instance, page) -> dict:
             fresh = 0 <= (instance.today - date.fromisoformat(page.date)).days <= FRESH_DAYS
         except ValueError:                              # дата не читается — «нет данных», а не падение прогона
             fresh = None
-    return {"answer": lo <= n <= hi, "sections": len(h2) >= 2 and longest <= a["section_max_words"],
+    # разделы и ссылки видны только у текста с разметкой заголовков: корпус по оглавлению снимка сливает H3 в H2 и
+    # теряет ссылки — признак «нет данных», а не провал (живой прогон на корпусе первого проекта)
+    marked = getattr(page, "split", "headings") == "headings"
+    return {"answer": lo <= n <= hi,
+            "sections": (len(h2) >= 2 and longest <= a["section_max_words"]) if marked else None,
             "specifics": bool(re.search(r"\d", third)), "date": fresh,
-            "source": any(not is_own(f"https://{h}/", own) for h in hosts)}
+            "source": any(not is_own(f"https://{h}/", own) for h in hosts) if marked else None}
 
 
 def score(instance, *, offline: bool = False) -> dict:
@@ -131,7 +137,13 @@ def score(instance, *, offline: bool = False) -> dict:
         old = [r for r in store.read_jsonl(path, missing_ok=True) if r["date"] != instance.today.isoformat()]
         line = store.write_jsonl(path, old + rows, source_count=len(old) + len(rows))
     floor = instance.p["ai_visibility"]["min_score"]
-    return {"rows": rows, "robots": robots, "weak": [r for r in rows if r["score"] < floor], "write": line}
+    return {"rows": rows, "robots": robots, "weak": [r for r in rows if weak(r, floor)], "write": line}
+
+
+def weak(row: dict, floor: int) -> bool:
+    """Ниже порога — по доле: балл из измеренных признаков против `min_score` из шести. Признак «нет данных» не
+    считается ни за, ни против."""
+    return bool(row["max"]) and row["score"] / row["max"] < floor / len(FEATURES)
 
 
 def _limit(instance, max_quota: int | None) -> int:

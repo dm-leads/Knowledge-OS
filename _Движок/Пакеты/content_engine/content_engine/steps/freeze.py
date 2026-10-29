@@ -126,8 +126,8 @@ def scan(instance, *, fetch: bool = False) -> dict:
         raise GateRefused("кластеров нет — `content-engine cluster`")
     f = instance.p["freeze"]
     absorbed = merge(instance, _from_demand(instance))
-    clusters = cluster_mod.load(instance)
-    heads = {c["id"]: c["head"].strip().lower() for c in clusters}
+    clusters = sorted(cluster_mod.load(instance), key=lambda c: -(c.get("weight") or 0))[:f["top"]]
+    heads = {c["id"]: c["head"].strip().lower() for c in clusters}       # весомые кластеры: freeze.top
     fetched = 0
     if fetch:
         series = _series(instance)

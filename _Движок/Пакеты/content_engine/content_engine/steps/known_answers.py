@@ -198,8 +198,8 @@ def run_case(instance, case: dict, offline: bool) -> tuple[bool, str]:
     if kind == "ai_score":                      # часть 2: текст статьи → балл пригодности без robots
         from ..adapters.corpus import Page, split_sections
         from . import ai_visibility
-        sections, _ = split_sections(case["text"], instance.p["corpus"]["toc_marker"])
-        page = Page(slug="ka", url="https://ka/ka", title="", sections=sections, date=case.get("date", ""))
+        sections, how = split_sections(case["text"], instance.p["corpus"]["toc_marker"])
+        page = Page(slug="ka", url="https://ka/ka", title="", sections=sections, split=how, date=case.get("date", ""))
         f = ai_visibility.page_features(instance, page)
         got = sum(1 for v in f.values() if v)
         return got == case["expect"], f"балл {got} ({', '.join(k for k, v in f.items() if not v)}), ожидалось {case['expect']}"

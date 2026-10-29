@@ -164,3 +164,18 @@ def test_tracker_percent_read(project, monkeypatch):
                               "chart": {"2026-03-01": 17}})
     out = ai.citations(Instance(project, today=TODAY), transport=api)
     assert out["percent"] == 17 and out["delta_percent"] == 4
+
+
+def test_unmarked_corpus_sections_and_source_no_data(project):
+    from content_engine.adapters.corpus import Page, Section
+    page = Page(slug="a", url="https://example.ru/blog/a", title="", split="toc",
+                sections=[Section("", "Источник фото: фотобанк"), Section("Раздел", ANSWER + "\n\n" + "слово " * 900)])
+    f = ai.page_features(Instance(project, today=TODAY), page)
+    assert f["sections"] is None and f["source"] is None       # оглавление снимка — структура и ссылки не видны
+    assert f["answer"] is True                                  # подпись фото пропущена, ответ — следующий абзац
+
+
+def test_weak_by_share_of_measured():
+    assert ai.weak({"score": 3, "max": 4}, 4) is False           # 3 из 4 измеренных ≥ 4 из 6
+    assert ai.weak({"score": 2, "max": 4}, 4) is True
+    assert ai.weak({"score": 0, "max": 0}, 4) is False           # ничего не измерено — не «слабая»

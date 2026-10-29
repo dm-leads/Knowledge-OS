@@ -189,7 +189,7 @@ SCHEMA = dict(
                drop_share=F("number"), device_ratio=F("number"), min_gain=F("number"), funnel=F("list"),
                recheck_days=F("list")),
     freeze=S(months=F("int"), drop_share=F("number"), min_months_down=F("int"), min_frequency=F("number"),
-             refetch_days=F("int")),
+             refetch_days=F("int"), top=F("int")),
     competitors=S(window_days=F("int"), max_pages=F("int"), delay_seconds=F("number")),
     field=S(file=F("str"), max=F("int")),
 )
@@ -591,7 +591,7 @@ def _semantics_v5(data: dict):
     _share("freeze.drop_share", f["drop_share"], upper_open=True)
     if not 1 <= f["min_months_down"] <= 12:
         raise ProfileError("поле «freeze.min_months_down»: 1–12 месяцев ниже того же месяца год назад")
-    _positive(f, "freeze", ("min_frequency", "refetch_days"), zero_ok=("min_frequency",))
+    _positive(f, "freeze", ("min_frequency", "refetch_days", "top"), zero_ok=("min_frequency",))
     c = data["competitors"]
     _positive(c, "competitors", ("window_days", "max_pages", "delay_seconds"), zero_ok=("delay_seconds",))
     if data["field"]["max"] <= 0:
