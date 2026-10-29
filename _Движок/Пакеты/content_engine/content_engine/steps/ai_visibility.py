@@ -102,7 +102,10 @@ def page_features(instance, page) -> dict:
     hosts = {host_unicode(unquote(h)) for h in LINK.findall(text)}
     fresh = None
     if page.date:
-        fresh = 0 <= (instance.today - date.fromisoformat(page.date)).days <= FRESH_DAYS
+        try:
+            fresh = 0 <= (instance.today - date.fromisoformat(page.date)).days <= FRESH_DAYS
+        except ValueError:                              # дата не читается — «нет данных», а не падение прогона
+            fresh = None
     return {"answer": lo <= n <= hi, "sections": len(h2) >= 2 and longest <= a["section_max_words"],
             "specifics": bool(re.search(r"\d", third)), "date": fresh,
             "source": any(not is_own(f"https://{h}/", own) for h in hosts)}

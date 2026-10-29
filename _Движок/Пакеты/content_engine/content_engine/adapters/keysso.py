@@ -180,7 +180,7 @@ class KeyssoAi:
 
     def answers(self, domain: str, *, pages: int) -> dict:
         """Запросы, в ответах Алисы на которые домен — среди источников; `pages` — предел страниц отчёта (запросов)."""
-        rows, total, used = [], None, 0
+        rows, total, used, start = [], None, 0, self.client.calls
         for page in range(1, pages + 1):
             data = self.client.call("GET", AI_ANSWERS, params={"base": "msk", "domain": domain, "page": page,
                                                                "per_page": AI_PER_PAGE, "sort": "ws|desc"})
@@ -189,7 +189,7 @@ class KeyssoAi:
             rows += data.get("data") or []
             if page >= int(data.get("last_page") or 1):
                 break
-        return {"rows": rows, "total": total, "requests": self.client.calls}
+        return {"rows": rows, "total": total, "requests": self.client.calls - start}
 
     def tracker_citation(self) -> dict:
         if not self.tracker:

@@ -199,3 +199,36 @@ def test_future_article_date_is_not_fresh(project):
     page = Page(slug="a", url="https://example.ru/blog/a", title="", sections=[Section("", "текст")],
                 date=(TODAY + timedelta(days=30)).isoformat())
     assert ai_visibility.page_features(Instance(project, today=TODAY), page)["date"] is False
+
+
+def test_static_update_only_refuses_when_file_gone_at_write(tmp_path, project):
+    from .site_fixture import StaticSite, make_package
+    from .test_rights import NOW, SLUG, TID
+    site = StaticSite(tmp_path / "s")
+    set_profile(project, lambda d: d["publish"].update(mode="direct", adapter="static_repo", allow="publish",
+                                                         repo_path=str(site.work / "blog"),
+                                                         hosts=["example.ru", str(site.remote)]))
+    i = Instance(project, now=NOW, transport=site)
+    target = site.work / "blog" / f"{SLUG}.html"
+    target.write_text("старая", encoding="utf-8")
+    make_package(i.brief_dir(TID) / "package", TID, SLUG, "Посадка чеснока", "Новый текст.")
+    from content_engine.publishers.static_repo import StaticRepoPublisher
+    planned = StaticRepoPublisher(i, transport=site).plan(publish_mod.package_of(i, TID), update_only=True)
+    target.unlink()                                            # страницу убрали между планом и записью
+    with pytest.raises(WriteUnconfirmed):
+        actions_mod.run(i, TID, planned[:1], apply=True, echo=lambda s: None)
+    assert not target.exists()
+
+
+def test_bad_article_date_is_no_data(project):
+    from content_engine.adapters.corpus import Page, Section
+    from content_engine.steps import ai_visibility
+    page = Page(slug="a", url="https://example.ru/blog/a", title="", sections=[Section("", "т")], date="не-дата")
+    assert ai_visibility.page_features(Instance(project, today=TODAY), page)["date"] is None
+
+
+def test_keysso_requests_per_call_not_cumulative():
+    api = Flaky()
+    client = KeyssoAi("ключ", transport=api, sleep=lambda s: None)
+    assert client.answers("example.ru", pages=1)["requests"] == 1
+    assert client.answers("example.ru", pages=1)["requests"] == 1
