@@ -53,3 +53,18 @@ def test_refresh_arrives_and_records_only_mark(inst, project):  # noqa: F811
     assert len(book) == 1 and book[0]["refreshed"] == [{"day": day.isoformat(), "id": TID}]
     data = store.read_json(after.file("demand_map"), "demand_map", missing_ok=True)["records"]
     assert len(data) == pages_before and not any(p.get("source") == "запись выпуска" for p in data)
+
+
+def test_gate_command_passes_refresh_check_on_real_change(project, serp_ok):  # noqa: F811
+    out = taken(project, RefreshSite())
+    folder = Instance(project, today=TODAY).brief_dir(out["id"])
+    (folder / "brief.yaml").write_text(json.dumps({"h1": "Отопление теплицы зимой", "title": "Отопление теплицы зимой",
+                                                   "description": "о", "slug": "otoplenie-teplicy",
+                                                   "author": "Автор"}, ensure_ascii=False), encoding="utf-8")
+    new = GREENHOUSE + "\n\n## Сколько стоит отопление теплицы\n\n" + " ".join(
+        f"Расход дров на квадратный метр теплицы в месяц номер {n} зависит от утепления стен и крыши." for n in range(40))
+    (folder / "article.md").write_text(new, encoding="utf-8")
+    main(["gate", "article", "--topic", out["id"], "--offline", "--profile", str(project)])
+    report = json.loads((folder / "gate_article.json").read_text(encoding="utf-8"))
+    check = next(r for r in report["checks"] if r["check"] == "refresh_change")
+    assert check["ok"] and not any(r["check"] == "refresh_change" for r in report["reasons"])
