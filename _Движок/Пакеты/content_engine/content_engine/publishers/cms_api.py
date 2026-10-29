@@ -68,13 +68,15 @@ class CmsApiPublisher:
         answer = self.client.call("GET", f"{POSTS}/{pid}", params={"context": "edit"})
         return answer.data if isinstance(answer.data, dict) else {}
 
-    def plan(self, package) -> list[Action]:
+    def plan(self, package, update_only: bool = False) -> list[Action]:
         m = package.manifest
         body = {"title": m["title"], "content": package.main.read_text(encoding="utf-8"), "slug": m["slug"]}
         state: dict = {}
 
         def draft():
             post = self.find(m["slug"])
+            if not post and update_only:
+                raise EngineError(f"правка {m['slug']}: записи нет в момент записи — новая не создаётся")
             if post:
                 answer = self.client.call("POST", f"{POSTS}/{post['id']}", json=body)
             else:

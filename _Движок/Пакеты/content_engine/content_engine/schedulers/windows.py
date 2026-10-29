@@ -28,6 +28,9 @@ def xml(job: Job, on_boot: bool) -> str:
     if job.every == "week":
         schedule = (f"<ScheduleByWeek><WeeksInterval>1</WeeksInterval><DaysOfWeek><{DAYS[job.weekday]} />"
                     "</DaysOfWeek></ScheduleByWeek>")
+    elif job.every == "month":
+        schedule = (f"<ScheduleByMonth><DaysOfMonth><Day>{job.month_day}</Day></DaysOfMonth><Months>"
+                    "<January /><February /><March /><April /><May /><June /><July /><August /><September /><October /><November /><December /></Months></ScheduleByMonth>")
     else:
         schedule = "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>"
     return ('<?xml version="1.0" encoding="UTF-16"?>\n'
@@ -77,10 +80,13 @@ class WindowsScheduler:
             return None
         get = lambda tag: (re.search(rf"<{tag}>(.*?)</{tag}>", out, re.S) or [None, ""])[1]   # noqa: E731
         week = re.search(r"<DaysOfWeek>\s*<(\w+)", out)
+        mday = re.search(r"<DaysOfMonth>\s*<Day>(\d+)</Day>", out)
         return {"command": f"{get('Command')} {get('Arguments')}".strip(), "exe": get("Command"),
                 "args": get("Arguments"), "start": get("StartBoundary"),
                 "start_when_available": get("StartWhenAvailable") == "true", "workdir": get("WorkingDirectory"),
-                "every": "week" if "<ScheduleByWeek>" in out else "day", "weekday": week.group(1) if week else ""}
+                "every": "week" if "<ScheduleByWeek>" in out else "month" if "<ScheduleByMonth>" in out else "day",
+                "weekday": week.group(1) if week else "",
+                "month_day": int(mday.group(1)) if mday else 0}
 
     def install(self, job: Job) -> tuple[int, str]:
         folder = Path(tempfile.mkdtemp(prefix="kos-schedule-"))
@@ -103,7 +109,8 @@ class WindowsScheduler:
         same_dir = unescape(got.get("workdir", ""), ent).rstrip("\\/").lower() == job.workdir.rstrip("\\/").lower() \
             if "workdir" in got else True
         same_kind = got.get("every", job.every) == job.every and (job.every != "week" or
-                                                                 got.get("weekday") == DAYS[job.weekday])
+                                                                 got.get("weekday") == DAYS[job.weekday]) \
+            and (job.every != "month" or got.get("month_day") == job.month_day)
         return same_cmd and same_dir and same_kind and got["start"].endswith(f"T{job.at}:00")
 
     def remove(self, name: str) -> tuple[int, str]:

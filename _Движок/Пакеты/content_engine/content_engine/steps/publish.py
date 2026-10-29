@@ -83,6 +83,31 @@ def rollback(instance, tid: str | None, run_id: str | None, apply: bool, transpo
     return 0
 
 
+def _topic(instance, tid: str) -> dict | None:
+    from . import queue as queue_mod
+    try:
+        return queue_mod._find(queue_mod.load(instance), tid)
+    except EngineError:
+        return None
+
+
+def _refresh_of(instance, tid: str, package) -> bool:
+    """Правка страницы (Т36.3): признак — в манифесте пакета или в теме очереди. Слаг и адрес пакета — те же, что у
+    живой страницы; тема правки пропала из очереди — отказ, а не «обычная статья»."""
+    from ..core.urls import norm_url
+    topic = _topic(instance, tid)
+    from_queue = (topic or {}).get("page") if (topic or {}).get("type") == "refresh" else ""
+    page = package.manifest.get("refresh_page") or from_queue
+    if not page:
+        return False
+    if topic is None or topic.get("type") != "refresh":
+        raise GateRefused(f"пакет {tid} — правка страницы {page}, а темы правки в очереди нет — публикация не начата")
+    if package.manifest.get("slug") != topic["slug"] or norm_url(package.manifest.get("canonical", "")) != norm_url(page):
+        raise GateRefused(f"правка {tid}: пакет «{package.manifest.get('slug')}» → {package.manifest.get('canonical')} не "
+                          f"совпал со страницей {page} — публикация не начата")
+    return True
+
+
 def apply_publish(instance, tid: str, apply: bool, transport=None) -> int:
     from ..publishers.base import load_publisher
     publisher = load_publisher(instance, transport)
@@ -98,14 +123,15 @@ def apply_publish(instance, tid: str, apply: bool, transport=None) -> int:
             for line in problems:
                 print(f"  ✗ {line}")
             raise GateRefused(f"финальная чистка не прошла: {len(problems)} — публикация не начата")
-        planned = publisher.plan(package)
+        planned = publisher.plan(package, update_only=_refresh_of(instance, tid, package))
         allowed, refused = rights.split(instance, planned)
         for line in refused:
             print(f"  не в плане — {line}")
         if apply and not allowed:
             raise RightsRefused(f"ни одно действие не проходит ступень прав (publish.allow = "
                                 f"{rights.level(instance, 'publish')})")
-        out = actions_mod.run(instance, tid, allowed, apply=apply)
+        refresh = _refresh_of(instance, tid, package)
+        out = actions_mod.run(instance, tid, allowed, apply=apply, must_exist=refresh)
     if apply and out.confirmed:
         publications.log(instance, "apply", id=tid, run=out.run_id, written=out.written, confirmed=out.confirmed,
                          actions=[a.kind for a in allowed])
@@ -128,13 +154,20 @@ def prepare_manual(instance, tid: str) -> dict:
     m = package.manifest
     native = m.get("native_blocks") or []
     images = m.get("images") or []
+    topic = _topic(instance, tid)
+    refresh = bool(topic and topic.get("type") == "refresh")
     lines = [f"# Вставка статьи {tid}: {m['h1']}", "",
-             f"Итоговый адрес: {m['canonical']}", "",
-             "## Мета страницы",
-             f"- Title: {m['title']}", f"- Description: {m['description']}", f"- Slug: {m['slug']}",
-             f"- Разметка: `schema.json` ({m.get('schema_format', 'json-ld')})" if "schema.json" in m["files"]
-             else "- Разметка: в блоках страницы", "",
-             "## Блоки — по порядку вставки"]
+             f"Итоговый адрес: {m['canonical']}", ""]
+    if refresh:                              # правка живой страницы (Т36.3): та же страница, не новая
+        lines += ["## Это правка живой страницы",
+                  f"Заменить блоки существующей страницы {m['canonical']}; новую страницу не создавать, адрес не "
+                  f"менять. Перед заменой сохранить прежние блоки — по ним откат.", "",
+                  f"Эталон дня взятия (прежний текст): `{topic['baseline']['path']}`", ""]
+    lines += ["## Мета страницы",
+              f"- Title: {m['title']}", f"- Description: {m['description']}", f"- Slug: {m['slug']}",
+              f"- Разметка: `schema.json` ({m.get('schema_format', 'json-ld')})" if "schema.json" in m["files"]
+              else "- Разметка: в блоках страницы", "",
+              "## Блоки — по порядку вставки"]
     lines += [f"{n}. `{name}`" for n, name in enumerate(m["blocks"], 1)]
     lines += ["", "## Нативные блоки конструктора — ставит человек"]
     lines += [f"- {b}" for b in native] or ["- нет"]

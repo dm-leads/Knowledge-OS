@@ -32,9 +32,9 @@ def digest(path: Path) -> str:
 
 
 def test_template_is_version_4():
-    data = yaml.safe_load(profile_mod.template_text())
+    data = yaml.safe_load(profile_mod.template_text(4))
     assert data["schema_version"] == 4
-    profile_mod.validate(data)
+    profile_mod.validate(data, 4)
     assert data["notify"]["allow"] == "files" and data["schedule"]["allow"] == "files"
     assert data["audit"]["false_alarm"]["rate"] == -1
 
@@ -61,9 +61,9 @@ def test_migrate_3_to_4_keeps_calibration_and_comments(tmp_path, capsys):
     old = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert main(["profile", "migrate", "--profile", str(path), "--apply"]) == 0
     assert re.search(r"записано строк \d+ — прочитано \d+", capsys.readouterr().out)
-    assert main(["profile", "check", "--profile", str(path)]) == 0
     text = path.read_text(encoding="utf-8")
     new = yaml.safe_load(text)
+    profile_mod.validate(new, 4)
     assert new["schema_version"] == 4
     assert new["thresholds"]["body_warn"] == 30 and new["publish"]["lock_minutes"] == 90
     assert "# своя блокировка проекта" in text
@@ -76,11 +76,11 @@ def test_migrate_3_to_4_keeps_calibration_and_comments(tmp_path, capsys):
             assert new[key] == value, key
 
 
-def test_v1_reaches_v4_in_three_runs(tmp_path):
+def test_v1_reaches_v5_in_four_runs(tmp_path):
     from .conftest import FIXTURES
     path = tmp_path / "profile.yaml"
     path.write_text((FIXTURES / "profile_v1.yaml").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
-    for frm, to in ((1, 2), (2, 3), (3, 4)):
+    for frm, to in ((1, 2), (2, 3), (3, 4), (4, 5)):
         step = migrate.plan(path)
         assert (step.version_from, step.version_to) == (frm, to)
         migrate.apply(path, step)

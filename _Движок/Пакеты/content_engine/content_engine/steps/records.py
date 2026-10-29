@@ -117,10 +117,15 @@ def _record(instance, tid: str, *, apply: bool = False) -> dict:
         topic.update(status=queue_mod.PUBLISHED, published=day, url=url)
         lines.append(f"тема {tid} → published; " + queue_mod.save(instance, topics))
         new += 1
-    added, text = add_to_map(instance, first)
-    new += added
-    lines.append(text)
-    added, text = bets.add(instance, topic, url, day)
+    if topic.get("type") == "refresh":           # правка страницы: страница уже в карте и книге (Т36.3)
+        added, text = 0, "карта спроса: правка страницы — страница уже в карте"
+        lines.append(text)
+        added, text = bets.mark_refreshed(instance, topic, url, day)
+    else:
+        added, text = add_to_map(instance, first)
+        new += added
+        lines.append(text)
+        added, text = bets.add(instance, topic, url, day)
     new += added
     lines.append(text)
     lines.append(_records_db(instance, tid, url, apply))

@@ -73,10 +73,12 @@ class StaticRepoPublisher:
                                text=True, encoding="utf-8")
         return shown.returncode == 0, shown.stdout
 
-    def _commit(self, path: Path, content: str | None, message: str) -> Action:
+    def _commit(self, path: Path, content: str | None, message: str, *, update_only: bool = False) -> Action:
         rel = self._rel(path)
 
         def do():
+            if update_only and not path.is_file():         # правка: файла нет в момент записи — не создаём
+                raise EngineError(f"правка {path.name}: файла нет в момент записи — новая страница не создаётся")
             if content is None:
                 if path.is_file():
                     path.unlink()
@@ -138,7 +140,7 @@ class StaticRepoPublisher:
             raise SourceError("push: репозиторий сайта не на ветке — не отправлено")
         return branch
 
-    def plan(self, package) -> list[Action]:
+    def plan(self, package, update_only: bool = False) -> list[Action]:
         import re
         m = package.manifest
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", str(m.get("slug", ""))):
@@ -147,7 +149,9 @@ class StaticRepoPublisher:
         if self.folder.resolve() not in path.resolve().parents:
             raise EngineError(f"static_repo: путь {path} вне publish.repo_path — записи нет")
         content = package.main.read_text(encoding="utf-8")
-        return [self._commit(path, content, f"content-engine: статья {m['slug']}"),
+        if update_only and not path.is_file():
+            raise EngineError(f"правка {m['slug']}: файла {path.name} нет — новая страница не создаётся")
+        return [self._commit(path, content, f"content-engine: статья {m['slug']}", update_only=update_only),
                 self._push(m["canonical"], m["h1"], f"публикация статьи {m['slug']}")]
 
     def restore(self, snapshots: list[dict]) -> list[Action]:

@@ -106,6 +106,8 @@ def no_network(monkeypatch):
     monkeypatch.setattr(drift_mod, "SLEEP", lambda seconds: None)      # обход своего сайта без паузы
     from content_engine.steps import audit as audit_mod
     monkeypatch.setattr(audit_mod, "SLEEP", lambda seconds: None)
+    from content_engine.steps import competitors as competitors_mod
+    monkeypatch.setattr(competitors_mod, "SLEEP", lambda seconds: None)
 
 
 @pytest.fixture

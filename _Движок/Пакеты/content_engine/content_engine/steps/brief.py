@@ -137,6 +137,18 @@ def make_task(instance, tid: str) -> dict:
     (instance.brief_dir(tid) / CONTEXT).write_text(json.dumps(context, ensure_ascii=False, indent=1),
                                                    encoding="utf-8", newline="\n")
     n = top.get("numbers") or {}
+    refresh_lines = []
+    if topic.get("type") == "refresh":
+        from . import refresh
+        base = refresh.baseline_of(instance, topic)
+        gaps = (top.get("refresh") or {}).get("gaps", [])
+        refresh_lines = [
+            f"## Правка живой страницы {topic['page']}", "",
+            f"- slug — `{topic['slug']}`, как у страницы: правится та же запись, новой страницы нет;",
+            f"- эталон дня взятия ({base['day']}): `{topic['baseline']['path']}` — разделы: "
+            + "; ".join(base["markers"]["h2"][:15]) + f"; {base['markers']['chars']} знаков;",
+            "- чего не хватает против топ-3:", *([f"  - {x['kind']}: {x['what']}" for x in gaps] or ["  - пробелов нет"]),
+            "- новая дата обновления — только при изменении по существу: гейт статьи сверит текст с эталоном;", ""]
     body = [
         "## Задача",
         "",
@@ -144,6 +156,7 @@ def make_task(instance, tid: str) -> dict:
         "и записать его в brief.yaml по схеме выше. Текст статьи не писать: его пишут после утверждения брифа "
         "человеком.",
         "",
+        *refresh_lines,
         "## Формулировки темы",
         *[f"- {f}" for f in topic["formulations"]],
         "",
@@ -213,6 +226,9 @@ def check(instance, tid: str) -> dict:
         errors.append(f"description {len(b['description'])} знаков, норма {lo}–{hi}")
     if not SLUG.match(b["slug"]):
         errors.append(f"slug «{b['slug']}»: латиница нижнего регистра, цифры, одиночные дефисы")
+    own = topic.get("slug") if topic.get("type") == "refresh" else None
+    if own and b["slug"] != own:
+        errors.append(f"slug «{b['slug']}»: у правки страницы slug — «{own}», как у живой страницы")
     if b["level"] not in LEVELS:
         errors.append(f"level «{b['level']}»: одно из {LEVELS}")
     h2 = [s.get("h2", "") for s in b["sections"] if isinstance(s, dict)]
@@ -237,7 +253,8 @@ def check(instance, tid: str) -> dict:
         warnings.append("карты спроса нет — чужие целевые ключи не проверены (`map build`)")
     for head in (b["title"], b["h1"]):
         key = norm.key(head)
-        best = max(((title_similarity(key, item.title_key), item.page.title) for item in instance.index().pages),
+        best = max(((title_similarity(key, item.title_key), item.page.title) for item in instance.index().pages
+                    if item.page.slug != own),
                    default=(0.0, ""))
         if best[0] >= t:
             errors.append(f"заголовок «{head}» почти дублирует статью «{best[1]}» ({best[0]:.2f} ≥ {t})")

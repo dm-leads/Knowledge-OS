@@ -103,6 +103,37 @@ def table(instance) -> list[dict]:
     return out
 
 
+MAP_MODULES = tuple(f"{c}{n}" for c, k in (("А", 4), ("Б", 5), ("В", 7), ("Г", 4), ("Д", 6))
+                    for n in range(1, k + 1))
+
+
+def _connections(instance) -> dict[str, str]:
+    """Модули, работа которых зависит от источника проекта: пусто — подключено, иначе — как подключить."""
+    p, out = instance.p, {}
+    if p["ai_visibility"]["citations"] == "none":
+        out["Д5"] = "цитирование: ai_visibility.citations: none (балл пригодности работает)"
+    if p["behavior"]["kind"] == "none":
+        out["Д6"] = "behavior.kind: none — опция"
+    if not store.read_jsonl(instance.root / "data" / "demand_history.jsonl", missing_ok=True):
+        out["А3"] = "истории спроса нет — заморозка: `freeze scan --fetch --confirm-spend`"
+    if not p["search"]["competitors"]:
+        out["А4"] = "search.competitors пуст"
+    if p["monitor"]["positions"] == "none":
+        out["Д1"] = "monitor.positions: none"
+        out["Д4"] = "зона дожима без позиций (старые статьи работают)"
+    return out
+
+
+def modules(instance) -> dict:
+    """Модули карты (А1–Д6): построен — у модуля есть команда в контракте операций; подключён у проекта — источник
+    модуля задан профилем. Опции и неподключённые источники названы, а не засчитаны."""
+    from .contract import load
+    built = {op["module"] for op in load().values()} & set(MAP_MODULES)
+    off = _connections(instance)
+    return {"total": len(MAP_MODULES), "built": sorted(built), "missing": sorted(set(MAP_MODULES) - built),
+            "not_connected": {m: why for m, why in off.items() if m in built}}
+
+
 def render(rows: list[dict]) -> str:
     lines = ["Приёмка на контур", "| Контур | Признак работы | Работает | Подробно | Известных ответов | Тестов |",
              "|---|---|---|---|---|---|"]

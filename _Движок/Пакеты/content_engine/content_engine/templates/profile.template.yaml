@@ -1,7 +1,7 @@
 # Профиль проекта Контент-машины. Один файл на проект, лежит в каталоге инстанса (рядом — data/, cache/, reports/).
 # Каждое поле обязательно: значений по умолчанию «молча» нет. Неизвестное поле — ошибка с его именем.
 # Секреты — только именами переменных (поля *_env) и путями к ключам; значения секретов сюда не пишутся.
-schema_version: 4                     # версия профиля; старую переводит `content-engine profile migrate`
+schema_version: 5                     # версия профиля; старую переводит `content-engine profile migrate`
 
 site:
   domains: [example.ru]               # домены проекта; первый — основной. Кириллический домен пишется как есть
@@ -165,6 +165,7 @@ gate_article:
     niche: block                      # требования профиля ниши
     image_alt: block                  # картинка в тексте без alt
     image_credits: block              # фото из сети без автора и лицензии
+    refresh_change: block             # правка страницы: новых восьмисловных цепочек против эталона меньше refresh.min_change
   fields: {title: title, description: description, slug: slug}  # поле шапки статьи → роль (title, description, slug)
   title_length: [30, 70]              # длина title, символов
   description_length: [120, 170]     # длина description
@@ -373,12 +374,67 @@ schedule:                             # расписание (Т42.1) — зап
   kind: windows                       # windows (планировщик), cron, module:…
   python: "py -3"                     # чем запускать Python
   on_boot: true                       # пропущенный запуск — один раз при включении
-  jobs:                               # {name, command, every: day|week, at: "ЧЧ:ММ", weekday: mon…sun или ""}; у команды — --unattended
+  month_day: 1                        # день месяца для заданий every: month (1–28)
+  # ai citations (раз в месяц) — после того как проект разрешил квоту: ai_visibility.max_quota > 0
+  jobs:                               # {name, command, every: day|week|month, at: "ЧЧ:ММ", weekday: mon…sun или ""}; у команды — --unattended
     - {name: pulse, command: pulse run, every: day, at: "09:00", weekday: ""}
     - {name: measure, command: bet measure, every: day, at: "09:10", weekday: ""}
     - {name: audit, command: audit run, every: week, at: "09:20", weekday: mon}
     - {name: week, command: week plan, every: week, at: "10:00", weekday: mon}
+    - {name: refresh, command: refresh scan, every: week, at: "10:10", weekday: mon}
+    - {name: ai-score, command: ai score, every: week, at: "10:20", weekday: mon}
+    - {name: competitors, command: competitors snap, every: week, at: "10:30", weekday: mon}
+    - {name: freeze, command: freeze scan, every: month, at: "10:40", weekday: ""}
+    - {name: field, command: field probe, every: month, at: "10:50", weekday: ""}
 
 week_plan:                            # план работ на неделю (Т42.3)
   min: 5
   max: 8
+
+refresh:                              # дожим и актуализация (Т36): правка страницы той же очередью и тем же гейтом
+  zone: [4, 15]                       # позиции зоны дожима
+  min_impressions: 50                 # показов запроса за окно консоли, не меньше
+  positions_max_age: 8                # снимок позиций старше стольких дней — «нет данных», а не пустой список
+  age_days: 120                       # статья старше — кандидат на актуализацию
+  min_change: 0.2                     # доля новых восьмисловных цепочек против эталона; ниже — пустое обновление
+  weekly_limit: 3                     # взятий правки в очередь за 7 дней, не больше
+  allow_behavior: false               # кандидаты из утверждённых находок поведения (behavior accept)
+
+ai_visibility:                        # ИИ-видимость (Т37)
+  answer_words: [40, 60]              # прямой ответ в начале раздела, слов
+  section_max_words: 400              # раздел H2 — цитируемый кусок не длиннее
+  bots: [GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-SearchBot, PerplexityBot, Google-Extended, YandexAdditional]  # ИИ-краулеры: закрыт в robots — находка
+  min_score: 4                        # балл 0–6 ниже — кандидат дожима
+  citations: none                     # none; keysso — отчёт ответов Алисы (квота); keysso_tracker — чтение трекера, созданного человеком
+  tracker_id: ""                      # id трекера нейросетей Keys.so (только для keysso_tracker)
+  max_quota: 0                        # предел квоты Keys.so на прогон цитирования; 0 — запросов нет (разрешение проекта тратить квоту)
+  max_pages: 20                       # страниц отчёта за прогон, не больше
+
+behavior:                             # поведение на странице (Т38) — опция
+  kind: none                          # none — «не подключено»; metrika — отчёты API Метрики; module:…
+  counter_env: ""                     # имя переменной с номером счётчика
+  token_env: ""                       # имя переменной с токеном (только чтение отчётов)
+  window_days: 28                     # окно отчёта и базовой линии, дней
+  min_people: 100                     # решение — только на шаге, через который прошло не меньше
+  drop_share: 0.7                     # обрыв: доля ушедших с шага больше
+  device_ratio: 1.5                   # аномалия устройства: отказ во столько раз выше остальных
+  min_gain: 0.1                       # правка сработала: показатель лучше базовой линии на эту долю
+  funnel: []                          # шаги воронки: адреса или «goal:<id>»
+  recheck_days: [14, 28]              # замер правки на эти дни после публикации
+
+freeze:                               # заморозка по динамике спроса (Т41.1)
+  months: 24                          # ряд, месяцев: два года по 12
+  drop_share: 0.5                     # последние 12 месяцев ниже предыдущих 12 на эту долю
+  min_months_down: 8                  # и столько из 12 месяцев ниже того же месяца год назад (не сезон)
+  min_frequency: 10                   # средняя частота за последние 12 месяцев ниже — «мало спроса», не кандидат
+  refetch_days: 30                    # ряд старше — дозапрос (облако Wordstat, бюджет-гейт)
+  top: 200                            # кластеров по весу в разбор, не больше: дозапрос ряда — рубли за каждый головной запрос
+
+competitors:                          # разведка конкурентов (Т41.2): устройство их статей и темп, не слежка за позициями
+  window_days: 14                     # окно новых адресов
+  max_pages: 30                       # страниц разбора за прогон, не больше
+  delay_seconds: 1                    # пауза между загрузками
+
+field:                                # «поле шире освоенного» (Т41.3)
+  file: ""                            # файл формулировок «направление;формулировка» от инстанса; пусто — «не подключено»
+  max: 25                             # формулировок за прогон, не больше

@@ -156,6 +156,8 @@ def wave2_items(instance) -> list[dict]:
     items.append(_growth(instance))
     items += part2_items(instance)
     items += wave3_items(instance)
+    if "refresh" in instance.p:                 # профиль версии 5
+        items += wave3b_items(instance)
     return items
 
 
@@ -222,6 +224,43 @@ def wave3_items(instance) -> list[dict]:
                            f"заданий {len(jobs)} (schedule.allow {p['schedule']['allow']}); последний запуск — {tail}",
                            "" if runs else "`schedule install --apply` по разрешению; запуски пишутся в "
                                          "data/schedule_runs.jsonl"))
+    return items
+
+
+def wave3b_items(instance) -> list[dict]:
+    """Пункты части 2 волны 3: цитирование в ответах ИИ, поведение, история спроса, конкуренты, «поле шире»."""
+    p, items = instance.p, []
+    a = p["ai_visibility"]
+    if a["citations"] == "none":
+        items.append(_item("цитирование в ответах ИИ", OFF, "не подключено — балл пригодности работает без него",
+                           "ai_visibility.citations: keysso и ai_visibility.max_quota > 0"))
+    else:
+        quota = a["max_quota"]
+        items.append(_item("цитирование в ответах ИИ", GREEN if quota > 0 else YELLOW,
+                           f"{a['citations']}, предел квоты {quota}",
+                           "" if quota > 0 else "ai_visibility.max_quota > 0 — иначе запрос не уходит"))
+    b = p["behavior"]
+    if b["kind"] == "none":
+        items.append(_item("поведение на странице", OFF, "опция не подключена",
+                           "behavior.kind: metrika, behavior.token_env и counter_env"))
+    else:
+        try:
+            secret(p, b["token_env"]), secret(p, b["counter_env"])
+            items.append(_item("поведение на странице", GREEN, f"{b['kind']}, воронка {len(b['funnel'])} шагов"))
+        except EngineError as exc:
+            items.append(_item("поведение на странице", RED, str(exc)))
+    rows = store.read_jsonl(instance.root / "data" / "demand_history.jsonl", missing_ok=True)
+    items.append(_item("история спроса для заморозки", GREEN if rows else OFF,
+                       f"фраз {len({r['phrase'] for r in rows})}, последний съём "
+                       f"{max(r['as_of'] for r in rows)}" if rows else "ряда по месяцам нет",
+                       "" if rows else "`freeze scan --fetch --confirm-spend <₽>` (облако Wordstat, цена до запроса)"))
+    comps = p["search"]["competitors"]
+    items.append(_item("разведка конкурентов", GREEN if comps else OFF,
+                       f"доменов {len(comps)}" if comps else "доменов нет",
+                       "" if comps else "search.competitors"))
+    items.append(_item("поле шире освоенного", GREEN if p["field"]["file"] else OFF,
+                       p["field"]["file"] or "файла тем новых направлений нет",
+                       "" if p["field"]["file"] else "field.file — «направление;тема;формулировка»"))
     return items
 
 
@@ -428,7 +467,15 @@ def run(args) -> int:
         instance = open_instance(args, read_only=True)
         from ..core import contours
         rows = contours.table(instance)
-        print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else contours.render(rows))
+        mods = contours.modules(instance)
+        if args.json:
+            print(json.dumps({"contours": rows, "modules": mods}, ensure_ascii=False, indent=1))
+        else:
+            print(contours.render(rows))
+            print(f"\nМодули карты: в коде {len(mods['built'])} из {mods['total']}"
+                  + (f"; нет в коде: {', '.join(mods['missing'])}" if mods["missing"] else ""))
+            for m, why in mods["not_connected"].items():
+                print(f"  не подключено у проекта — {m}: {why}")
         return 0
     instance = open_instance(args)
     items = run_check(instance)

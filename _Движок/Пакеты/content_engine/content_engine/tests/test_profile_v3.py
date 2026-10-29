@@ -93,6 +93,7 @@ def test_v1_reaches_v3_in_two_runs(tmp_path):
     migrate.apply(path, second)
     profile_mod.validate(yaml.safe_load(path.read_text(encoding="utf-8")), 3)
     migrate.apply(path, migrate.plan(path))                  # 3 → 4
+    migrate.apply(path, migrate.plan(path))                  # 4 → 5
     profile_mod.load(path)
 
 

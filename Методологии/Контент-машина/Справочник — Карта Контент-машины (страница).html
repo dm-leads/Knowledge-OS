@@ -53,7 +53,7 @@ button.f[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
 .legend span{display:inline-flex;gap:6px;align-items:center}
 .tag{font-family:var(--f-mono);font-size:11px;padding:1px 7px;border-radius:4px;background:var(--chip);color:var(--muted);white-space:nowrap}
-.counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.counters div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}.counters b{font-family:var(--f-display);font-size:28px;font-weight:700}.counters span{font-size:13px;color:var(--muted)}.tag.st-rel{background:transparent;border:1px solid var(--cA);color:var(--cA)}.tag.st-new{background:var(--accent);color:var(--bg)}.tag.st-part{background:transparent;border:1px dashed var(--human);color:var(--human)}.tag.st-no{background:transparent;border:1px dashed var(--muted);color:var(--muted)}.cmds{display:flex;flex-wrap:wrap;gap:4px}.cmd{font-family:var(--f-mono);font-size:12px;padding:1px 6px;border-radius:4px;background:var(--chip)}.gap{font-size:13px;color:var(--human)}.newline{font-size:13px;color:var(--accent)}.tag.own{background:var(--fg);color:var(--bg)}
+.counters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.counters div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}.counters b{font-family:var(--f-display);font-size:28px;font-weight:700}.counters span{font-size:13px;color:var(--muted)}.tag.st-rel{background:transparent;border:1px solid var(--cA);color:var(--cA)}.tag.st-new{background:var(--accent);color:var(--bg)}.tag.st-new15{background:var(--accent);color:var(--bg)}.tag.st-part{background:transparent;border:1px dashed var(--human);color:var(--human)}.tag.st-no{background:transparent;border:1px dashed var(--muted);color:var(--muted)}.cmds{display:flex;flex-wrap:wrap;gap:4px}.cmd{font-family:var(--f-mono);font-size:12px;padding:1px 6px;border-radius:4px;background:var(--chip)}.gap{font-size:13px;color:var(--human)}.newline{font-size:13px;color:var(--accent)}.tag.own{background:var(--fg);color:var(--bg)}
 .tag.vas{background:transparent;border:1px solid var(--fg);color:var(--fg)}
 .tag.hyb{background:linear-gradient(90deg,var(--chip) 50%,transparent 50%);border:1px solid var(--muted);color:var(--fg)}
 .hand{color:var(--human);font-weight:600}
@@ -110,7 +110,7 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Knowledge-OS · пакет content_engine 1.4.0 · состояние на 28.10.2026</div>
+    <div class="eyebrow">Knowledge-OS · пакет content_engine 1.5.0 · состояние на 29.10.2026</div>
     <h1>Каждая статья — ставка</h1>
     <p class="lead">Контент-машина ведёт статью от спроса до денег: <b>Спрос → Решение → Производство → Выпуск → Доказательство</b>.
       У статьи есть гипотеза, ожидание в заявках, порог провала и дата замера. Итоги и правки возвращаются в начало и решают, куда ставить дальше.
@@ -119,20 +119,20 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
 
 
   <section style="display:flex;flex-direction:column;gap:12px" aria-label="В числах">
-    <h2>В числах — из кода, на 28.10.2026</h2>
+    <h2>В числах — из кода, на 29.10.2026</h2>
     <div class="counters">
       <div><b>5 + 2</b><span>контуров пути статьи + основание и подключение</span></div>
-      <div><b>26</b><span>модулей карты; в коде — 22, частично — 1, нет — 3</span></div>
+      <div><b>26</b><span>модулей карты; в коде — 26; у проекта подключаются отдельно (опции — поведение, трекер)</span></div>
       <div><b>151</b><span>механика в карте: 122 из системы К. Васина (4 не берём) + 29 своих</span></div>
-      <div><b>68</b><span>команд движка (каталог операций 1.4.0)</span></div>
-      <div><b>40</b><span>проверок до публикации, держат статью — 25</span></div>
+      <div><b>80</b><span>команд движка (каталог операций 1.5.0)</span></div>
+      <div><b>41</b><span>проверка до публикации, держат статью — 26</span></div>
       <div><b>9</b><span>проверок «доехало» после публикации</span></div>
-      <div><b>674</b><span>автотеста (673 прошли; 1 пропущен — проверка паспорта выпуска, у исходника канона его нет)</span></div>
+      <div><b>823</b><span>автотестов (822 прошли; 1 пропущен — проверка паспорта выпуска, у исходника канона его нет)</span></div>
       <div><b>27</b><span>проверок технического чек-листа аудита недели</span></div>
     </div>
     <div class="grid2">
-      <div><h3>Ещё из кода</h3><p>21 адаптер источников и записи · 33 раздела профиля · 10 отказов, зашитых в код (действие должно
-        быть отклонено) · 10 видов известных ответов · 6 автопроверок сборки · 7 слоёв анти-дублей · около 16 тыс. строк кода
+      <div><h3>Ещё из кода</h3><p>22 адаптера источников и записи · 39 разделов профиля · 11 отказов, зашитых в код (действие должно
+        быть отклонено) · 13 видов известных ответов · 6 автопроверок сборки · 7 слоёв анти-дублей · около 18 тыс. строк кода
         без тестов.</p></div>
       <div><h3>Чего в числах нет — честно</h3><p>Сколько из 151 механики уже работает, поштучно не пересчитано: статус ниже — по
         модулям, а известные пробелы названы у каждого модуля. Числа результата (сколько статей сыграло в деньгах) появятся,
@@ -148,6 +148,7 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
       <button class="f" data-k="w" data-v="all" aria-pressed="true">все</button>
       <button class="f" data-k="w" data-v="rel" aria-pressed="false">выпущено</button>
       <button class="f" data-k="w" data-v="new" aria-pressed="false">1.4.0</button>
+      <button class="f" data-k="w" data-v="new15" aria-pressed="false">1.5.0</button>
       <button class="f" data-k="w" data-v="no" aria-pressed="false">нет / частично</button>
       <span class="sep"></span>
       <span class="eyebrow">Откуда</span>
@@ -162,9 +163,8 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
       <span><span class="tag hyb">гибрид</span> собрано из обоих</span>
       <span><span class="hand">✋</span> решает человек</span>
       <span><span class="tag st-rel">выпущено</span> в проекте с 1.0–1.3.1</span>
-      <span><span class="tag st-new">1.4.0</span> код готов и проверен, выпуск — следующий шаг</span>
-      <span><span class="tag st-part">частично</span></span>
-      <span><span class="tag st-no">нет в коде</span> часть 2 (1.5.0)</span>
+      <span><span class="tag st-new">1.4.0</span> в каноне, у проекта — с выпуском</span>
+      <span><span class="tag st-new15">1.5.0</span> в каноне, у проекта — с выпуском</span>
     </div>
   </div>
 
@@ -190,17 +190,17 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
 
 
   <section style="display:flex;flex-direction:column;gap:10px" aria-label="Проверки до публикации">
-    <h2>Проверки до публикации — 40, держат статью 25</h2>
+    <h2>Проверки до публикации — 41, держат статью 26</h2>
     <p class="lead" style="margin:0">«Держит» — статья остаётся черновиком; «замечание» — в отчёт. Уровень каждой проверки — строка профиля проекта.</p>
     <div class="grid2">
       <div><h3>Тема · 7 слоёв анти-дублей (Б2) — держат</h3><ul class="plain">
         <li>смысловой ключ против журнала, очереди и броней</li><li>тела опубликованных статей</li><li>общая выдача кластера</li>
         <li>наша страница уже в топ-10 и зарабатывает</li><li>конфликт с продающей страницей</li><li>лимит статей на головной запрос</li>
         <li>почти-дубль заголовка</li></ul></div>
-      <div><h3>Статья · 27 проверок гейта (В7) — держат 14</h3><ul class="plain">
+      <div><h3>Статья · 28 проверок гейта (В7) — держат 15</h3><ul class="plain">
         <li><b>держат:</b> длина title и description, слаг, дубль заголовка, структура, чужие целевые ключи в заголовках, FAQ,
           все ссылки отвечают 200, гигиена тела, разметка, факты (вычитка закрыта, нет просроченных), профиль ниши, alt картинок,
-          кредиты фото</li>
+          кредиты фото, пустое обновление у правки страницы (новая дата без изменения текста)</li>
         <li><b>замечания:</b> скелет как у прошлых, чужой ключ без ссылки, близнец, ссылки на продающие, первоисточники, доля
           списков, стоп-лист, ритм абзацев, ИИ-интонация, объём в коридоре, норма без ссылки, ссылки на свои статьи,
           ответ в начале раздела</li></ul></div>
@@ -221,7 +221,7 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
     <ul class="plain">
       <li><b>Стражи в коде:</b> платный вызов — только с ценой и «да» (<code>--confirm-spend</code>), без человека — ноль трат; запись
         вовне — только по праву профиля и с <code>--apply</code>, снимок «до» и откат одной командой; «записано N — прочитано N».</li>
-      <li><b>Каталог операций:</b> у каждой из 68 команд — контракт (нужно до, получится, эффекты, цена, право, решение человека,
+      <li><b>Каталог операций:</b> у каждой из 80 команд — контракт (нужно до, получится, эффекты, цена, право, решение человека,
         коды выхода, тесты-доказательства); навык <code>content-engine</code> читает каталог своей версии.</li>
       <li><b>Расписание</b> одной командой: планировщик Windows (пропущенный запуск — при включении) или cron; ставятся и снимаются только свои задания.</li>
       <li><b>Приёмка на контур</b> (<code>check --contours</code>): признак работы каждого контура — «да», «нет» или «не подключено».</li>
@@ -280,13 +280,13 @@ footer{font-size:13px;color:var(--muted);max-width:85ch}
   </div>
 
   <footer>Главный источник — справочник «Карта Контент-машины» в каноне Knowledge-OS; при расхождении прав он.
-    Состояние модулей и все числа — из кода пакета content_engine (ветка выпуска 1.4.0, каталог операций и тесты) на 28.10.2026.
+    Состояние модулей и все числа — из кода пакета content_engine (ветка выпуска 1.5.0, каталог операций и тесты) на 29.10.2026.
     Архитектура К. Васина — по гайду «SEO-машина» v3.1–3.2 (PDF, 54 с.) и <a href="https://vasinki.ru/ceh/sistema">карте модулей</a> (пакет 1.28.4), прочитано целиком 25.10.2026. Взяты идеи, механики и устройство, пересказаны своими словами; тексты, промпты и чек-листы автора не взяты.</footer>
 </div>
 
 <script>
-const MODINFO={"А1": {"cmd": ["demand collect"], "st": "rel", "gaps": ["опции: карты сайтов конкурентов, отзывы и форумы — в коде нет"], "new": ""}, "А2": {"cmd": ["cluster"], "st": "rel", "gaps": [], "new": ""}, "А3": {"cmd": ["map build"], "st": "rel", "gaps": ["кандидат на заморозку по динамике спроса за два года — в коде нет (часть 2, выпуск 1.5.0)"], "new": ""}, "Б1": {"cmd": ["queue bet", "queue card", "bet propose"], "st": "rel", "gaps": [], "new": "решение Движка роста kill/scale меняет приоритет и закрывает направление (1.4.0)"}, "Б2": {"cmd": ["gate topic"], "st": "rel", "gaps": [], "new": ""}, "Б3": {"cmd": ["judge task", "judge check", "judge accept"], "st": "rel", "gaps": [], "new": ""}, "Б4": {"cmd": ["reserve list", "reserve release", "reserve convert"], "st": "rel", "gaps": [], "new": ""}, "Б5": {"cmd": ["queue build", "queue refill", "queue status", "queue take", "queue retake"], "st": "rel", "gaps": [], "new": "закрытое направление не даёт тем в очередь (1.4.0)"}, "В1": {"cmd": ["prepare top", "prepare donors"], "st": "rel", "gaps": [], "new": ""}, "В2": {"cmd": ["prepare brief", "prepare check", "prepare approve"], "st": "rel", "gaps": [], "new": ""}, "В3": {"cmd": ["write task"], "st": "rel", "gaps": [], "new": ""}, "В4": {"cmd": ["review task", "review check", "review accept"], "st": "rel", "gaps": [], "new": ""}, "В5": {"cmd": ["images plan", "images make", "images photo", "images upload", "images insert", "images backfill"], "st": "rel", "gaps": [], "new": ""}, "В6": {"cmd": ["assemble build", "assemble contract"], "st": "rel", "gaps": [], "new": ""}, "В7": {"cmd": ["gate article"], "st": "rel", "gaps": [], "new": ""}, "Г1": {"cmd": ["publish rollback", "publish apply", "publish prepare", "publish next"], "st": "rel", "gaps": [], "new": "право отката — ключами профиля (1.4.0)"}, "Г2": {"cmd": ["publish verify"], "st": "rel", "gaps": [], "new": "сеть не ответила — «не проверено» с повтором, а не «не доехало» (1.4.0)"}, "Г3": {"cmd": ["index submit", "index status"], "st": "rel", "gaps": [], "new": ""}, "Г4": {"cmd": ["publish record"], "st": "rel", "gaps": [], "new": ""}, "Д1": {"cmd": ["pulse run", "pulse notify"], "st": "new", "gaps": ["позиции — из консолей; Keys.so и Topvisor — не подключались (по решению)", "сводка в мессенджер — общий адаптер есть; у проекта канал не подключён"], "new": ""}, "Д2": {"cmd": ["bet backfill", "bet measure", "bet accept", "economics"], "st": "new", "gaps": ["деньги за окно — общий контракт есть; у проекта источник подключается адаптером (у первого — не подключён)"], "new": ""}, "Д3": {"cmd": ["audit run", "audit advice", "audit accept"], "st": "new", "gaps": ["скорость на мобильном — «не подключено»", "входящие ссылки и ИИ-следы (опции) — в коде нет", "задачи на склейку не выдаются, пока доля ложных тревог не замерена"], "new": ""}, "А4": {"cmd": [], "st": "part", "gaps": ["направления с квотами — есть (профиль, очередь)", "«поле шире освоенного» — в коде нет (1.5.0)", "разведка конкурентов: структура и темп публикаций — в коде нет (1.5.0)"], "new": ""}, "Д4": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0)"], "new": ""}, "Д5": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0)"], "new": ""}, "Д6": {"cmd": [], "st": "no", "gaps": ["весь модуль — в коде нет (1.5.0, опция)"], "new": ""}};
-const ST={rel:'выпущено',new:'1.4.0',part:'частично',no:'нет в коде'};
+const MODINFO={"А1": {"cmd": ["demand collect"], "st": "rel", "gaps": ["опции: отзывы и форумы — в коде нет; карты сайтов конкурентов — разведкой А4, не источником спроса"], "new": ""}, "А2": {"cmd": ["cluster"], "st": "rel", "gaps": [], "new": ""}, "А3": {"cmd": ["map build", "freeze scan", "freeze accept"], "st": "new15", "gaps": ["история спроса у проекта копится с первого дозапроса облака Wordstat — платно, с ценой и «да»"], "new": "кандидат на заморозку по ряду спроса за два года; заморозка — решением человека (1.5.0)"}, "Б1": {"cmd": ["queue bet", "queue card", "bet propose"], "st": "rel", "gaps": [], "new": "решение Движка роста kill/scale меняет приоритет и закрывает направление (1.4.0)"}, "Б2": {"cmd": ["gate topic"], "st": "rel", "gaps": [], "new": ""}, "Б3": {"cmd": ["judge task", "judge check", "judge accept"], "st": "rel", "gaps": [], "new": ""}, "Б4": {"cmd": ["reserve list", "reserve release", "reserve convert"], "st": "rel", "gaps": [], "new": ""}, "Б5": {"cmd": ["queue build", "queue refill", "queue status", "queue take", "queue retake"], "st": "rel", "gaps": [], "new": "закрытое направление не даёт тем в очередь (1.4.0)"}, "В1": {"cmd": ["prepare top", "prepare donors"], "st": "rel", "gaps": [], "new": ""}, "В2": {"cmd": ["prepare brief", "prepare check", "prepare approve"], "st": "rel", "gaps": [], "new": ""}, "В3": {"cmd": ["write task"], "st": "rel", "gaps": [], "new": ""}, "В4": {"cmd": ["review task", "review check", "review accept"], "st": "rel", "gaps": [], "new": ""}, "В5": {"cmd": ["images plan", "images make", "images photo", "images upload", "images insert", "images backfill"], "st": "rel", "gaps": [], "new": ""}, "В6": {"cmd": ["assemble build", "assemble contract"], "st": "rel", "gaps": [], "new": ""}, "В7": {"cmd": ["gate article"], "st": "rel", "gaps": [], "new": ""}, "Г1": {"cmd": ["publish rollback", "publish apply", "publish prepare", "publish next"], "st": "rel", "gaps": [], "new": "право отката — ключами профиля (1.4.0)"}, "Г2": {"cmd": ["publish verify"], "st": "rel", "gaps": [], "new": "сеть не ответила — «не проверено» с повтором, а не «не доехало» (1.4.0)"}, "Г3": {"cmd": ["index submit", "index status"], "st": "rel", "gaps": [], "new": ""}, "Г4": {"cmd": ["publish record"], "st": "rel", "gaps": [], "new": ""}, "Д1": {"cmd": ["pulse run", "pulse notify"], "st": "new", "gaps": ["позиции — из консолей; Keys.so и Topvisor — не подключались (по решению)", "сводка в мессенджер — общий адаптер есть; у проекта канал не подключён"], "new": ""}, "Д2": {"cmd": ["bet backfill", "bet measure", "bet accept", "economics"], "st": "new", "gaps": ["деньги за окно — общий контракт есть; у проекта источник подключается адаптером (у первого — не подключён)"], "new": ""}, "Д3": {"cmd": ["audit run", "audit advice", "audit accept"], "st": "new", "gaps": ["скорость на мобильном — «не подключено»", "входящие ссылки (опция) — в коде нет", "задачи на склейку не выдаются, пока доля ложных тревог не замерена"], "new": ""}, "А4": {"cmd": ["competitors snap", "competitors pages", "field probe"], "st": "new15", "gaps": ["темы новых направлений для «поля шире» проект вписывает файлом", "новое направление в профиль вписывает человек"], "new": "разведка конкурентов: новые адреса между снимками карт и устройство их статей; «поле шире» — гейтом без сети (1.5.0)"}, "Д4": {"cmd": ["refresh scan", "refresh take"], "st": "new15", "gaps": [], "new": "дожим 4–15 и старых статей той же очередью и гейтом; пустой сдвиг даты — черновик; правка — в ту же запись (1.5.0)"}, "Д5": {"cmd": ["ai score", "ai citations"], "st": "new15", "gaps": ["обзоры поисковиков — источника нет", "трекер нейросетей создаёт человек, по согласию"], "new": "балл пригодности к цитированию; цитирование в ответах Алисы (Keys.so) и трекер — только чтением (1.5.0)"}, "Д6": {"cmd": ["behavior scan", "behavior accept", "behavior check"], "st": "new15", "gaps": ["опция: у проекта включается профилем и токеном", "воронка по шагам — оценка, не последовательная"], "new": "обрывы воронки, тупики, устройства, выпавшие страницы по отчётам Метрики; замер правки на 14-й и 28-й день (1.5.0)"}};
+const ST={rel:'выпущено',new:'1.4.0',new15:'1.5.0',part:'частично',no:'нет в коде'};
 const SRC={own:"своё",vas:"Васин",hyb:"гибрид"};
 const BASE=[
  ["Профиль проекта","Домены, разделы блога и продающих страниц, регион, ритм, режим публикации, направления и квоты, пороги анти-дублей, норма запаса, бюджет, провайдер картинок, роли моделей. Один файл."],

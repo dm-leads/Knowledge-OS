@@ -14,7 +14,7 @@ from typing import Callable
 
 import requests
 
-from ..core.errors import AccessDenied, EndpointNotAllowed, NotFound, QuotaExhausted, SourceError
+from ..core.errors import AccessDenied, EndpointNotAllowed, NotFound, QuotaExhausted, ReportPending, SourceError
 
 RETRY, STOP = "retry", "stop"
 
@@ -74,7 +74,7 @@ class ReadOnlyClient:
                         raise SourceError(f"{self.name} {endpoint}: ответ не JSON — {exc}") from exc
                     if isinstance(data, dict) and data.get("code") == 202:
                         if waited >= self.max_wait:
-                            raise SourceError(f"{self.name}: отчёт не готов за {self.max_wait} с")
+                            raise ReportPending(f"{self.name}: отчёт не готов за {self.max_wait} с")
                         self.sleep(self.wait_step)
                         waited += self.wait_step
                         continue

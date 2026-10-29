@@ -22,6 +22,8 @@ CHECK_TOP, KEYWORDS, COMPARE, LIMITS = ("tools/check-top", "report/simple/organi
                                         "limits/all")
 BATCH = 100          # большие списки одним запросом API не принимает; по документации — до 3000
 PER_PAGE = 1000
+AI_ANSWERS = "report/simple/organic/ai-answers"
+AI_PER_PAGE = 100
 
 
 class KeyssoSerp:
@@ -156,3 +158,41 @@ class KeyssoDemand:
                 row["competitor"] = competitor
                 rows.append(row)
         return rows
+
+
+class KeyssoAi:
+    """Цитирование сайта в ответах ИИ (Т37.2) — только чтение. Отчёт ответов Алисы (база `msk`) и трекер нейросетей,
+    созданный человеком: в белом списке — только чтение цитируемости трекера по его id; методов создания, правки и
+    запуска трекера у клиента нет (В16)."""
+    name = "keysso"
+
+    def __init__(self, api_key: str, *, tracker_id: str = "", transport=None, sleep=time.sleep):
+        allowed = {AI_ANSWERS, LIMITS}
+        self.tracker = f"ai_tracker/{tracker_id}/citation" if tracker_id else ""
+        if self.tracker:
+            allowed.add(self.tracker)
+        # каждый HTTP-запрос — единица предела квоты: без повторов и без ожидания «отчёт готовится» (202 — вернуть
+        # «готовится, повторить позже», а не опрашивать)
+        self.client = ReadOnlyClient(
+            "Keys.so", API, allowed,
+            {"X-Keyso-TOKEN": api_key, "Content-Type": "application/json", "Accept": "application/json"},
+            transport=transport, sleep=sleep, retries=1, max_wait=0)
+
+    def answers(self, domain: str, *, pages: int) -> dict:
+        """Запросы, в ответах Алисы на которые домен — среди источников; `pages` — предел страниц отчёта (запросов)."""
+        rows, total, used, start = [], None, 0, self.client.calls
+        for page in range(1, pages + 1):
+            data = self.client.call("GET", AI_ANSWERS, params={"base": "msk", "domain": domain, "page": page,
+                                                               "per_page": AI_PER_PAGE, "sort": "ws|desc"})
+            used += 1
+            total = data.get("total", total)
+            rows += data.get("data") or []
+            if page >= int(data.get("last_page") or 1):
+                break
+        return {"rows": rows, "total": total, "requests": self.client.calls - start}
+
+    def tracker_citation(self) -> dict:
+        if not self.tracker:
+            raise NotFound("трекер нейросетей не указан (ai_visibility.tracker_id)")
+        return self.client.call("GET", self.tracker)
+
