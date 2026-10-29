@@ -45,7 +45,8 @@ def gate(instance, price_rub: float, *, confirm: float | None, unattended: bool,
 
 
 def paid_call(instance, topic_id: str, step: str, price_rub: float, call: Callable[[], object], *,
-              confirm: float | None, unattended: bool, what: str, source: str):
+              confirm: float | None, unattended: bool, what: str, source: str,
+              spent_if_broken: Callable[[], float] | None = None):
     """Гейт → вызов → строка расхода (оценка по прайсу провайдера; факт пишет адаптер, если цена пришла в ответе)."""
     from . import locks
     with locks.held(instance, "budget", "spend"):      # проверка, вызов и запись расхода — одним куском
@@ -55,7 +56,10 @@ def paid_call(instance, topic_id: str, step: str, price_rub: float, call: Callab
             result = call()
         except Exception:
             # прогон оборвался — часть вызовов уже оплачена: расход пишется оценкой, месячный потолок не занижается
-            spend.add(instance, topic_id, step, "rub", round(price_rub, 2), ESTIMATE, source + " (прогон оборвался)")
+            # прогон оборвался: оценка — по полученным ответам, если шаг их считает, иначе полная цена (не занижать)
+            broken = round(spent_if_broken(), 2) if spent_if_broken is not None else round(price_rub, 2)
+            spend.add(instance, topic_id, step, "rub", broken, ESTIMATE, source + " (прогон оборвался"
+                      + (f": оплачено ответов на {broken:.2f} ₽ из {price_rub:.2f} ₽)" if spent_if_broken is not None else ")"))
             raise
         spend.add(instance, topic_id, step, "rub", round(price_rub, 2), ESTIMATE, source)
     return result

@@ -106,6 +106,7 @@ def _fetch(instance, phrases: list[str]) -> int:
     price = round(w["cloud_price_rub"] * len(phrases), 2)
 
     rows: list[dict] = []
+    done = {"phrases": 0}
 
     def run():
         cloud = CloudWordstat(instance)
@@ -113,12 +114,14 @@ def _fetch(instance, phrases: list[str]) -> int:
             for month, count in cloud.dynamics(phrase, instance.p["freeze"]["months"]):
                 rows.append({"phrase": phrase, "month": month, "count": count, "source": "wordstat:cloud",
                              "as_of": instance.today.isoformat()})
+            done["phrases"] += 1
         return rows
     try:
         budget.paid_call(instance, "спрос", "freeze", price, run, confirm=getattr(instance, "confirm_spend", None),
                          unattended=getattr(instance, "unattended", False),
                          what=f"Wordstat облако: ряд по {len(phrases)} фразам",
-                         source=f"sources.wordstat.cloud_price_rub × {len(phrases)}")
+                         source=f"sources.wordstat.cloud_price_rub × {len(phrases)}",
+                         spent_if_broken=lambda: w["cloud_price_rub"] * done["phrases"])
     except Exception:
         if rows:                                       # оплаченные ряды до сбоя не теряются
             merge(instance, rows)

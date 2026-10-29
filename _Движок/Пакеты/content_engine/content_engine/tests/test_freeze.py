@@ -149,3 +149,33 @@ def test_zero_month_without_count_and_rows_kept_on_failure(project, monkeypatch)
         freeze.scan(i, fetch=True)
     rows = store.read_jsonl(freeze.history_path(i))
     assert len(rows) == 24 and {r["count"] for r in rows} == {0.0, 30.0}      # ряд до сбоя сохранён, ноль — ноль
+
+
+def test_broken_run_spend_counts_received_answers(project, monkeypatch):
+    from content_engine.adapters import wordstat
+    calls = []
+
+    class Cloud:
+        def __init__(self, instance):
+            pass
+
+        def dynamics(self, phrase, months=24):
+            if calls:
+                raise wordstat.SourceError("429 — лимит исчерпан")
+            calls.append(phrase)
+            return [(m, 30.0) for m in MONTHS]
+    monkeypatch.setattr(wordstat, "CloudWordstat", Cloud)
+    i = Instance(project, today=TODAY)
+    i.confirm_spend = 1.0
+    _clusters(i, {"c1": "обогрев теплицы", "c2": "полив газона", "c3": "укрытие роз"})
+    with pytest.raises(Exception):
+        freeze.scan(i, fetch=True)
+    rows = [r for r in store.read_jsonl(i.file("spend")) if r["step"] == "freeze"]
+    price = i.p["sources"]["wordstat"]["cloud_price_rub"]
+    assert rows[-1]["value"] == round(price * 1, 2) and "оплачено ответов" in rows[-1]["source"]
+
+
+def test_missing_registry_names_next_step(project):
+    from content_engine.core.errors import StoreError
+    with pytest.raises(StoreError, match="сначала `content-engine demand collect`"):
+        store.read_jsonl(Instance(project, today=TODAY).file("demand"))

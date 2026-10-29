@@ -27,6 +27,16 @@ def _check_version(path: Path, version):
         raise StoreError(f"{path.name}: версия схемы {version!r}, пакет понимает {SCHEMA_VERSION}")
 
 
+# реестр, который строит команда машины, — подсказка следующего шага для нового проекта вместо голого «не найден»
+PRODUCED_BY = {"demand.jsonl": "demand collect", "clusters.json": "cluster", "demand_map.json": "map build",
+               "queue.json": "queue build"}
+
+
+def _missing(what: str, path) -> str:
+    step = PRODUCED_BY.get(Path(path).name)
+    return f"{what}: {path}" + (f" — ещё не собран: сначала `content-engine {step}`" if step else "")
+
+
 def write_json(path, kind: str, records: list, *, meta: dict | None = None, source_count: int | None = None) -> str:
     """Записать реестр и прочитать обратно. Вернуть строку сверки «записано N — прочитано N»."""
     path = Path(path)
@@ -49,7 +59,7 @@ def read_json(path, kind: str, *, missing_ok: bool = False) -> dict:
     if not path.is_file():
         if missing_ok:
             return {"schema_version": SCHEMA_VERSION, "kind": kind, "records": []}
-        raise StoreError(f"реестр не найден: {path}")
+        raise StoreError(_missing("реестр не найден", path))
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -83,7 +93,7 @@ def read_jsonl(path, *, missing_ok: bool = False) -> list[dict]:
     if not path.is_file():
         if missing_ok:
             return []
-        raise StoreError(f"файл не найден: {path}")
+        raise StoreError(_missing("файл не найден", path))
     rows = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
