@@ -179,3 +179,12 @@ def test_weak_by_share_of_measured():
     assert ai.weak({"score": 3, "max": 4}, 4) is False           # 3 из 4 измеренных ≥ 4 из 6
     assert ai.weak({"score": 2, "max": 4}, 4) is True
     assert ai.weak({"score": 0, "max": 0}, 4) is False           # ничего не измерено — не «слабая»
+
+
+def test_citations_report_pending_is_not_failure(keysso_on):
+    set_profile(keysso_on, lambda d: d["ai_visibility"].update(max_quota=1))
+
+    def api(method, url, **kw):
+        return Response(202, {"code": 202})
+    out = ai.citations(Instance(keysso_on, today=TODAY), transport=api)
+    assert out["status"] == "готовится" and not (keysso_on.parent / "data" / "ai_citations").exists()

@@ -6,7 +6,8 @@
   в `robots.txt` своего домена. Последний признак — один GET; с `--offline` или при ошибке сайта — «нет данных», и балл
   считается из пяти с пометкой. Итог — `data/ai_visibility.jsonl`; ниже `min_score` — кандидат дожима (`refresh scan`).
 - `citations [--max-quota N]` — цитирование сайта (Т37.2) по `ai_visibility.citations`: `none` — «не подключено»;
-  `keysso` — отчёт ответов Алисы Keys.so (база Москвы): только запросы, в ответах на которые сайт — среди источников;
+  `keysso` — отчёт ответов Алисы Keys.so (база Москвы): запросы сайта, на которые у Алисы есть ответ; сайт среди
+  источников — не у всех (живой прогон: 448 из 500), поэтому цитирование считается по строкам, а не по итогу отчёта;
   `keysso_tracker` — чтение трекера нейросетей, созданного человеком (В16). Квота — не деньги, но с пределом до запроса:
   `--max-quota` или `ai_visibility.max_quota`; предела нет — отказ без запроса (с `--unattended` — только профиль).
   Снимок `data/ai_citations/<день>.json`; динамика — против прошлого снимка, с интервалом в днях. Обзоры поисковиков —
@@ -20,7 +21,7 @@ from datetime import date
 from urllib.parse import unquote
 
 from ..core import store
-from ..core.errors import GateRefused, SourceError, source_failures
+from ..core.errors import GateRefused, ReportPending, SourceError, source_failures
 from ..core.number import NO_DATA
 from ..core.urls import host_unicode, is_own, norm_url
 
@@ -203,6 +204,9 @@ def citations(instance, *, max_quota: int | None = None, transport=None) -> dict
                        percent=data.get("percent"), delta_percent=data.get("delta_percent"),
                        total_matched=data.get("total_matched"), total_with_sources=data.get("total_with_sources"),
                        chart=data.get("chart") or {})
+    except ReportPending:
+        return {**out, "status": "готовится", "why": "Keys.so строит отчёт — повторить через несколько минут; "
+                                                  "снимок не записан"}
     except source_failures() as exc:
         return {**out, "status": "источник не ответил", "why": str(exc)}
     prev = _previous(instance)
@@ -239,8 +243,10 @@ def render_citations(out: dict) -> str:
     if out["status"] != "ок":
         return f"Цитирование: {out['status']} — {out.get('why', '')}"
     if out["via"] == "keysso":
-        lines = [f"Цитирование в ответах Алисы (Keys.so, база Москвы): запросов с сайтом в источниках — {out['total']} "
-                 f"(факт отчёта на {out['date']}); разобрано {out['fetched']}, запросов к API {out['requests']}"]
+        share = f"{out['cited'] / out['fetched']:.0%}" if out["fetched"] else "нет данных"
+        lines = [f"Ответы Алисы по запросам сайта (Keys.so, база Москвы): в отчёте {out['total']} запросов (факт на "
+                 f"{out['date']}); разобрано {out['fetched']}, сайт среди источников — {out['cited']} ({share}); "
+                 f"запросов к API {out['requests']}"]
         lines += [f"- {u}: {n}" for u, n in out["pages"][:15]]
     else:
         lines = [f"Цитирование по трекеру: {out.get('percent')} % ответов с источниками (изменение "
@@ -279,4 +285,4 @@ def run(args) -> int:
         return 0
     out = citations(instance, max_quota=args.max_quota)
     print(json.dumps(out, ensure_ascii=False, indent=1) if args.json else render_citations(out))
-    return 0 if out["status"] in ("ок", "не подключено") else 3
+    return 0 if out["status"] in ("ок", "не подключено", "готовится") else 3
