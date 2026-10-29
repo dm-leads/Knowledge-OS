@@ -29,6 +29,10 @@ DIMENSION_PAGE = "landing_page"
 # одной поисковой системы: «seo › /catalog» складывает Яндекс с Google, и эффект в одной системе тонет в другой.
 DIMENSION_2_PAGE = "marker_level_2_landing_page"
 SECOND = {DIMENSION_2: (DIMENSION_2,), DIMENSION_PAGE: (DIMENSION_PAGE,), DIMENSION_2_PAGE: (DIMENSION_2, DIMENSION_PAGE)}
+# Страница входа по всем маркерам потока (1.6.0): «путь» без маркера — сумма маркеров, которые входят в поток запроса.
+# Нужна, когда изменение касается страницы целиком (её первый экран видят все каналы): одна страница — одно число, а не
+# столько сегментов, сколько каналов, и доля страницы считается без складывания сегментов в ответе агента.
+PAGE_TOTAL = "landing_page_total"
 EMPTY_MARKER = "(пусто)"   # у прямых визитов маркер пустой, а сегмент обязан иметь значение
 
 
@@ -88,8 +92,10 @@ class RoistatAdapter:
         if not url:
             return ""
         path = url.split("://", 1)[-1]
+        # Хвост отрезается до отделения домена: в «x.ru?from=/catalog» косая черта хвоста — не путь страницы (1.6.0).
+        path = path.split("?", 1)[0].split("#", 1)[0].split("&", 1)[0]
         path = "/" + path.split("/", 1)[1] if "/" in path else "/"
-        return path.split("?", 1)[0].split("#", 1)[0].split("&", 1)[0].rstrip("/") or "/"
+        return path.rstrip("/") or "/"
 
     @staticmethod
     def _label(marker: str, second: str, depth: int) -> str:
@@ -103,11 +109,12 @@ class RoistatAdapter:
         return (marker in no_visit) == (flow == "no_visit")
 
     def fetch(self, query: Query) -> list[Number]:
-        if query.breakdown not in (None, DIMENSION, *SECOND):
+        if query.breakdown not in (None, DIMENSION, PAGE_TOTAL, *SECOND):
             raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {DIMENSION}, "
-                                      f"{', '.join(SECOND)}")
-        depth = 2 if query.breakdown in SECOND else 1
-        second_dimension = query.breakdown if query.breakdown in SECOND else DIMENSION_2
+                                      f"{PAGE_TOTAL}, {', '.join(SECOND)}")
+        page_total = query.breakdown == PAGE_TOTAL
+        depth = 2 if query.breakdown in SECOND or page_total else 1
+        second_dimension = DIMENSION_PAGE if page_total else (query.breakdown if query.breakdown in SECOND else DIMENSION_2)
         if query.scope not in self.section["scopes"]:
             raise GuardViolation(9, f"кабинет «{query.scope}» не объявлен в конфигурации")
         if query.flow not in self.cfg.flows:
@@ -129,6 +136,16 @@ class RoistatAdapter:
             raise GuardViolation(13, f"Т3: у маркеров потока без визита появились визиты: {drift}",
                                  GuardViolation.COVERAGE)
         selected = [row for row in rows if self._in_flow(row[0], no_visit, query.flow)]
+        if page_total:
+            # Маркеры потока складываются по странице: поток уже отобран, поэтому сумма не смешивает веб с потоком
+            # без визита. Пустой путь (сделка без визита) остаётся отдельной строкой «(пусто)».
+            pages: dict = {}
+            for _, page, values in selected:
+                pages.setdefault(page or EMPTY_MARKER, []).append(values.get(metric_name, 0.0))
+            return [Number(**common, segment=f"{PAGE_TOTAL}={page}",
+                           status=Status.PROXY if money else Status.FACT, value=sum(parts),
+                           missing="деньги по странице зависят от атрибуции сквозной аналитики" if money else "")
+                    for page, parts in sorted(pages.items())]
         if query.breakdown is not None:
             return [Number(**common, segment=f"{query.breakdown}={self._label(marker, second, depth)}",
                            status=Status.PROXY if money else Status.FACT, value=values.get(metric_name, 0.0),
