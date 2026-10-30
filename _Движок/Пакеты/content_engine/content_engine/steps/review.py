@@ -42,13 +42,14 @@ IMAGE_LINE = re.compile(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$")
 
 
 IMAGE_URL = re.compile(r"(!\[[^\]]*\])\([^)]*\)")
+ALT_LINE = re.compile(r"^\s*!\[([^\]]*)\]\s*$")             # строка-картинка после снятия адреса
 
 
 def normalized_text(text: str) -> str:
     """Текст для суммы вычитки: адреса картинок и поле `image` шапки сняты, alt и всё остальное — на месте.
 
-    Вставка картинки (`images insert`) утверждений не меняет и вычитку не сбрасывает; правка слов — и в alt тоже —
-    сбрасывает. Поле `image` снимается только в шапке YAML, строка «image:» в теле — обычный текст."""
+    Сменить адрес картинки — сумма та же; правка слов — и в alt тоже — сумму меняет. Вставку картинок по плану после
+    вычитки `check` распознаёт отдельно (`same_as_checked`). Поле `image` снимается только в шапке YAML, строка «image:» в теле — обычный текст."""
     text = text.replace("\r\n", "\n")
     head, body = "", text
     if text.startswith("---\n") and "\n---" in text[4:]:
@@ -61,6 +62,49 @@ def normalized_text(text: str) -> str:
 
 def text_digest(path: Path) -> str:
     return hashlib.sha256(normalized_text(Path(path).read_bytes().decode("utf-8")).encode("utf-8")).hexdigest()
+
+
+def _plan_alts(instance, tid: str) -> set[str]:
+    path = instance.brief_dir(tid) / "images.json"
+    try:
+        items = (json.loads(path.read_text(encoding="utf-8")) or {}).get("images") or []
+        return {i["alt"] for i in items if isinstance(i, dict) and isinstance(i.get("alt"), str) and i["alt"]}
+    except (OSError, ValueError, AttributeError):  # плана нет или он битый — вычитка сбрасывается, а не падает
+        return set()
+
+
+def without_inserted_images(text: str, alts: set[str]) -> str:
+    """Нормализованный текст без строк-картинок, чей alt взят из плана картинок темы, и без пустых строк подряд.
+
+    Так вставка по плану (`images insert`) после вычитки не сбрасывает её, а alt, правленный в тексте руками, —
+    сбрасывает: его нет в плане, строка остаётся в тексте. Граница: alt из плана вычиткой не покрыт — правку alt в
+    `images.json` вместе с текстом вычитка не увидит."""
+    lines = [l for l in normalized_text(text).split("\n")
+             if not ((m := ALT_LINE.match(l)) and m.group(1) in alts)]
+    out = []
+    for line in lines:
+        if line == "" and out and out[-1] == "":
+            continue
+        out.append(line)
+    return "\n".join(out).strip()
+
+
+def same_as_checked(instance, tid: str, folder: Path, article: Path) -> bool:
+    """Текст тот же, что вычитан: сумма совпала или отличие — только картинки, вставленные по плану.
+
+    Копия вычитанного текста лежит в папке вычитчика — ей верим, только если её сумма равна записанной в начале
+    круга: правленая копия не может «узаконить» те же правки в статье."""
+    meta = json.loads((folder / META).read_text(encoding="utf-8"))
+    if meta.get("article_digest") == text_digest(article):
+        return True
+    snapshot = folder / "article.md"
+    if not snapshot.is_file() or text_digest(snapshot) != meta.get("article_digest"):
+        return False
+    alts = _plan_alts(instance, tid)
+    if not alts:
+        return False
+    return (without_inserted_images(snapshot.read_bytes().decode("utf-8"), alts)
+            == without_inserted_images(article.read_bytes().decode("utf-8"), alts))
 
 
 def factcheck_dir(instance, tid: str) -> Path:
@@ -218,7 +262,8 @@ def check(instance, tid: str) -> dict:
     decisions = _decisions(folder)
     open_items = []
     sha = text_digest(article) if article.is_file() else ""
-    if meta.get("article_digest") != sha:
+    current = article.is_file() and same_as_checked(instance, tid, folder, article)
+    if not current:
         open_items.append("текст изменился после вычитки — `review task` заново (новый круг)")
     text = article.read_text(encoding="utf-8") if article.is_file() else ""
     open_items += open_claims(rows, decisions, text)
@@ -226,7 +271,6 @@ def check(instance, tid: str) -> dict:
               "open": open_items, "claims": len(rows), "confirmed": sum(r["result"] == "confirmed" for r in rows)}
     (instance.brief_dir(tid) / "review.json").write_text(json.dumps(report, ensure_ascii=False, indent=1),
                                                           encoding="utf-8", newline="\n")
-    current = meta.get("article_digest") == sha
     confirmed = [r for r in rows if r["result"] == "confirmed"] if current else []
     added, text = facts.add(instance, [{
         "fact": r["claim"], "value": (re.findall(r"\d+(?:[.,]\d+)?", r["claim"]) or [r["claim"]])[0], "unit": "",

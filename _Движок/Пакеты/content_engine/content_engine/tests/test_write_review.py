@@ -181,6 +181,42 @@ def test_old_claims_do_not_close_new_text(inst, project):  # noqa: F811
     assert check_topic(instance, TID, **ALIVE)["verdict"] == DRAFT
 
 
+def test_images_inserted_after_review_keep_it(inst, project):  # noqa: F811
+    """Картинки по плану, вставленные после вычитки, её не сбрасывают; alt, правленный руками, — сбрасывает."""
+    ready_topic(inst)
+    instance = Instance(project, today=TODAY)
+    review.factcheck_task(instance, TID)
+    claims(instance, [{"n": 1, "claim": "чеснок сажают осенью", "type": "product", "source": "https://example.org/a",
+                       "result": "confirmed"}])
+    assert review.check(instance, TID)["clean"]
+    folder = instance.brief_dir(TID)
+    (folder / "images.json").write_text(json.dumps({"images": [{"n": 2, "alt": "Грядка чеснока осенью"}]},
+                                                   ensure_ascii=False), encoding="utf-8")
+    article = folder / "article.md"
+    clean = article.read_text(encoding="utf-8")
+    first_break = clean.index("\n\n", clean.index("\n---", 4) + 4)
+    with_image = (clean[:first_break] + "\n\n![Грядка чеснока осенью](https://cdn.example.ru/2.jpg)"
+                  + clean[first_break:])
+    article.write_text(with_image, encoding="utf-8")
+    fc = review.factcheck_dir(instance, TID)
+    meta = json.loads((fc / review.META).read_text(encoding="utf-8"))
+    assert review.text_digest(article) != meta["article_digest"]          # проходит новая ветка, не сумма
+    report = review.check(instance, TID)
+    assert report["clean"], report["open"]
+    assert "в библиотеку фактов не идёт" not in report["library"]
+    article.write_text(with_image.replace("Грядка чеснока осенью", "Грядка чеснока даёт урожай вдвое"),
+                       encoding="utf-8")
+    assert not review.check(instance, TID)["clean"]                       # alt вне плана — новые слова
+    article.write_text(with_image + "\nУрожай вырастет вдвое.\n", encoding="utf-8")
+    assert not review.check(instance, TID)["clean"]                       # слова вместе с картинкой
+    snapshot = fc / "article.md"
+    snapshot.write_text(snapshot.read_text(encoding="utf-8") + "\nУрожай вырастет вдвое.\n", encoding="utf-8")
+    assert not review.check(instance, TID)["clean"]                       # правленая копия не узаконит правку
+    (folder / "images.json").write_text('{"images": ["x"]}', encoding="utf-8")
+    article.write_text(with_image, encoding="utf-8")
+    assert not review.check(instance, TID)["clean"]                       # битый план — сброс, а не падение
+
+
 def test_remove_needs_claim_gone_from_text(inst, project):  # noqa: F811
     ready_topic(inst)
     instance = Instance(project, today=TODAY)
