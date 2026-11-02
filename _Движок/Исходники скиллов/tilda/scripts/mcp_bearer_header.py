@@ -3,8 +3,8 @@
 Читает токен из файла секретов по имени переменной и печатает в stdout JSON
 {"Authorization": "Bearer <токен>"}. Stdout забирает Claude Code, в чат он не попадает.
 
-Запуск: python mcp_bearer_header.py <ИМЯ_ПЕРЕМЕННОЙ>
-Файл секретов: переменная окружения SECRETS_ENV_FILE, иначе путь по умолчанию ниже.
+Запуск: python mcp_bearer_header.py <ИМЯ_ПЕРЕМЕННОЙ> [<файл секретов>]
+Файл секретов: второй аргумент, иначе переменная SECRETS_ENV_FILE, иначе путь по умолчанию ниже.
 Порядок поиска: сначала окружение процесса, потом файл секретов.
 Значение токена никогда не печатается в stderr и в сообщения об ошибках.
 """
@@ -38,13 +38,13 @@ def read_from_env_file(path: str, name: str) -> str | None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        sys.stderr.write("mcp_bearer_header: usage: mcp_bearer_header.py <VAR_NAME>\n")
+    if len(sys.argv) not in (2, 3):
+        sys.stderr.write("mcp_bearer_header: usage: mcp_bearer_header.py <VAR_NAME> [<secrets .env>]\n")
         return 2
     name = sys.argv[1]
-    token = os.environ.get(name) or read_from_env_file(
-        os.environ.get("SECRETS_ENV_FILE", DEFAULT_ENV_FILE), name
-    )
+    # Файл секретов: второй аргумент (ключи проекта в его контуре) > SECRETS_ENV_FILE > по умолчанию
+    env_file = sys.argv[2] if len(sys.argv) == 3 else os.environ.get("SECRETS_ENV_FILE", DEFAULT_ENV_FILE)
+    token = os.environ.get(name) or read_from_env_file(env_file, name)
     if not token:
         sys.stderr.write(f"mcp_bearer_header: variable {name} not found or empty\n")
         return 1
