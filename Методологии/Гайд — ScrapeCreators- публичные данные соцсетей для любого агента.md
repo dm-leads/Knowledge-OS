@@ -182,6 +182,7 @@ print(data.get("credits_charged"), data.get("credits_remaining"))
 | Instagram Reels | поля в `items[].media`: просмотры — `play_count`, дата — `taken_at`; подпись бывает пустой (`caption: null`); первым в ленте может стоять закреплённый старый ролик |
 | YouTube Shorts | `shorts[].viewCountInt`, дата — `publishDate` (иногда пусто) |
 | Telegram | `posts[].view_count`, дата — `published_at`; страница ~16 постов, дальше `cursor` при `has_more` |
+| Telegram, группы и чаты | только каналы: открытые группы отдают 404 «public web preview is unavailable» (03.11.2026); переписку групп, комментарии и участников читает только API Telegram через аккаунт. 404 кредитов не стоит |
 | TikTok | `aweme_list[].statistics.play_count`, дата — `create_time`; страница — `max_cursor` |
 | Медиана | один хит в миллионы ломает среднее; смотреть медиану без хитов и хиты отдельно |
 | Окно | ролики старше 30 дней в кабинете не видны, а публично видны — хиты прошлых месяцев находятся только так |
