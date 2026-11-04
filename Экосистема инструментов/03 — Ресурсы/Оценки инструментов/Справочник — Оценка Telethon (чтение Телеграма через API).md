@@ -75,8 +75,9 @@ Python 3, `uv`; Телеграм-аккаунт, на телефон котор�
   you just created)»; VoIP-номера банят чаще (FAQ Telethon). Точных лимитов «nobody knows» (Telethon, errors).
 - **Флуд:** `FloodWaitError` — Telegram сам говорит, сколько ждать; до 60 с библиотека ждёт сама
   (`flood_sleep_threshold`). `PeerFloodError` — признак ограничения аккаунта, проверяется в @SpamBot.
-- **Данные:** условия API запрещают обучать и дообучать модели на данных Телеграма (core.telegram.org/api/terms,
-  п. 1.5); оценка сообщений моделью — не обучение. Ники и сообщения людей — персональные данные: правила — в
+- **Данные и ИИ:** условия Telegram API, п. 1.5, целиком: «you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train, fine-tune or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models and similar technologies»; условия Content Licensing: «Telegram firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence…» и «Access to user-generated content for any purpose other than ordinary, legitimate, and intended use of the Telegram platform as its user is prohibited». Исключение — явное, информированное согласие всех пользователей конкретного чата. Значит, прогонять сообщения Телеграма через модель (в том числе решатель) — против
+  условий площадки, если нет согласия участников чата; чтение человеком в обычном объёме — нет. Первая редакция
+  («оценка моделью — не обучение») была неверной — исправлено 04.11.2026. Ники и сообщения людей — персональные данные: правила — в
   [Политике персональных данных](<../../../Методологии/Политика — Персональные данные, секреты и доступ к внешним системам.md>)
   и разборе [«Ловец лидов»](<../../../Методологии/Эфиры (разборы)/NOTE-SRC — Ловец лидов (Кадыров, Альфа-Курс, 2026-11-03).md>).
 
@@ -92,7 +93,8 @@ Python 3, `uv`; Телеграм-аккаунт, на телефон котор�
 
 ## Вердикт
 
-**Забрать для чтения.** Условия: отдельный устоявшийся аккаунт (не основной владельца, не рабочий аккаунт
+**Забрать для чтения человеком и подсчёта; разметку моделью сообщений Телеграма — нет** (условия площадки, п. 7).
+Условия: отдельный устоявшийся аккаунт (не основной владельца, не рабочий аккаунт
 компании, не только что зарегистрированный); только открытые группы; вступать по несколько в день; из кода ничего
 не отправлять — ни сообщений, ни реакций; сессия — секрет; изолированное окружение `uv`. Первое применение —
 пилот ловца лидов «Учебного центра» (04.11.2026).
