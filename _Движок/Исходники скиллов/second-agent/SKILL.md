@@ -95,6 +95,10 @@ command -v codex >/dev/null 2>&1 && codex --version || echo "codex недост�
 Проверено 03.09.2026: там стоит `gpt-5.6-terra`. Название навыка плагина `gpt-5-4-prompting` — это гайд по
 стилю промптов, **а не выбор модели**; путать не надо.
 
+**Причина «model is not supported» бывает в старой версии CLI, а не во входе.** Проверено 04.11.2026: `codex` из PATH (npm, 0.149.1) отвечает 400 на gpt-6.1-sol, gpt-6.1-terra, gpt-6-sol; свежий `codex.exe` 0.166, который ставит приложение Codex для Windows (`%LOCALAPPDATA%\OpenAI\Codexin\<хэш>\codex.exe`; ещё одна копия — в расширении Cursor/VS Code `openai.chatgpt-*`), на тех же моделях работает. Сначала сравнить `codex --version` с полем `client_version` в `~/.codex/models_cache.json` и запускать самую свежую копию по полному пути; ставить или обновлять ничего не нужно.
+
+**Параллельные запуски.** Три `codex exec` одновременно на ноутбуке владельца упали с «memory allocation failed» и переполнением стека (04.11.2026) — при пакетах по ~100 КБ запускать по одному.
+
 **Модель из настроек может быть недоступна этому входу.** Проверено 10.10.2026: в настройках стоит
 `gpt-6.1-sol`, а сервер отвечает ошибкой 400 `The 'gpt-6.1-sol' model is not supported when using Codex with a
 ChatGPT account` — и в CLI, и через плагин (`codex-companion.mjs task`): это одна и та же обёртка над тем же
