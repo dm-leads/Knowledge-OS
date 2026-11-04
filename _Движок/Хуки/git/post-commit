@@ -1,0 +1,10 @@
+#!/bin/sh
+# Канон Knowledge-OS: после коммита — скан добавленных строк и отправка на GitHub (kos_sync.py push).
+# Подключение: py -3 _Движок/Инструменты/kos_sync.py install (core.hooksPath). Коммит хук не роняет.
+[ -n "$KOS_SYNC" ] && exit 0
+top=$(git rev-parse --show-toplevel)
+gd=$(git rev-parse --git-dir)
+[ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ] && exit 0
+if command -v py >/dev/null 2>&1; then PY="py -3"; else PY=python3; fi
+$PY "$top/_Движок/Инструменты/kos_sync.py" push --hook || true
+exit 0

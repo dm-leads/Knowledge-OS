@@ -35,6 +35,22 @@ tags:
 
 Тесты: из этой папки `py -3 -m pytest -q -p no:cacheprovider`.
 
+## Синхронизация канона с GitHub (с 04.11.2026)
+
+| Хук | Событие | Что делает | Тест |
+|---|---|---|---|
+| `git/post-commit` | коммит в репозитории канона | `kos_sync.py push`: скан добавленных строк на секреты и ПДн → `git push --follow-tags`; секрет — отправка останавливается | `../Инструменты/test_kos_sync.py` |
+| `kos_sync.py pull --brief` | `SessionStart` Claude Code | Подтягивает GitHub (только перемотка вперёд) и пишет агенту строку «канон: …» | там же |
+
+Подключение: git-хук — `py -3 "D:/Knowledge-OS/_Движок/Инструменты/kos_sync.py" install` (ставит `core.hooksPath`
+канона на `_Движок/Хуки/git`); хук сессии — в `~/.claude/settings.json`:
+
+```json
+"SessionStart": [{"hooks": [{"type": "command",
+  "command": "PYTHONIOENCODING=utf-8 python \"D:/Knowledge-OS/_Движок/Инструменты/kos_sync.py\" pull --brief",
+  "timeout": 25, "statusMessage": "Канон: синхронизация с GitHub"}]}]
+```
+
 # Связанные документы
 
 - [Бутстрап — Настройка движка Knowledge-OS](<../Сценарии/Бутстрап — Настройка движка Knowledge-OS.md>)
