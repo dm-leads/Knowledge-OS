@@ -264,12 +264,17 @@ def closed_months(today: date, count: int) -> list[tuple[date, date]]:
 def check_revisions(stored, fresh, tolerance: Tolerance) -> list[Check]:
     """Пересмотры задним числом: свежее число сравнивается с последним более ранним съёмом той же величины той же системы
     в хранилище. В хранилище только сегодняшний съём — сравнивать не с чем (не проверено); окна в хранилище нет —
-    покрытие."""
+    покрытие.
+
+    Прежний съём — только того же статуса. Эффект гипотезы (оценка) лежит по адресу факта: тот же показатель, кабинет,
+    окно и система (BACKLOG Движка роста, п. 11). Без отбора по статусу гейт брал оценку эффекта «прежним съёмом» факта
+    и показывал ложный пересмотр — viklimat 04.11.2026: оплаты октября 55 против эффекта 2,372 «съёма 10.10»."""
     stored = [number for number in stored if number.as_of is not None]
     checks = []
     for number in fresh:
         same = [x for x in stored
-                if _key(x) == _key(number) and x.unit == number.unit and x.source_system == number.source_system]
+                if _key(x) == _key(number) and x.unit == number.unit and x.source_system == number.source_system
+                and x.status == number.status]
         earlier = [x for x in same if x.as_of < number.as_of]
         label = f"{number.metric} · кабинет {number.scope} · окно {_window(number)}"
         if earlier:
