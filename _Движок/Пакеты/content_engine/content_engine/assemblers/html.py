@@ -81,8 +81,11 @@ class HtmlAssembler:
         day = art.get("datePublished", self.instance.today.isoformat())
         author = (art.get("author") or {}).get("name", "")
         micro = self.instance.p["assemble"]["schema_format"] == "microdata"
+        from ..steps.schema import page_fields
+        head = page_fields(self.instance.p, meta, brief)
+        title = head["title"] or h1
         page = Template(template_text(self.instance)).safe_substitute(
-            title=html.escape(str(brief.get("title") or h1)), description=html.escape(str(brief.get("description") or "")),
+            title=html.escape(title), description=html.escape(head["description"]),
             canonical=html.escape(canonical),
             schema_script="" if micro else
             '<script type="application/ld+json">' + json.dumps({k: v for k, v in schema.items() if k != "slug"},
@@ -95,8 +98,8 @@ class HtmlAssembler:
         (self.out_dir / "schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=1), encoding="utf-8",
                                                   newline="\n")
         (self.out_dir / "text.txt").write_text(plain(body) + "\n", encoding="utf-8", newline="\n")
-        manifest = {"id": brief.get("id", ""), "built": day, "title": str(brief.get("title") or h1),
-                    "description": str(brief.get("description") or ""), "slug": str(brief.get("slug") or ""),
+        manifest = {"id": brief.get("id", ""), "built": day, "title": title,
+                    "description": head["description"], "slug": str(brief.get("slug") or ""),
                     "h1": h1, "canonical": canonical, "main": "article.html", "blocks": ["article.html"],
                     "read_also": [norm_url(x) if x.startswith("http") else x for x in read_also_links(body)],
                     "assembler": self.name, "schema_format": self.instance.p["assemble"]["schema_format"],

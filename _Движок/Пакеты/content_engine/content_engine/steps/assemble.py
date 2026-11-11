@@ -27,6 +27,7 @@ from . import queue as queue_mod
 
 CONTRACT_ARTICLE = """---
 title: Синтетическая статья для проверки сборщика
+description: Описание из шапки текста — оно главнее брифа, сборщик берёт его правилом гейта статьи.
 ---
 
 # Как ухаживать за садовым инвентарём
@@ -226,6 +227,11 @@ def build(instance, tid: str) -> tuple[Package, list[dict]]:
     brief = {**load_brief(instance, tid), "id": tid}
     assembler = load_assembler(instance)(instance, out)
     package = assembler.build(folder / "article.md", json.loads(schema_path.read_text(encoding="utf-8")), [], brief)
+    wrong = page_field_mismatch(instance, folder / "article.md", brief, package.manifest)
+    if wrong:
+        raise GateRefused(f"тема {tid}: сборщик {instance.p['assemble']['adapter']} положил в манифест не те поля "
+                          f"страницы ({'; '.join(wrong)}) — title и description берутся правилом гейта статьи "
+                          "(`schema.page_fields`: шапка текста, чего в ней нет — бриф)")
     notes = strip_package_comments(package)
     package = write_manifest(out, {k: v for k, v in package.manifest.items()
                                    if k not in ("files", "schema_version", "kind")}, list(package.manifest["files"]))
@@ -239,6 +245,19 @@ def build(instance, tid: str) -> tuple[Package, list[dict]]:
         meta.update(refresh_page=topic["page"], refresh_slug=topic["slug"])
     package = write_manifest(out, meta, list(package.manifest["files"]))
     return package, results
+
+
+def page_field_mismatch(instance, article_path: Path, brief: dict, manifest: dict) -> list[str]:
+    """title и description манифеста против `schema.page_fields` (1.5.4): манифест — эталон «доехало» и вставки.
+
+    Сборщик проекта мог взять поля из брифа, а описание, уточнённое на вычитке, живёт в шапке текста — тогда пакет и
+    «доехало» расходятся с проверенным текстом. Пустое правило (поля нет ни в шапке, ни в брифе) не сверяется."""
+    from ..adapters.corpus import split_front_matter
+    from .schema import page_fields
+    meta, _ = split_front_matter(Path(article_path).read_text(encoding="utf-8"))
+    want = page_fields(instance.p, meta, brief)
+    return [f"{k}: «{manifest.get(k, '')}» вместо «{v}»" for k, v in want.items()
+            if v and str(manifest.get(k) or "").strip() != v]
 
 
 def strip_package_comments(package: Package) -> list[dict]:
@@ -285,6 +304,8 @@ def contract(instance) -> list[str]:
                 problems.append(f"в манифесте пусто поле «{field}»")
         if package.manifest.get("slug") != brief["slug"]:
             problems.append("slug манифеста не из брифа")
+        problems += [f"поле страницы не по правилу гейта статьи — {x}"
+                     for x in page_field_mismatch(instance, article, brief, package.manifest)]
         if not re.match(r"\d{4}-\d{2}-\d{2}$", str(package.manifest.get("built", ""))):
             problems.append("день сборки в манифесте не ГГГГ-ММ-ДД")
     return problems

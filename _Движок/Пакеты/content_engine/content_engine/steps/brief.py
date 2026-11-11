@@ -204,6 +204,26 @@ def _starts_with_question(q: str) -> bool:
     return first.startswith(QUESTION_STARTS) or (len(words) > 1 and words[1] == "ли")
 
 
+def _released_slug(instance, tid: str, slug: str) -> str | None:
+    """Slug страницы, которую выпустила сама тема: запись «доехало» или собранный пакет с этим slug.
+
+    После вставки страница темы попадает в индекс сайта, и повторная проверка брифа (переутверждение после правки)
+    видела бы в ней дубль самой себя. Чужая страница с тем же slug не исключается: у неё нет ни записи, ни пакета темы."""
+    from ..core import publications
+    row = publications.published(instance, tid)
+    if row and row.get("slug") == slug:
+        return slug
+    manifest = instance.brief_dir(tid, create=False) / "package" / "manifest.json"
+    if manifest.is_file():
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            return None                       # битый манифест — исключения нет, проверка идёт как обычно
+        if isinstance(data, dict) and data.get("slug") == slug:
+            return slug
+    return None
+
+
 def check(instance, tid: str) -> dict:
     from .prepare import topic_of
     topic = topic_of(instance, tid)
@@ -251,10 +271,11 @@ def check(instance, tid: str) -> dict:
         _add_heading_links(instance, tid, [h for h in mentioned if h.page["id"] not in seen], warnings)
     else:
         warnings.append("карты спроса нет — чужие целевые ключи не проверены (`map build`)")
+    mine = own or _released_slug(instance, tid, b["slug"])
     for head in (b["title"], b["h1"]):
         key = norm.key(head)
         best = max(((title_similarity(key, item.title_key), item.page.title) for item in instance.index().pages
-                    if item.page.slug != own),
+                    if item.page.slug != mine),
                    default=(0.0, ""))
         if best[0] >= t:
             errors.append(f"заголовок «{head}» почти дублирует статью «{best[1]}» ({best[0]:.2f} ≥ {t})")

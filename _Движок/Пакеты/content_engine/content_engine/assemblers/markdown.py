@@ -25,11 +25,12 @@ class MarkdownAssembler:
         self.out_dir = Path(out_dir)
 
     def build(self, article_path: Path, schema: dict, images: list[dict], brief: dict) -> Package:
-        from ..steps.schema import h1_of
+        from ..steps.schema import h1_of, page_fields
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        _, body = split_front_matter(Path(article_path).read_text(encoding="utf-8"))
+        meta, body = split_front_matter(Path(article_path).read_text(encoding="utf-8"))
         art = next((n for n in schema.get("@graph", []) if n.get("@type") == "Article"), {})
-        head = {"title": str(brief.get("title") or ""), "description": str(brief.get("description") or ""),
+        fields = page_fields(self.instance.p, meta, brief)
+        head = {"title": fields["title"], "description": fields["description"],
                 "slug": str(brief.get("slug") or ""), "date": art.get("datePublished", ""),
                 "author": (art.get("author") or {}).get("name", ""), "canonical": art.get("mainEntityOfPage", "")}
         text = "---\n" + yaml.safe_dump(head, allow_unicode=True, sort_keys=False) + "---\n\n" + body.lstrip()

@@ -1,6 +1,7 @@
 """Разметка из текста и брифа (Т20.1): Article, FAQPage, BreadcrumbList.
 
-`build(статья, бриф, профиль, день)` — граф JSON-LD: заголовок — H1 текста, описание и автор — из брифа,
+`build(статья, бриф, профиль, день)` — граф JSON-LD: заголовок — H1 текста, описание — из шапки текста (нет — из
+брифа, `page_fields`), автор — из брифа,
 `datePublished` и `dateModified` — день сборки, вопросы и ответы — из раздела FAQ текста, хлебные крошки — домен →
 раздел → статья. Ключ `slug` рядом с графом — для сверки разметки со статьёй. Формат на сайте — `assemble.schema_format`:
 JSON-LD кладётся скриптом, микроразметку ставит сборщик атрибутами из того же графа. Согласованность с текстом
@@ -37,6 +38,21 @@ def faq_pairs(body: str, faq_heading: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def page_fields(profile: dict, meta: dict, brief: dict) -> dict:
+    """title и description страницы — по тому же правилу, что у гейта статьи: шапка текста, чего в ней нет — бриф.
+
+    Шапка главнее: текст прошёл вычитку и гейт статьи, а правка брифа после утверждения снимает утверждение — поэтому
+    уточнённое на вычитке описание живёт в шапке. Один источник для разметки, страницы, манифеста и «доехало»."""
+    value = {}
+    for source, role in profile["gate_article"]["fields"].items():
+        if role in ("title", "description") and not value.get(role):
+            value[role] = str(meta.get(source) or "").strip()
+    for role in ("title", "description"):
+        if not value.get(role):
+            value[role] = str(brief.get(role) or "").strip()
+    return value
+
+
 def h1_of(body: str) -> str:
     return next((m.group(2).strip() for line in body.splitlines() if (m := HEADING.match(line))
                  and m.group(1) == "#"), "")
@@ -62,7 +78,7 @@ def build(article_text: str, brief: dict, profile: dict, day: str) -> dict:
     section = profile["site"]["article_sections"][0] if profile["site"]["article_sections"] else ""
     author = brief.get("author")
     author = author.get("name", "") if isinstance(author, dict) else str(author or "")
-    graph = [{"@type": "Article", "headline": h1, "description": str(brief.get("description") or ""),
+    graph = [{"@type": "Article", "headline": h1, "description": page_fields(profile, meta, brief)["description"],
               "author": {"@type": "Person", "name": author}, "datePublished": day, "dateModified": day,
               "mainEntityOfPage": url}]
     # обложка — полем шапки текста: она появляется после утверждения брифа, а правка брифа сняла бы утверждение
