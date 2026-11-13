@@ -324,6 +324,15 @@ def calls(engine, cfg, scope: str, start: date, end: date, as_of: date | None = 
             if snap is not None:
                 return snap
         state, note = _checked_state(engine, (system,), as_of, "звонков")
+        # Звонки трекера, которые больше не загружаются (tracking.calls_off_since — дата по кабинету): после неё ноль
+        # в фактах значит «не загружено», а не «не звонили». Визиты и заказы той же загрузки при этом идут.
+        off = ((cfg.tracking or {}).get("calls_off_since") or {}).get(s)
+        if off and end > date.fromisoformat(str(off)):
+            why = (cfg.tracking or {}).get("calls_off_reason") or "звонки трекера не загружаются"
+            return Number(metric="calls", level="lead", scope=s, flow="all", period_start=start, period_end=end,
+                          segment=segment, source=f"C:{SOURCE_SYSTEM}:facts.phone_call", status=Status.NO_DATA,
+                          value=None, unit="шт", as_of=state,
+                          missing="; ".join(x for x in (f"с {date.fromisoformat(str(off)):%d.%m.%Y} — {why}", note) if x))
         # «Звонок с визитом» — визит того же кабинета существует в фактах, а не просто заполненный номер (ревью Codex).
         extra = (" AND EXISTS (SELECT 1 FROM facts.visit v WHERE v.visit_id = facts.phone_call.visit_id "
                  "AND v.source_system = facts.phone_call.source_system)") if segment else ""
