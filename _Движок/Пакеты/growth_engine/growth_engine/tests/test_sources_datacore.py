@@ -69,8 +69,15 @@ def test_number_keeps_its_provenance_and_status(adapter):
     n = ask(adapter, "revenue")
     assert n.value == 26420945.0 and n.unit == "₽"
     assert n.status is Status.ESTIMATE
-    assert n.source == "D:datacore:revenue"
+    assert n.source == "D:datacore:publish"
+    assert "запрос ядра: D:datacore:revenue" in n.missing
     assert "платежей без сделки" in n.missing
+
+
+def test_one_publication_is_one_source(adapter):
+    """Выручка и себестоимость одной публикации — один источник: иначе тождество PnL видит смешанную величину
+    (страж 4), хотя ядро определило их согласованно (1.7.0)."""
+    assert ask(adapter, "revenue").source == ask(adapter, "cogs").source == "D:datacore:publish"
 
 
 def test_gap_between_snapshots_is_named(adapter):
@@ -148,3 +155,74 @@ def test_average_denominator_is_not_written_as_a_share(adapter):
     assert n.unit == "₽" and n.value == 11109.0
     assert "знаменатель: на 586 лидов" in n.missing, n.missing
     assert " из " not in n.missing.split(";")[0], n.missing
+
+
+def test_level_comes_from_engine_config(published):
+    """Уровень числа — из конфигурации движка, как у остальных адаптеров: у ядра выручка «payment», у движка
+    «money»; без этого страж 4 останавливает средний чек на совпадающей величине (1.7.0)."""
+    from types import SimpleNamespace
+    cfg = SimpleNamespace(metrics={"revenue": None},
+                          rule=lambda metric: SimpleNamespace(level="payment"))
+    a = DatacoreAdapter({"published": str(published), "metrics": {"revenue": "revenue"}}, cfg)
+    n = ask(a, "revenue")
+    assert n.level == "payment" and "уровень ядра «money»" in n.missing
+
+
+def test_breakdown_by_dimension_returns_its_segments_or_nothing(adapter):
+    """Разрез по измерению: строки «измерение=значение» или пусто — движок пишет «в ответе нет», а не падает (1.7.0).
+    Разрез со значением, которого нет, — по-прежнему отказ источника."""
+    assert [n.segment for n in ask_all(adapter, "new_first_sql", breakdown="contour")] == ["contour=all_deals"]
+    assert ask_all(adapter, "revenue", breakdown="marker_level_1") == []
+    with pytest.raises(SourceError):
+        ask_all(adapter, "revenue", breakdown="contour=digital")
+
+
+def ask_all(adapter, metric, scope="b1", breakdown=None):
+    q = Query(metric=metric, scope=scope, flow="all", period_start=AUG[0], period_end=AUG[1],
+              breakdown=breakdown, as_of=RUN)
+    return adapter.fetch(q)
+
+
+def test_window_of_months_is_sum_of_published_months_by_engine_rules(tmp_path):
+    """Окно в два месяца, которого нет в публикации, — сумма месяцев арифметикой движка; без разрешения сложения
+    по периоду в конфигурации — страж 3 (1.7.0)."""
+    from types import SimpleNamespace
+    rows = [dict(number("new_first_sql", "b1", 586.0)),
+            dict(number("new_first_sql", "b1", 542.0), period_start="2026-09-01", period_end="2026-10-01")]
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"numbers": rows}, ensure_ascii=False), encoding="utf-8")
+
+    def cfg(additive):
+        rule = SimpleNamespace(level="money", summable=True, period_additive=additive, cross_scope_additive=False)
+        return SimpleNamespace(metrics={"new_first_sql": rule}, rule=lambda metric: rule)
+
+    q = Query(metric="new_first_sql", scope="b1", flow="all", period_start=date(2026, 8, 1),
+              period_end=date(2026, 10, 1), breakdown=None, as_of=RUN)
+    got = DatacoreAdapter({"published": str(path), "metrics": {"new_first_sql": "new_first_sql"}}, cfg(True)).fetch(q)[0]
+    assert got.value == 1128.0 and got.period_start == date(2026, 8, 1) and got.period_end == date(2026, 10, 1)
+    with pytest.raises(GuardViolation):
+        DatacoreAdapter({"published": str(path), "metrics": {"new_first_sql": "new_first_sql"}}, cfg(False)).fetch(q)
+
+
+def test_sum_of_months_keeps_publication_source_and_missing_window_is_refused(tmp_path):
+    """Ревью 17.11.2026: сумма месяцев — тот же источник публикации, что и число окна из файла (иначе тождество
+    PnL падает на смеси «publish / сумма»); разрез за окно, которого в файле нет совсем, — отказ, а не пустой список."""
+    from types import SimpleNamespace
+    rows = [dict(number("cogs", "b1", 10.0)),
+            dict(number("cogs", "b1", 20.0), period_start="2026-09-01", period_end="2026-10-01"),
+            dict(number("revenue", "b1", 50.0), period_start="2026-08-01", period_end="2026-10-01")]
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"numbers": rows}, ensure_ascii=False), encoding="utf-8")
+    rule = SimpleNamespace(level="money", summable=True, period_additive=True, cross_scope_additive=False)
+    cfg = SimpleNamespace(metrics={"cogs": rule, "revenue": rule}, rule=lambda metric: rule)
+    a = DatacoreAdapter({"published": str(path), "metrics": {"cogs": "cogs", "revenue": "revenue"}}, cfg)
+
+    def q(metric, breakdown=None, end=date(2026, 10, 1)):
+        return Query(metric=metric, scope="b1", flow="all", period_start=date(2026, 8, 1), period_end=end,
+                     breakdown=breakdown, as_of=RUN)
+
+    cogs, revenue = a.fetch(q("cogs"))[0], a.fetch(q("revenue"))[0]
+    assert cogs.value == 30.0 and cogs.source == revenue.source == "D:datacore:publish"
+    assert a.fetch(q("revenue", "marker_level_1")) == []
+    with pytest.raises(SourceError):
+        a.fetch(q("revenue", "marker_level_1", end=date(2026, 12, 1)))

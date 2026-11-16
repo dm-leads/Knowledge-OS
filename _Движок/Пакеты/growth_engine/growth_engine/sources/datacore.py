@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from ..core.number import Number, Status
 from .base import ProbeResult, Query, SourceError
 
 SYSTEM = "datacore"
+PUBLISH_QUERY = "publish"   # запрос в подписи источника у чисел из файла публикации (1.7.0)
 
 # Статусы ядра и движка называются одинаково, но это разные перечисления: соответствие задаётся явно, чтобы
 # переименование в одной системе ломало здесь, а не тихо превращало «нет данных» в «факт».
@@ -93,11 +95,53 @@ class DatacoreAdapter:
                query.period_start.isoformat(), query.period_end.isoformat())
         row = got["index"].get(key)
         if row is None:
+            months = self._months_of(query)
+            if months and self.cfg is not None:
+                return self._sum_of_months(query, name, months)
             published_at = (got["payload"].get("published_at") or "")[:10]
             raise SourceError(f"в публикации ядра нет числа «{name}» для «{query.scope}» за "
                               f"{query.period_start}–{query.period_end}"
                               + (f" (файл собран {published_at})" if published_at else ""))
         return self._row_to_number(row, query, name)
+
+    @staticmethod
+    def _months_of(query: Query) -> list[tuple[date, date]]:
+        """Окно из нескольких целых месяцев → месяцы; иначе пусто."""
+        start, end = query.period_start, query.period_end
+        if start.day != 1 or end.day != 1:
+            return []
+        months, cur = [], start
+        while cur < end:
+            nxt = date(cur.year + 1, 1, 1) if cur.month == 12 else date(cur.year, cur.month + 1, 1)
+            months.append((cur, nxt))
+            cur = nxt
+        return months if len(months) > 1 and cur == end else []
+
+    def _sum_of_months(self, query: Query, name: str, months) -> Number:
+        """Окно в несколько месяцев, которого нет в публикации (ядро публикует месяцы, недели и дни): сумма месяцев
+        публикации арифметикой движка (1.7.0). Сложение по периоду разрешает только конфигурация (страж 3) —
+        адаптер своего определения не вводит; не хватает месяца — отказ, как у одного числа."""
+        from ..core.arithmetic import add
+        parts = [self._from_published(replace(query, period_start=a, period_end=b), name) for a, b in months]
+        # Слагаемые прошли в add проверку «один источник»; сумма остаётся числом той же публикации, иначе её
+        # «…:сумма» не совпало бы с числом окна, взятым из файла напрямую (ревью 17.11.2026, п. 1).
+        return replace(add(parts, self.cfg), source=f"D:{SYSTEM}:{PUBLISH_QUERY}")
+
+    def _segments_from_published(self, query: Query, name: str) -> list[Number]:
+        """Разрез по измерению («канал», без значения): все числа публикации вида «измерение=значение» за окно.
+        Нет таких строк — пустой список, а не отказ (1.7.0): ядро публикует не каждый разрез, и движок на пустой
+        ответ пишет «в ответе нет», как у других источников. Разрез со значением («contour=digital») — одно число,
+        его отсутствие — отказ источника, как раньше."""
+        got = self._load_published()
+        prefix = f"{query.breakdown}="
+        scope = self._scope_name(query.scope)
+        window = [(segment, row) for (metric, sc, segment, start, end), row in got["index"].items()
+                  if metric == name and sc == scope
+                  and start == query.period_start.isoformat() and end == query.period_end.isoformat()]
+        if not window:
+            # Окна нет в публикации совсем — это пробел периода, а не «разрез не публикуется» (ревью 17.11.2026, п. 2).
+            self._from_published(replace(query, breakdown=None), name)
+        return [self._row_to_number(row, query, name) for segment, row in window if segment.startswith(prefix)]
 
     def _row_to_number(self, row: dict, query: Query, name: str) -> Number:
         """Строка публикации → число движка. Поля переносятся один в один, пересчёта нет."""
@@ -112,9 +156,24 @@ class DatacoreAdapter:
             notes.insert(0, share_note)
         if as_of != query.as_of:
             notes.append(f"дата съёма ядра {as_of:%d.%m.%Y}, прогон движка {query.as_of:%d.%m.%Y}")
-        return Number(metric=query.metric, level=row.get("level") or "money", scope=query.scope,
+        if row.get("source"):
+            notes.append(f"запрос ядра: {row['source']}")
+        # Источник — публикация целиком, а не метрика (1.7.0): числа одного файла — одна система одного съёма, и
+        # тождество PnL, сложение кабинетов и сверка обязаны видеть их одним источником. Выручка (оплаты) и
+        # себестоимость (отгрузки) идут из разных таблиц ядра, но определены ядром согласованно; подпись по метрике
+        # делала их «смешанной величиной» для стража 4. Запрос ядра не теряется — он в пояснении числа.
+        # Уровень — из конфигурации движка, как у остальных адаптеров (1.7.0): словарь уровней ядра свой — выручка у
+        # него «payment» (деньги по оплатам), у движка «money». Соответствие метрик в `metrics` — это и есть
+        # объявление, что величина та же; уровень ядра, если он другой, остаётся в пояснении.
+        level = row.get("level") or "money"
+        if self.cfg is not None and query.metric in getattr(self.cfg, "metrics", {}):
+            declared = self.cfg.rule(query.metric).level
+            if declared != level:
+                notes.append(f"уровень ядра «{level}»")
+            level = declared
+        return Number(metric=query.metric, level=level, scope=query.scope,
                       flow=query.flow, period_start=query.period_start, period_end=query.period_end,
-                      source=f"D:{SYSTEM}:{name}", status=status, value=row.get("value"),
+                      source=f"D:{SYSTEM}:{PUBLISH_QUERY}", status=status, value=row.get("value"),
                       denominator=row.get("denominator"), unit=row.get("unit") or "шт",
                       segment=row.get("segment") or "", as_of=as_of, missing="; ".join(notes))
 
@@ -162,6 +221,8 @@ class DatacoreAdapter:
     def fetch(self, query: Query) -> list[Number]:
         name = self._metric_name(query.metric)
         if self.section.get('published'):
+            if query.breakdown and "=" not in query.breakdown:
+                return self._segments_from_published(query, name)
             return [self._from_published(query, name)]
         registry, core_cfg, connect, url = self._load_core()
         fn = registry.get(name)
