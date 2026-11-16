@@ -25,6 +25,7 @@ import yaml
 from . import adapters as registry
 from .core.config import parse_config
 from .core.errors import GuardViolation
+from .core.storage import number_id
 from .sources.base import Query, SourceError
 from .storage.selection import add_store_arguments, open_store
 
@@ -115,10 +116,25 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None,
 
     with open_store(args, cfg.storage_link_domains, today=today, bridge_factory=bridge_factory,
                     google_factory=google_factory) as (store, label):
-        report = store.create_numbers(numbers)
+        # Ступень, которую этот же съём уже записал другим расчётом (1.7.2): у системы, отдающей ступени только
+        # потоком «all», New First SQL и оплаты воронки — тот же адрес, что у денежной модели того же дня, а денежная
+        # модель пишет их с пометкой дозревания окна. Второе содержимое под занятым номером — стоп стража 13; число
+        # уже в книге этим съёмом, поэтому воронка его не дублирует и называет, сколько взято из книги.
+        taken = {number_id(x): x for x in store.read("numbers") if x.as_of == as_of}
+        for x in numbers:
+            other = taken.get(number_id(x))
+            if other is not None and other.value != x.value:
+                # Тот же адрес и съём, но другое значение — это не «другой расчёт», а расхождение: не прячется.
+                raise GuardViolation(13, f"«{x.metric}» · {x.scope} · {x.flow} · {x.period_start:%m.%Y}: в книге этим "
+                                         f"съёмом {other.value}, воронка получила {x.value} — расхождение")
+        fresh = [x for x in numbers if number_id(x) not in taken]
+        report = store.create_numbers(fresh) if fresh else None
+    written, read_back = (report.rows_written, report.rows_read_back) if report else (0, 0)
     out(f"хранилище: {label}")
-    out(f"«{report.artifact}»: записано {report.rows_written}, прочитано {report.rows_read_back}")
-    out(f"ИТОГ: чисел в прогоне {len(numbers)}; записано {report.rows_written}, прочитано {report.rows_read_back}")
+    if len(fresh) != len(numbers):
+        out(f"уже в книге этим съёмом (другим расчётом) — не дублируются: {len(numbers) - len(fresh)}")
+    out(f"«Модель — снимки»: записано {written}, прочитано {read_back}")
+    out(f"ИТОГ: чисел в прогоне {len(numbers)}; новых {len(fresh)}; записано {written}, прочитано {read_back}")
     return 0
 
 
