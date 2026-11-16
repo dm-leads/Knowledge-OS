@@ -25,7 +25,7 @@ from datacore.schema.engine import connect
 from datacore.serve.storage import storage_url
 from datacore.schema.errors import RuleViolation
 from datacore.schema.number import Number
-from datacore.serve.metrics import REGISTRY, last_as_of
+from datacore.serve.metrics import FLOWS, REGISTRY, last_as_of
 
 # Метрики, которые ядро публикует по умолчанию. Список именно здесь, а не в конфигурации инстанса: это решение
 # ядра о том, что оно готово отдавать наружу, а не настройка одного инстанса.
@@ -37,6 +37,10 @@ DEFAULT_METRICS = ("new_first_sql", "mql", "visits", "calls", "revenue", "paymen
 # Разрезы, которые метрика понимает. Разрез отдаётся только им: иначе каждое окно каждой метрики без разреза дало бы
 # строку «нет данных» (у визитов и денег разреза набора нет) и тысячи строк шума спрятали бы настоящие отказы.
 SEGMENT_SUPPORT = {"contour=": ("new_first_sql",)}
+
+# Потоки web / no_visit (1.6.0): только метрикам по сделкам, у которых есть правило потока, и только без разреза.
+# Прочим метрикам поток «all» — как раньше; строки «all» публикации не меняются.
+FLOW_SUPPORT = ("new_first_sql", "mql", "paid_deals_crm", "leads")
 
 # Метрики по сделкам считаются по ТЕКУЩЕМУ статусу сделки: свежая сделка ещё в работе и не стала MQL или New First,
 # поэтому число свежего окна занижено и растёт задним числом. Окно, которое кончилось меньше mature_days назад, —
@@ -60,10 +64,13 @@ def _number_to_row(n: Number) -> dict:
     return row
 
 
-def collect(engine, cfg, periods, metrics=DEFAULT_METRICS, scopes=None, segments=None) -> list[dict]:
+def collect(engine, cfg, periods, metrics=DEFAULT_METRICS, scopes=None, segments=None, flows=None) -> list[dict]:
     """Числа ядра за периоды. Метрика, которая для кабинета не считается, пропускается с пояснением, а не роняет
-    публикацию: у кабинета может не быть своего сайта или своих денег."""
+    публикацию: у кабинета может не быть своего сайта или своих денег. `flows` — потоки (по умолчанию только «all»)."""
     scopes = list(scopes or cfg.scopes)
+    unknown = [f for f in (flows or []) if f not in FLOWS]
+    if unknown:                           # опечатка в потоке не публикуется сотнями строк «нет данных» (ревью 1.6.0)
+        raise RuleViolation("К2", f"потоки {unknown} не из {FLOWS}")
     out = []
     for metric in metrics:
         fn = REGISTRY.get(metric)
@@ -74,19 +81,24 @@ def collect(engine, cfg, periods, metrics=DEFAULT_METRICS, scopes=None, segments
                 for segment in (segments or [""]):
                     if not _supports(metric, segment):
                         continue
-                    kwargs = {"segment": segment} if segment else {}
-                    try:
-                        got = fn(engine, cfg, scope, start, end, **kwargs)
-                    except RuleViolation as exc:
-                        # Отказ по правилу — это ответ ядра, а не сбой: он публикуется как «нет данных» с причиной,
-                        # иначе потребитель решит, что число просто забыли.
-                        out.append({"metric": metric, "scope": scope, "segment": segment,
-                                    "period_start": start.isoformat(), "period_end": end.isoformat(),
-                                    "value": None, "status": "нет данных", "missing": str(exc),
-                                    "source": f"D:datacore:{metric}", "unit": "шт", "level": "", "flow": "all",
-                                    "as_of": None, "denominator": None, "denominator_value": None})
-                        continue
-                    out.append(_number_to_row(got))
+                    for flow in (flows or ["all"]):
+                        if flow != "all" and (metric not in FLOW_SUPPORT or segment):
+                            continue
+                        kwargs = {"segment": segment} if segment else {}
+                        if flow != "all":
+                            kwargs["flow"] = flow
+                        try:
+                            got = fn(engine, cfg, scope, start, end, **kwargs)
+                        except RuleViolation as exc:
+                            # Отказ по правилу — это ответ ядра, а не сбой: он публикуется как «нет данных» с причиной,
+                            # иначе потребитель решит, что число просто забыли.
+                            out.append({"metric": metric, "scope": scope, "segment": segment,
+                                        "period_start": start.isoformat(), "period_end": end.isoformat(),
+                                        "value": None, "status": "нет данных", "missing": str(exc),
+                                        "source": f"D:datacore:{metric}", "unit": "шт", "level": "", "flow": flow,
+                                        "as_of": None, "denominator": None, "denominator_value": None})
+                            continue
+                        out.append(_number_to_row(got))
     return out
 
 
@@ -152,7 +164,7 @@ def periods_for(today: date, *, months: int = 0, days: int = 0, weeks: int = 0, 
 
 def publish(cfg, storage_url: str, out_path: Path, *, months: int = 6, metrics=DEFAULT_METRICS,
             scopes=None, segments=None, days: int = 0, weeks: int = 0, mtd: bool = False, mature_days: int = 7,
-            today: date | None = None) -> dict:
+            today: date | None = None, flows=None) -> dict:
     """Собрать числа и записать файл. Возвращает сводку: сколько чисел записано, сколько прочитано обратно, сколько
     без данных. Файл пишется во временный и переименовывается: читатель не застанет половину файла."""
     # «Сегодня» — по поясу инстанса, как и границы окон в метриках: по часам сервера в UTC до 03:00 МСК вчерашний
@@ -162,7 +174,7 @@ def publish(cfg, storage_url: str, out_path: Path, *, months: int = 6, metrics=D
     closed = set(months_back(today, months) + weeks_back(today, weeks) + days_back(today, days))
     open_windows = [w for w in (month_to_date(today) if mtd else []) if w not in closed]
     with connect(storage_url, read_only=True) as engine:
-        rows = collect(engine, cfg, periods, metrics, scopes, segments)
+        rows = collect(engine, cfg, periods, metrics, scopes, segments, flows)
         state = last_as_of(engine, (cfg.money["system"],)) if cfg.money else None
     mark_windows(rows, today, mature_days, open_windows)
     payload = {
@@ -199,6 +211,8 @@ def main(argv=None) -> int:
     ap.add_argument("--metrics", default=None, help="метрики через запятую; по умолчанию все публикуемые")
     ap.add_argument("--scopes", default=None, help="кабинеты через запятую")
     ap.add_argument("--segments", default=None, help="разрезы через запятую, например contour=digital")
+    ap.add_argument("--flows", default=None, help="потоки через запятую: all,web,no_visit (web и no_visit — только "
+                                                  "метрикам по сделкам из FLOW_SUPPORT, без разреза)")
     ap.add_argument("--config", default=None)
     ap.add_argument("--db", default=None)
     a = ap.parse_args(argv)
@@ -208,7 +222,8 @@ def main(argv=None) -> int:
                      metrics=tuple(a.metrics.split(",")) if a.metrics else DEFAULT_METRICS,
                      scopes=a.scopes.split(",") if a.scopes else None,
                      segments=a.segments.split(",") if a.segments else None,
-                     days=a.days, weeks=a.weeks, mtd=a.mtd, mature_days=a.mature_days)
+                     days=a.days, weeks=a.weeks, mtd=a.mtd, mature_days=a.mature_days,
+                     flows=a.flows.split(",") if a.flows else None)
     for key, value in report.items():
         print(f"  {key}: {value}")
     # Успех — число записанных и прочитанных обратно строк: ноль или расхождение — сбой, а не «готово»

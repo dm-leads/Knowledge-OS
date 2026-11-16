@@ -150,33 +150,74 @@ def _crm_systems(cfg) -> tuple[str, ...]:
     return (cfg.crm["system_mirror"], cfg.crm["system_api"]) if cfg.crm else ()
 
 
-def _own_marker_join(cfg) -> str:
-    """Присоединение маркера заказа из кабинета своего бренда.
+def _brand_system_case(cfg) -> str:
+    """`CASE d.brand WHEN … THEN <система кабинета> END` — система трекера кабинета бренда сделки; пусто, если кабинетов нет.
 
-    У сделки по маркеру от каждого кабинета — без этого условия она посчиталась бы дважды (проверено на фактах
-    16.09.2026: маркеров ровно вдвое больше, чем сделок). Имена систем берутся из конфигурации, в коде их нет (К9)."""
+    Значения идут в текст запроса, поэтому проверяются по форме: имя кабинета и системы — латиница, цифры,
+    дефис и подчёркивание. Кавычка в конфигурации ломала запрос, а при недоверенной конфигурации открывала
+    путь к произвольному SQL (ревью Codex этапа 5, п.3)."""
     by_scope = (cfg.tracking or {}).get("system_by_scope", {})
     if not by_scope:
         return ""
-    # Значения идут в текст запроса, поэтому проверяются по форме: имя кабинета и системы — латиница, цифры,
-    # дефис и подчёркивание. Кавычка в конфигурации ломала запрос, а при недоверенной конфигурации открывала
-    # путь к произвольному SQL (ревью Codex этапа 5, п.3).
     for scope, system in by_scope.items():
         for name in (scope, system):
             if not _SAFE_NAME.match(str(name)):
                 raise RuleViolation("К2", f"имя «{name}» в system_by_scope не похоже на имя кабинета или системы")
     whens = " ".join(f"WHEN '{scope}' THEN '{system}'" for scope, system in sorted(by_scope.items()))
-    return ("LEFT JOIN facts.order_marker m ON m.deal_id = d.deal_id "
-            f"AND m.source_system = CASE d.brand {whens} END")
+    return f"CASE d.brand {whens} END"
+
+
+def _own_marker_join(cfg) -> str:
+    """Присоединение маркера заказа из кабинета своего бренда.
+
+    У сделки по маркеру от каждого кабинета — без этого условия она посчиталась бы дважды (проверено на фактах
+    16.09.2026: маркеров ровно вдвое больше, чем сделок). Имена систем берутся из конфигурации, в коде их нет (К9)."""
+    case = _brand_system_case(cfg)
+    if not case:
+        return ""
+    return f"LEFT JOIN facts.order_marker m ON m.deal_id = d.deal_id AND m.source_system = {case}"
+
+
+# Поток сделки (1.6.0, задача Движка роста 17.11.2026). «web» — у сделки есть маркер заказа из кабинета её бренда, у
+# маркера есть визит, и визит лежит в фактах того же кабинета: то же правило, что у звонка с визитом (ревью Codex
+# этапа 3 — засчитывался любой непустой номер визита). «no_visit» — остальные сделки той же выборки, в том числе без
+# маркера, поэтому web + no_visit = all по построению. Сделки без маркера визит не проверить: они называются в
+# пояснении, и число потока с ними — оценка.
+FLOWS = ("all", "web", "no_visit")
+
+
+def _flow_clause(cfg, flow: str) -> str:
+    """Условие потока на сделку `d` (пусто для «all»)."""
+    if flow not in FLOWS:
+        raise RuleViolation("К2", f"поток «{flow}» не из {FLOWS}")
+    if flow == "all":
+        return ""
+    case = _brand_system_case(cfg)
+    if not case:
+        raise RuleViolation("К2", f"поток «{flow}»: в конфигурации нет кабинетов трекера — визит сделки не проверить")
+    has_visit = ("EXISTS (SELECT 1 FROM facts.order_marker fm JOIN facts.visit fv ON fv.visit_id = fm.visit_id "
+                 f"AND fv.source_system = fm.source_system WHERE fm.deal_id = d.deal_id AND fm.source_system = {case})")
+    return has_visit if flow == "web" else f"NOT {has_visit}"
+
+
+def _no_marker_note(engine, cfg, flow: str, from_where: str, args: tuple) -> str:
+    """Пояснение потока: сколько сделок выборки без маркера своего кабинета. `from_where` — выборка без условия потока,
+    начиная с FROM и кончая условиями WHERE (сделка — алиас `d`)."""
+    if flow == "all":
+        return ""
+    n = engine.fetchone(f"SELECT COUNT(DISTINCT d.deal_id) {from_where} AND NOT EXISTS (SELECT 1 FROM facts.order_marker "
+                        f"fm WHERE fm.deal_id = d.deal_id AND fm.source_system = {_brand_system_case(cfg)})", args)[0]
+    return (f"сделок окна без маркера заказа трекера: {n} — визит не проверить, отнесены к no_visit" if n else "")
 
 
 def new_first_sql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None,
-                  contour: str = "full", segment: str = "") -> Number:
+                  contour: str = "full", segment: str = "", flow: str = "all") -> Number:
     """Сделки CRM по правилам набора отбора: дата создания в окне, без удалённых и исключённых.
 
     `contour` — имя набора из конфигурации (Я12). Одна модель даёт все числа: например, `all_deals` — все сделки компании,
     `full` — только новые первые квалифицированные, наборы с исключениями контура — они же с фильтрами. Имена и
-    состав наборов — конфигурация инстанса. Умолчание `full` — прежнее поведение метрики."""
+    состав наборов — конфигурация инстанса. Умолчание `full` — прежнее поведение метрики. `flow` — поток сделки
+    (`FLOWS`, 1.6.0); снимков по потоку нет, поэтому число потока считается только по текущим фактам."""
     from datacore.serve.contour import contour_base, contour_clause, contour_needs_visit
     if scope not in cfg.scopes:
         raise RuleViolation("К2", f"кабинет «{scope}» не объявлен в конфигурации: {cfg.scopes}")
@@ -188,7 +229,8 @@ def new_first_sql(engine, cfg, scope: str, start: date, end: date, as_of: date |
         contour = segment[len(CONTOUR_SEGMENT):]
     segment = "" if contour == "full" else f"{CONTOUR_SEGMENT}{contour}"
     clause, clause_params = contour_clause(cfg, contour)     # К2, если набора нет — до обращения к базе
-    if as_of is not None:
+    flow_cond = _flow_clause(cfg, flow)                       # К2, если потока нет — тоже до базы
+    if as_of is not None and flow == "all":
         snap = from_snapshot(engine, "new_first_sql", scope, start, end, as_of, segment, level="new_first_sql",
                              flow="all", unit="шт", source=f"D:{SOURCE_SYSTEM}:facts.snapshot_number")
         if snap is not None:
@@ -201,7 +243,14 @@ def new_first_sql(engine, cfg, scope: str, start: date, end: date, as_of: date |
     if contour_needs_visit(cfg, contour):
         join += (" LEFT JOIN facts.visit v ON v.visit_id = m.visit_id "
                  "AND v.source_system = m.source_system")
-    where = " AND " + clause if clause else ""
+    flow_note = _no_marker_note(
+        engine, cfg, flow,
+        f"FROM facts.deal d {join} WHERE d.deleted_at IS NULL AND d.created_at >= ? AND d.created_at < ? "
+        "AND NOT EXISTS (SELECT 1 FROM facts.exclusion e WHERE e.entity = 'deal' "
+        "AND e.entity_key = CAST(d.deal_id AS VARCHAR))" + (" AND " + clause if clause else "")
+        + ("" if scope == "company" else " AND d.brand = ?"),
+        (lo, hi, *clause_params, *(() if scope == "company" else (scope,))))
+    where = (" AND " + " AND ".join(x for x in (clause, flow_cond) if x)) if (clause or flow_cond) else ""
     # is_new_first здесь больше нет: «только первые квалифицированные» — база набора, она приходит в clause.
     # Удалённые и технические тесты остаются всегда: удалённая сделка не факт, тестовая — не сделка (задача 0).
     rows = engine.fetchall(
@@ -211,7 +260,7 @@ def new_first_sql(engine, cfg, scope: str, start: date, end: date, as_of: date |
         (lo, hi, *clause_params))
     counts = {brand: int(n) for brand, n in rows}
     unknown_brand = cfg.crm["brand"]["unknown"] if cfg.crm else "unknown"
-    notes = [state_note] if state_note else []
+    notes = [x for x in (state_note, flow_note) if x]
     # Что метрика отсекла сама. Эти два условия остаются всегда — удалённая сделка не факт, тестовая не сделка, —
     # но обязаны быть названы: иначе число выглядит полным, хотя таковым не является (решение владельца 17.09.2026).
     if not contour_base(cfg, contour).get("new_first_only"):
@@ -247,7 +296,7 @@ def new_first_sql(engine, cfg, scope: str, start: date, end: date, as_of: date |
                      + ", ".join(f"{b} {n}" for b, n in sorted(outside.items(), key=lambda x: str(x[0]))))
     status = Status.ESTIMATE if notes else Status.FACT      # статус — только по неопределённости
     missing = "; ".join(notes + routine)                    # пояснение — по всему, что не вошло в число
-    common = dict(metric="new_first_sql", level="new_first_sql", flow="all", period_start=start, period_end=end,
+    common = dict(metric="new_first_sql", level="new_first_sql", flow=flow, period_start=start, period_end=end,
                   source=f"D:{SOURCE_SYSTEM}:facts.deal is_new_first", as_of=as_of, missing=missing, segment=segment)
     if scope != "company":
         return Number(scope=scope, status=status, value=float(counts.get(scope, 0)), **common)
@@ -918,7 +967,7 @@ def ampu_per_lead(engine, cfg, scope: str, start: date, end: date, as_of: date |
 
 
 def paid_deals_crm(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None,
-                   segment: str = "") -> Number:
+                   segment: str = "", flow: str = "all") -> Number:
     """Выигранные сделки CRM воронок продаж по дате закрытия.
 
     Это не «оплаченные сделки» метрики `payments`: там сделки, по которым пришли деньги, по всем воронкам и в любом
@@ -931,22 +980,76 @@ def paid_deals_crm(engine, cfg, scope: str, start: date, end: date, as_of: date 
     lo, hi = window(start, end, cfg.timezone)
     pipelines = [str(x) for x in cfg.crm["sales_pipelines"]]
     won = str(cfg.crm["won_status"])
+    flow_cond = _flow_clause(cfg, flow)              # поток сделки (1.6.0); снимков по потоку нет
 
     def one(s):
-        if as_of is not None:
+        if as_of is not None and flow == "all":
             snap = from_snapshot(engine, "paid_deals_crm", s, start, end, as_of, "", level="deal", flow="all",
                                  unit="шт", source=f"D:{SOURCE_SYSTEM}:facts.snapshot_number")
             if snap is not None:
                 return snap
         state, note = _checked_state(engine, _crm_systems(cfg), as_of, "CRM")
         marks = ", ".join("?" for _ in pipelines)
-        n = engine.fetchone(f"SELECT COUNT(*) FROM facts.deal WHERE brand = ? AND status = ? "
-                            f"AND pipeline IN ({marks}) AND closed_at >= ? AND closed_at < ? AND deleted_at IS NULL",
-                            (s, won, *pipelines, lo, hi))[0]
-        return Number(metric="paid_deals_crm", level="deal", scope=s, flow="all", period_start=start, period_end=end,
-                      source=f"D:{SOURCE_SYSTEM}:facts.deal won", status=Status.ESTIMATE if note else Status.FACT,
-                      value=float(n), unit="шт", as_of=state, missing=note)
+        from_where = (f"FROM facts.deal d WHERE d.brand = ? AND d.status = ? AND d.pipeline IN ({marks}) "
+                      "AND d.closed_at >= ? AND d.closed_at < ? AND d.deleted_at IS NULL")
+        args = (s, won, *pipelines, lo, hi)
+        n = engine.fetchone(f"SELECT COUNT(*) {from_where}" + (f" AND {flow_cond}" if flow_cond else ""), args)[0]
+        notes = [x for x in (note, _no_marker_note(engine, cfg, flow, from_where, args)) if x]
+        return Number(metric="paid_deals_crm", level="deal", scope=s, flow=flow, period_start=start, period_end=end,
+                      source=f"D:{SOURCE_SYSTEM}:facts.deal won", status=Status.ESTIMATE if notes else Status.FACT,
+                      value=float(n), unit="шт", as_of=state, missing="; ".join(notes))
     return _per_scope(cfg, "paid_deals_crm", scope, one)
+
+
+def leads(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None, segment: str = "",
+          flow: str = "all") -> Number:
+    """Заявки — все входящие обращения до квалификации (1.6.0, задача Движка роста 17.11.2026): сделки CRM, созданные в
+    окне в воронках приёма обращений (`leads.pipelines` конфигурации), без удалённых и технических тестов.
+
+    Формы, звонки и мессенджеры создают сделку в воронке приёма — поэтому сделка и есть обращение. Обращение, по
+    которому сделка не создана, ядро не видит: это граница определения, а не потеря данных. Бренд — по полю сделки;
+    компания — все сделки воронок, в том числе с неопределённым брендом (он называется в пояснении, как у New First SQL).
+    `flow` — поток сделки (`FLOWS`)."""
+    if segment:
+        raise RuleViolation("К2", f"у заявок нет разреза «{segment}»")
+    if scope not in cfg.scopes:
+        raise RuleViolation("К2", f"кабинет «{scope}» не объявлен в конфигурации: {cfg.scopes}")
+    pipelines = [str(x) for x in ((cfg.leads or {}).get("pipelines") or [])]
+    if not pipelines:
+        raise RuleViolation("К2", "в конфигурации нет правила заявок (leads.pipelines) — какие воронки принимают "
+                                  "обращения, не объявлено")
+    flow_cond = _flow_clause(cfg, flow)
+    common = dict(metric="leads", level="lead", scope=scope, flow=flow, period_start=start, period_end=end,
+                  source=f"D:{SOURCE_SYSTEM}:facts.deal leads", unit="шт")
+    if as_of is not None and flow == "all":
+        snap = from_snapshot(engine, "leads", scope, start, end, as_of, "", level="lead", flow="all", unit="шт",
+                             source=f"D:{SOURCE_SYSTEM}:facts.snapshot_number")
+        if snap is not None:
+            return snap
+    as_of, state_note = _checked_state(engine, _crm_systems(cfg), as_of, "CRM")
+    lo, hi = window(start, end, cfg.timezone)
+    marks = ", ".join("?" for _ in pipelines)
+    brand_cond = "" if scope == "company" else " AND d.brand = ?"
+    brand_args = () if scope == "company" else (scope,)
+    from_where = (f"FROM facts.deal d WHERE d.deleted_at IS NULL AND d.pipeline IN ({marks}) "
+                  f"AND d.created_at >= ? AND d.created_at < ?{brand_cond} AND NOT EXISTS (SELECT 1 FROM facts.exclusion e "
+                  "WHERE e.entity = 'deal' AND e.entity_key = CAST(d.deal_id AS VARCHAR))")
+    args = (*pipelines, lo, hi, *brand_args)
+    n = engine.fetchone(f"SELECT COUNT(DISTINCT d.deal_id) {from_where}" + (f" AND {flow_cond}" if flow_cond else ""),
+                        args)[0]
+    notes = [x for x in (state_note, _no_marker_note(engine, cfg, flow, from_where, args)) if x]
+    # Неопределённый бренд называется и у кабинета (его заявки могли быть этого кабинета), и у компании (в её число они
+    # вошли, а в сумму кабинетов — нет); статус — оценка, как у New First SQL (ревью 1.6.0, 17.11.2026).
+    unknown_brand = cfg.crm["brand"]["unknown"] if cfg.crm else "unknown"
+    nameless = engine.fetchone(
+        f"SELECT COUNT(DISTINCT d.deal_id) FROM facts.deal d WHERE d.deleted_at IS NULL AND d.pipeline IN ({marks}) "
+        "AND d.created_at >= ? AND d.created_at < ? AND (d.brand IS NULL OR d.brand = ?) AND NOT EXISTS (SELECT 1 "
+        "FROM facts.exclusion e WHERE e.entity = 'deal' AND e.entity_key = CAST(d.deal_id AS VARCHAR))"
+        + (f" AND {flow_cond}" if flow_cond else ""), (*pipelines, lo, hi, unknown_brand))[0]
+    if nameless:
+        notes.append(f"заявок с неопределённым брендом в окне: {nameless} — по кабинетам не раскладываются")
+    return Number(status=Status.ESTIMATE if notes else Status.FACT, value=float(n), as_of=as_of,
+                  missing="; ".join(notes), **common)
 
 
 PIPELINE_SEGMENT = "pipeline="            # разрез по воронке CRM: вид «проекта» внешней системы, где проект = воронка
@@ -966,7 +1069,8 @@ def _mql_rule(cfg) -> dict:
             "max_unfilled_share": float(rule.get("max_unfilled_share", 0.05))}
 
 
-def mql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None, segment: str = "") -> Number:
+def mql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = None, segment: str = "",
+        flow: str = "all") -> Number:
     """MQL — лиды, прошедшие квалификацию, по дате создания сделки: промежуточная ступень воронки между обращением и
     первым квалифицированным (New First SQL).
 
@@ -993,9 +1097,10 @@ def mql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = No
             raise RuleViolation("К2", f"у MQL разрез только «{PIPELINE_SEGMENT}<воронка квалификации>» из "
                                       f"{pipelines}, получено «{segment}»")
         pipelines = [segment[len(PIPELINE_SEGMENT):]]
-    common = dict(metric="mql", level="mql", scope=scope, flow="all", period_start=start, period_end=end,
+    flow_cond = _flow_clause(cfg, flow)              # поток сделки (1.6.0); снимков по потоку нет
+    common = dict(metric="mql", level="mql", scope=scope, flow=flow, period_start=start, period_end=end,
                   segment=segment, source=f"D:{SOURCE_SYSTEM}:facts.deal qualification", unit="шт")
-    if as_of is not None:
+    if as_of is not None and flow == "all":
         snap = from_snapshot(engine, "mql", scope, start, end, as_of, segment, level="mql", flow="all", unit="шт",
                              source=f"D:{SOURCE_SYSTEM}:facts.snapshot_number")
         if snap is not None:
@@ -1014,21 +1119,30 @@ def mql(engine, cfg, scope: str, start: date, end: date, as_of: date | None = No
     refused_cond = f"d.status = ? AND COALESCE(d.close_reason, '') IN ({reason_marks})"
     mql_args = (rule["qualified_status"], *route_args, rule["lost_status"], *rule["close_reasons"])
     no_fields = ("d.qualification_route IS NULL AND d.qualification_route_legacy IS NULL AND d.close_reason IS NULL")
-    base = (f"FROM facts.deal d WHERE d.deleted_at IS NULL AND d.pipeline IN ({pipe_marks}) "
-            "AND d.created_at >= ? AND d.created_at < ?{brand} "
-            "AND NOT EXISTS (SELECT 1 FROM facts.exclusion e WHERE e.entity = 'deal' "
-            "AND e.entity_key = CAST(d.deal_id AS VARCHAR))")
+    base_all = (f"FROM facts.deal d WHERE d.deleted_at IS NULL AND d.pipeline IN ({pipe_marks}) "
+                "AND d.created_at >= ? AND d.created_at < ?{brand} "
+                "AND NOT EXISTS (SELECT 1 FROM facts.exclusion e WHERE e.entity = 'deal' "
+                "AND e.entity_key = CAST(d.deal_id AS VARCHAR))")
+    base = base_all + (f" AND {flow_cond}" if flow_cond else "")
     # Одна выборка на все счётчики: число, ветки и проверка загрузки полей считаются тем же отбором (стандарт, раздел 4).
+    # Поток ограничивает только число и ветки; проверка загрузки полей — по всей выборке окна: иначе узкий срез потока
+    # (один день, одна закрытая сделка без полей) стал бы «нет данных» при живом «all», и потоки не сложились бы в «all»
+    # (ревью 1.6.0, 17.11.2026).
+    fc = f" AND {flow_cond}" if flow_cond else ""
     row = engine.fetchone(
-        f"SELECT COUNT(DISTINCT d.deal_id) FILTER (WHERE {qualified_cond}), "
-        f"COUNT(DISTINCT d.deal_id) FILTER (WHERE {refused_cond}), "
+        f"SELECT COUNT(DISTINCT d.deal_id) FILTER (WHERE {qualified_cond}{fc}), "
+        f"COUNT(DISTINCT d.deal_id) FILTER (WHERE {refused_cond}{fc}), "
         "COUNT(DISTINCT d.deal_id) FILTER (WHERE d.status IN (?, ?)), "
         f"COUNT(DISTINCT d.deal_id) FILTER (WHERE d.status IN (?, ?) AND {no_fields}) "
-        + base.format(brand=brand_cond),
+        + base_all.format(brand=brand_cond),
         (*mql_args, rule["qualified_status"], rule["lost_status"], rule["qualified_status"], rule["lost_status"],
          *pipelines, lo, hi, *brand_args))
     qualified, refused, closed, closed_unfilled = (int(x or 0) for x in row)
-    notes = [state_note] if state_note else []
+    # Сделки без маркера — среди MQL выборки (та же ветка правила, без условия потока)
+    flow_note = _no_marker_note(engine, cfg, flow,
+                                f"{base_all.format(brand=brand_cond)} AND (({qualified_cond}) OR ({refused_cond}))",
+                                (*pipelines, lo, hi, *brand_args, *mql_args))
+    notes = [x for x in (state_note, flow_note) if x]
     if closed and closed_unfilled == closed:
         return Number(status=Status.NO_DATA, value=None, as_of=as_of,
                       missing="; ".join(notes + [f"у закрытых квалификатором сделок окна ({closed}) нет полей "
@@ -1171,4 +1285,4 @@ REGISTRY = {"new_first_sql": new_first_sql, "visits": visits, "calls": calls,
             "new_first_sql_by_channel": new_first_sql_by_channel, "revenue": revenue, "payments": payments, "source_known": source_known, "no_trace": no_trace, "conversion": conversion,
             "paid_deals_crm": paid_deals_crm, "mql": mql, "cogs": cogs, "gross_profit": gross_profit, "ampu": ampu,
             "lead_conversion": lead_conversion, "revenue_leads": revenue_leads, "cogs_leads": cogs_leads,
-            "gross_profit_leads": gross_profit_leads, "ampu_per_lead": ampu_per_lead}
+            "gross_profit_leads": gross_profit_leads, "ampu_per_lead": ampu_per_lead, "leads": leads}

@@ -36,6 +36,7 @@ class InstanceConfig:
     contours: dict | None = None           # наборы отбора сделок (этап 5): имя → {base, exclude}. Любой отбор — параметр, а не ветка в коде (Я12)
     motivation: dict | None = None         # условия договорённости о мотивации: baseline, шкала, гарантия. Параметры соглашения, не кода
     mql: dict | None = None                # правило MQL: воронки квалификации, статусы, целевой маршрут, настоящие причины отказа (Я12)
+    leads: dict | None = None              # правило заявок: воронки приёма обращений (1.6.0); всё — значения инстанса (Я12)
     known_answers_tolerance: tuple[float, float] = (0.0, 0.0)   # (абсолютный, относительный) — для ответов чужих систем
 
     def cross_scope_proof(self, metric: str) -> str | None:
@@ -64,7 +65,7 @@ def load_config(path: Path) -> InstanceConfig:
         scopes=tuple(raw["scopes"]), cross_scope=rules,
         phone_in_text_columns=tuple(raw["pii"].get("phone_in_text_columns", [])),
         crm=raw.get("crm"), tracking=raw.get("tracking"), web_logs=raw.get("web_logs"), money=raw.get("money"), spend=raw.get("spend"),
-        contours=raw.get("contours"), motivation=raw.get("motivation"), mql=raw.get("mql"),
+        contours=raw.get("contours"), motivation=raw.get("motivation"), mql=raw.get("mql"), leads=raw.get("leads"),
         known_answers_tolerance=(float(raw.get("known_answers_tolerance", {}).get("abs", 0)),
                                  float(raw.get("known_answers_tolerance", {}).get("rel", 0))))
 

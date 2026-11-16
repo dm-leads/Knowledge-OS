@@ -42,6 +42,9 @@ mql:                              # правило MQL: воронки квал�
   lost_status: "143"
   close_reasons: ["Причина 1", "Причина 2"]
 
+leads:                            # правило заявок (1.6.0): воронки приёма обращений
+  pipelines: ["300", "301", "400"]
+
 contours:
   all_deals:
     base: {new_first_only: false}
