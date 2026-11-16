@@ -226,3 +226,11 @@ def test_sum_of_months_keeps_publication_source_and_missing_window_is_refused(tm
     assert a.fetch(q("revenue", "marker_level_1")) == []
     with pytest.raises(SourceError):
         a.fetch(q("revenue", "marker_level_1", end=date(2026, 12, 1)))
+
+
+def test_flow_is_part_of_the_address(adapter):
+    """Число всех потоков не отдаётся под меткой веб-потока (1.7.1)."""
+    q = Query(metric="new_first_sql", scope="b1", flow="web", period_start=AUG[0], period_end=AUG[1],
+              breakdown=None, as_of=RUN)
+    with pytest.raises(SourceError, match="поток «all»"):
+        adapter.fetch(q)

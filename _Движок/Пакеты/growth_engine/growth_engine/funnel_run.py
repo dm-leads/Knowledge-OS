@@ -29,7 +29,7 @@ from .sources.base import Query, SourceError
 from .storage.selection import add_store_arguments, open_store
 
 FLOWS = ("web", "no_visit")
-FLOW_NAMES = {"web": "веб", "no_visit": "без визита"}
+FLOW_NAMES = {"web": "веб", "no_visit": "без визита", "all": "все потоки"}
 STAGE_NAMES = {"visits": "визиты", "leads": "заявки", "mql": "MQL", "new_first_sql": "New First SQL",
                "sales": "продажи"}
 _MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -69,7 +69,7 @@ def summary(month: date, scope: str, flow: str, totals: dict) -> str:
         parts.append(f"{STAGE_NAMES.get(stage, stage)} {_people(value)} ({share}% от первого шага; "
                      f"не прошли {_people(previous - value)})")
         previous = value
-    return f"{month:%m.%Y} · {scope} · {FLOW_NAMES[flow]}: " + " → ".join(parts)
+    return f"{month:%m.%Y} · {scope} · {FLOW_NAMES.get(flow, flow)}: " + " → ".join(parts)
 
 
 def run(args, out=print, adapter=None, today=date.today, bridge_factory=None,
@@ -86,6 +86,10 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None,
     breakdown = (raw.get("economy") or {}).get("channel_breakdown")
     if not breakdown:
         raise GuardViolation(9, "в конфигурации нет economy.channel_breakdown — разрез «канал» неизвестен")
+    flows = tuple(funnel.get("flows") or FLOWS)
+    alien = [flow for flow in flows if flow not in cfg.flows]
+    if alien:
+        raise GuardViolation(9, f"потоки воронки не объявлены в flows: {', '.join(alien)}")
     windows = parse_months(args.months)
     if adapter is None:
         adapter = registry.build(system, raw, cfg, args.secrets)
@@ -97,7 +101,7 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None,
         f"дата съёма {as_of:%d.%m.%Y}")
     for start, end in windows:
         for scope in scopes:
-            for flow in FLOWS:
+            for flow in flows:
                 totals = {}
                 for stage in stages:
                     if stage == "visits" and flow != "web":

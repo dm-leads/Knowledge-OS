@@ -145,6 +145,11 @@ class DatacoreAdapter:
 
     def _row_to_number(self, row: dict, query: Query, name: str) -> Number:
         """Строка публикации → число движка. Поля переносятся один в один, пересчёта нет."""
+        row_flow = row.get("flow") or "all"
+        if row_flow != query.flow:
+            # Поток — часть адреса числа (1.7.1): MQL всех потоков под меткой «веб» исказил бы воронку молча.
+            raise SourceError(f"в публикации ядра «{name}» для «{query.scope}» — поток «{row_flow}», "
+                              f"а запрошен «{query.flow}»; ядро не публикует этот поток отдельно")
         status = _STATUS.get(row.get("status"))
         if status is None:
             raise SourceError(f"статус «{row.get('status')}» в публикации ядра не из канона движка")
