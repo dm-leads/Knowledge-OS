@@ -120,7 +120,7 @@ def run(args, out=print, adapter=None, today=date.today, bridge_factory=None,
         # потоком «all», New First SQL и оплаты воронки — тот же адрес, что у денежной модели того же дня, а денежная
         # модель пишет их с пометкой дозревания окна. Второе содержимое под занятым номером — стоп стража 13; число
         # уже в книге этим съёмом, поэтому воронка его не дублирует и называет, сколько взято из книги.
-        taken = {number_id(x): x for x in store.read("numbers") if x.as_of == as_of}
+        taken = {number_id(x): x for x in store.read("numbers")}   # дата съёма входит в номер; у хранилища фактов она своя, не дата прогона
         for x in numbers:
             other = taken.get(number_id(x))
             if other is not None and other.value != x.value:
