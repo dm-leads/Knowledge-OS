@@ -18,6 +18,10 @@
 Запуск (из любой папки):
   py -3 kos_release.py issue --package <пакет в каноне> --into <каталог кода в проекте> [--first]
   py -3 kos_release.py check --into <каталог кода в проекте> [--package <пакет в каноне>]
+  py -3 kos_release.py issue --package <папка канона> --into <папка в проекте> --only <файл> [<файл> …]
+Папка без pyproject.toml (навык, методология) выпускается целиком, версия — дата её последнего коммита. `--only` —
+выбранные файлы папки из коммита канона (чужие незакоммиченные правки в выпуск не попадают): так проекту без доступа
+к канону отдают нужные методологии (17.11.2026, командная работа «Учебного центра»).
 Код возврата 1 — выпуск правили руками или выпустить нельзя; печатается причина.
 """
 from __future__ import annotations
@@ -85,7 +89,13 @@ def git(repo: Path, *args: str) -> str:
 
 
 def package_version(package: Path) -> tuple[str, str]:
-    """Имя и версия пакета из pyproject.toml канона."""
+    """Имя и версия пакета из pyproject.toml канона. Папка без pyproject.toml (навык, методология) — имя папки и
+    дата её последнего коммита в каноне."""
+    if not (package / "pyproject.toml").is_file():
+        day = git(package, "log", "-1", "--format=%cs", "--", ".")
+        if not day:
+            raise ReleaseError(f"папка {package} не закоммичена в каноне — выпуск делается только с коммита")
+        return package.name, day
     project = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8")).get("project") or {}
     if not project.get("name") or not project.get("version"):
         raise ReleaseError(f"в {package / 'pyproject.toml'} нет имени или версии пакета")
@@ -93,7 +103,10 @@ def package_version(package: Path) -> tuple[str, str]:
 
 
 def code_folder(package: Path) -> Path:
-    """Каталог кода пакета — одноимённый корню пакета (`growth_engine/growth_engine/`)."""
+    """Каталог кода пакета — одноимённый корню пакета (`growth_engine/growth_engine/`); папка без pyproject.toml
+    выпускается целиком."""
+    if not (package / "pyproject.toml").is_file():
+        return package
     folder = package / package.name
     if not (folder / "__init__.py").is_file():
         raise ReleaseError(f"в пакете {package} нет каталога кода {package.name}/ с __init__.py")
@@ -125,14 +138,21 @@ def check(into: Path, package: Path | None = None) -> Report:
     report = Report(passport["package"], passport["version"], passport["canon_commit"], changed, missing, extra)
     if package is not None:
         package = Path(package)
-        report.behind = int(git(package, "rev-list", "--count", f"{report.commit}..HEAD", "--", "."))
-        report.canon_version = package_version(package)[1]
+        paths = passport.get("only") or ["."]
+        report.behind = int(git(package, "rev-list", "--count", f"{report.commit}..HEAD", "--", *paths))
+        report.canon_version = (git(package, "log", "-1", "--format=%cs", "--", *paths) if passport.get("only")
+                                else package_version(package)[1])
     return report
 
 
-def issue(package: Path, into: Path, first: bool = False) -> dict:
-    """Выпуск пакета канона в каталог кода проекта; возвращает записанный паспорт."""
+def issue(package: Path, into: Path, first: bool = False, only: list[str] | None = None) -> dict:
+    """Выпуск пакета канона в каталог кода проекта; возвращает записанный паспорт.
+
+    `only` — выбранные файлы папки канона (пути от неё): берутся из последнего коммита, где они менялись, а не из
+    рабочей копии, поэтому чужие незакоммиченные правки в каноне выпуск не задевают."""
     package, into = Path(package), Path(into)
+    if only:
+        return _issue_only(package, into, first, sorted(set(only)))
     name, version = package_version(package)
     source = code_folder(package)
     if git(package, "status", "--porcelain", "--", "."):
@@ -172,6 +192,51 @@ def issue(package: Path, into: Path, first: bool = False) -> dict:
     return passport
 
 
+def _guard_old_release(into: Path, name: str, first: bool) -> None:
+    old = read_passport(into) if into.exists() else None
+    if old is not None and old.get("package") != name:
+        raise ReleaseError(f"в {into} лежит выпуск другого пакета ({old.get('package')}), а выпускается {name} — "
+                           "проверьте --into")
+    if old is not None:
+        changed, missing, extra = compare(into, old)
+        if changed or missing or extra:
+            raise ReleaseError(f"выпуск в {into} правили руками ({len(changed)} изменено, {len(missing)} пропало, "
+                               f"{len(extra)} лишних) — перенесите правки в канон или отмените их")
+    elif into.exists() and any(into.iterdir()) and not first:
+        raise ReleaseError(f"в {into} уже лежит код без паспорта выпуска — первый выпуск поверх него только с "
+                           "ключом --first")
+
+
+def _issue_only(package: Path, into: Path, first: bool, only: list[str]) -> dict:
+    """Выпуск выбранных файлов папки канона из коммита (см. issue)."""
+    name = package.name
+    commit = git(package, "log", "-1", "--format=%H", "--", *only)
+    if not commit:
+        raise ReleaseError(f"выбранные файлы не закоммичены в каноне: {', '.join(only)}")
+    contents = {}
+    for relative in only:
+        result = subprocess.run(["git", "-C", str(package), "show", f"{commit}:./{relative}"], capture_output=True)
+        if result.returncode != 0:
+            raise ReleaseError(f"файла {relative} нет в коммите канона {commit[:7]}")
+        contents[relative] = result.stdout
+    _guard_old_release(into, name, first)
+    if into.exists():
+        for old_file in release_files(into).values():
+            old_file.unlink()
+    for relative, data in contents.items():
+        target = into / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    passport = {"package": name, "version": git(package, "log", "-1", "--format=%cs", commit), "canon_commit": commit,
+                "released": date.today().isoformat(), "canon_path": package.as_posix(), "only": only,
+                "fingerprint": "sha256 текста с LF",
+                "files": {relative: hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+                          for relative, data in contents.items()}}
+    (into / PASSPORT).write_text(json.dumps(passport, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+                                 newline="\n")
+    return passport
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Выпуск системы с кодом из канона в проект и проверка выпуска")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -179,6 +244,7 @@ def main(argv=None) -> int:
     issue_cmd.add_argument("--package", required=True, help="пакет в каноне: папка с pyproject.toml")
     issue_cmd.add_argument("--into", required=True, help="каталог кода в проекте")
     issue_cmd.add_argument("--first", action="store_true", help="первый выпуск поверх кода без паспорта")
+    issue_cmd.add_argument("--only", nargs="+", help="выпустить только эти файлы папки канона (пути от неё), из коммита")
     check_cmd = commands.add_parser("check", help="проверить выпуск по паспорту и отставание от канона")
     check_cmd.add_argument("--into", required=True, help="каталог кода в проекте")
     check_cmd.add_argument("--package", help="пакет в каноне — чтобы посчитать отставание")
@@ -187,7 +253,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "issue":
-            passport = issue(Path(args.package), Path(args.into), args.first)
+            passport = issue(Path(args.package), Path(args.into), args.first, args.only)
             print(f"выпуск {passport['package']} {passport['version']} (коммит канона "
                   f"{passport['canon_commit'][:7]}) → {args.into}; файлов: {len(passport['files'])}")
             return 0

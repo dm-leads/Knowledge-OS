@@ -159,3 +159,40 @@ def test_command_line_prints_counts_and_exit_codes(tmp_path, canon, capsys):
     (into / "__init__.py").write_text("правка\n", encoding="utf-8")
     assert kos_release.main(["check", "--into", str(into)]) == 1
     assert "изменены: __init__.py" in capsys.readouterr().out
+
+
+def test_folder_without_pyproject_is_released_whole(tmp_path):
+    """Навык или методология (папка без pyproject.toml): выпуск целиком, версия — дата коммита папки."""
+    repo = tmp_path / "канон"
+    skill = repo / "Исходники скиллов" / "демо-навык"
+    (skill / "references").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: демо\n---\n", encoding="utf-8")
+    (skill / "references" / "a.md").write_text("справка\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    commit(repo, "навык")
+    into = tmp_path / "проект" / "_канон" / "демо-навык"
+    passport = issue(skill, into)
+    assert passport["package"] == "демо-навык"
+    assert passport["version"] == git(repo, "log", "-1", "--format=%cs")
+    assert sorted(passport["files"]) == ["SKILL.md", "references/a.md"]
+    assert check(into).ok
+
+
+def test_only_selected_files_from_the_commit(tmp_path):
+    """--only: выбранные файлы папки, из коммита — чужая незакоммиченная правка в выпуск не попадает."""
+    repo = tmp_path / "канон"
+    meth = repo / "Методологии"
+    (meth / "Платный трафик").mkdir(parents=True)
+    (meth / "Методология — А.md").write_text("а\n", encoding="utf-8")
+    (meth / "Платный трафик" / "Справочник — Б.md").write_text("б\n", encoding="utf-8")
+    (meth / "Методология — Лишняя.md").write_text("не выпускать\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    commit(repo, "методологии")
+    (meth / "Методология — А.md").write_text("а, правка другого чата\n", encoding="utf-8")
+    into = tmp_path / "проект" / "_канон" / "Методологии"
+    passport = issue(meth, into, only=["Методология — А.md", "Платный трафик/Справочник — Б.md"])
+    assert sorted(passport["files"]) == ["Методология — А.md", "Платный трафик/Справочник — Б.md"]
+    assert (into / "Методология — А.md").read_text(encoding="utf-8") == "а\n"
+    assert not (into / "Методология — Лишняя.md").exists()
+    report = check(into, meth)
+    assert report.ok and report.behind == 0
