@@ -59,7 +59,7 @@ def hypothesis_rows(backend):
 
 def launch_h001(s):
     s.create(candidate())
-    s.declare_expectation("H-001", NOISE_SHARE, 0.004, CHANGE_ABSOLUTE)
+    s.declare_expectation("H-001", NOISE_SHARE, 0.0045, CHANGE_ABSOLUTE)
     s.update_status("H-001", HStatus.IN_TEST, **LAUNCH)
 
 
@@ -117,7 +117,7 @@ def test_read_filters_by_fields(backend):
     s = store(backend)
     s.create(candidate())
     s.create(candidate("H-002"))
-    s.declare_expectation("H-002", NOISE_SHARE, 0.004, CHANGE_ABSOLUTE)
+    s.declare_expectation("H-002", NOISE_SHARE, 0.0045, CHANGE_ABSOLUTE)
     s.update_status("H-002", HStatus.IN_TEST, **LAUNCH)
     assert [h.id for h in s.read("hypotheses", status=HStatus.IN_TEST)] == ["H-002"]
 
@@ -202,7 +202,7 @@ def test_human_columns_survive_updates(backend):
     s.create(candidate())
     backend.add_columns(SHEETS["hypotheses"], ["комментарий"])
     backend.write_rows(SHEETS["hypotheses"], [(0, {"комментарий": "обсудить с владельцем"})])
-    s.declare_expectation("H-001", NOISE_SHARE, 0.004, CHANGE_ABSOLUTE)
+    s.declare_expectation("H-001", NOISE_SHARE, 0.0045, CHANGE_ABSOLUTE)
     row, = hypothesis_rows(backend)
     assert (row["комментарий"], row["revision"]) == ("обсудить с владельцем", "2")
 
@@ -341,7 +341,7 @@ def test_row_changed_by_another_process_stops_update():
     s.create(candidate())
     racy.race_on = racy.reads + 2
     with pytest.raises(GuardViolation, match="другим процессом") as e:
-        s.declare_expectation("H-001", NOISE_SHARE, 0.004, CHANGE_ABSOLUTE)
+        s.declare_expectation("H-001", NOISE_SHARE, 0.0045, CHANGE_ABSOLUTE)
     assert e.value.guard == 13
 
 

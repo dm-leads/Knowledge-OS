@@ -224,7 +224,8 @@ _COUNT_BASE = re.compile(r"[^=]+=(\d+)")
 def noise(share: Number, base: int | None = None) -> Number:
     """Порог шума доли: ±2·√(p(1−p)/N). N — база доли или, при запуске теста, ожидаемый N теста (`base`).
     Порог определён для доли счётчиков при N·p ≥ 5 и N·(1−p) ≥ 5: при p = 0 или 1 формула дала бы нулевой шум, при
-    малых N·p нормальное приближение неверно. Ожидаемый эффект меньше порога — research, а не тест."""
+    малых N·p нормальное приближение неверно. Это шум одной доли — справочное число снимка модели; порог гипотезы
+    (сравнение доли базы с долей окна теста) считает noise_diff() (1.8.0)."""
     if share.unit != "доля":
         raise GuardViolation(9, f"порог шума считается для доли, а «{share.metric}» — в «{share.unit}»")
     if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base <= 0):
@@ -250,6 +251,79 @@ def noise(share: Number, base: int | None = None) -> Number:
                               f"{NOISE_MIN_EXPECTED}: нормальное приближение неприменимо, порог шума не определён")
     return Number(**common, status=share.status, value=2 * math.sqrt(p * (1 - p) / observations),
                   missing=share.missing)
+
+
+# Порог шума гипотезы (страж 5, 1.8.0). Источник: нормальное приближение разницы двух долей; 2σ — вердикт; +0,842σ —
+# мощность 80 % (проверено второй моделью 18.11.2026). Гипотеза сравнивает долю базы (до старта, N_base) с долей окна
+# теста (N_test) — двумя независимыми выборками, поэтому под нулевой гипотезой «эффекта нет»
+# SE_D = √(p(1−p)·(1/N_base + 1/N_test)). Шум одной доли 2·√(p(1−p)/N) при равных объёмах давал ~7,9 % ложных побед
+# вместо ~2,3 %, а ожидание, равное порогу, — мощность 50 %.
+NOISE_VERDICT_Z = 2.0                                     # порог вердикта: |изменение| ≥ 2·SE_D
+NOISE_POWER_Z = 0.842                                     # z для мощности 80 % (односторонний квантиль 0,80)
+NOISE_MIN_EFFECT_Z = NOISE_VERDICT_Z + NOISE_POWER_Z      # минимум ожидаемого эффекта для запуска: 2,842·SE_D
+LEGACY_NOISE_DENOMINATOR = "ожидаемый N теста="           # знаменатель порога до 1.8.0 (шум одной доли при запуске)
+
+
+def share_base(share: Number) -> int | None:
+    """N базы доли — из знаменателя вида «метрика=N»; иначе неизвестен (None)."""
+    counted = _COUNT_BASE.fullmatch(share.denominator or "")
+    return int(counted.group(1)) if counted else None
+
+
+def is_legacy_noise(threshold: Number | None) -> bool:
+    """Порог шума записан до 1.8.0 — шум одной доли на ожидаемом N теста (знаменатель «ожидаемый N теста=N»)."""
+    return threshold is not None and (threshold.denominator or "").startswith(LEGACY_NOISE_DENOMINATOR)
+
+
+def noise_min_effect(threshold: float) -> float:
+    """Минимум ожидаемого изменения для мощности 80 % при пороге вердикта `threshold` = 2·SE_D: 2,842·SE_D."""
+    return threshold / NOISE_VERDICT_Z * NOISE_MIN_EFFECT_Z
+
+
+def noise_diff(share: Number, test_n: int | None = None) -> Number:
+    """Порог вердикта для разницы «доля базы → доля окна теста»: 2·√(p(1−p)·(1/N_base + 1/N_test)).
+
+    N_base — из знаменателя доли («метрика=N»); неизвестен — «нет данных» с причиной, а не шум одной доли. N_test —
+    ожидаемый N теста при запуске или фактический при замере; не задан (гейт до запуска) — принимается равным N_base, и
+    порог — оценка до запуска. Нормальное приближение требует N·p ≥ 5 и N·(1−p) ≥ 5 для обеих выборок. Минимум
+    ожидаемого эффекта для мощности 80 % — noise_min_effect(порог)."""
+    if share.unit != "доля":
+        raise GuardViolation(9, f"порог шума считается для доли, а «{share.metric}» — в «{share.unit}»")
+    if test_n is not None and (isinstance(test_n, bool) or not isinstance(test_n, int) or test_n <= 0):
+        raise GuardViolation(9, f"порог шума: N теста = {test_n!r} — нужно целое больше нуля")
+    denominator = share.denominator or share.metric
+    if "=" in denominator and not _COUNT_BASE.fullmatch(denominator):
+        raise GuardViolation(9, f"порог шума считается для доли счётчиков, а база «{denominator}» — не число наблюдений")
+    base_n = share_base(share)
+    assumed = test_n is None and base_n is not None
+    n_test = base_n if test_n is None else test_n
+    label = (f"разница долей: база N={base_n if base_n is not None else '?'}, "
+             f"тест N={n_test if n_test is not None else '?'}")
+    common = dict(metric=f"{share.metric}: порог шума", level=share.level, scope=share.scope, flow=share.flow,
+                  segment=share.segment, period_start=share.period_start, period_end=share.period_end,
+                  as_of=share.as_of, source=share.source, unit="доля", denominator=label)
+    if share.value is None:
+        return Number(**common, status=Status.NO_DATA, value=None, missing="у доли нет значения")
+    if base_n is None or base_n <= 0:
+        return Number(**common, status=Status.NO_DATA, value=None,
+                      missing=f"N базы неизвестен (знаменатель «{denominator}» не вида «метрика=N») — порог по разнице "
+                              "двух долей не посчитать; нужна доля счётчиков из снимка")
+    if not 0 <= share.value <= 1:
+        return Number(**common, status=Status.NO_DATA, value=None,
+                      missing=f"доля {share.value:g} вне [0; 1] — не биномиальная доля, порог шума не определён")
+    p = share.value
+    for what, size in (("базы", base_n), ("теста", n_test)):
+        if size * p < NOISE_MIN_EXPECTED or size * (1 - p) < NOISE_MIN_EXPECTED:
+            return Number(**common, status=Status.NO_DATA, value=None,
+                          missing=f"выборка {what}: N·p = {size * p:g}, N·(1−p) = {size * (1 - p):g} — меньше "
+                                  f"{NOISE_MIN_EXPECTED}: нормальное приближение неприменимо, порог шума не определён")
+    se_d = math.sqrt(p * (1 - p) * (1 / base_n + 1 / n_test))
+    status, missing = share.status, share.missing
+    if assumed:
+        status = _weakest(status, Status.ESTIMATE)
+        missing = "; ".join(filter(None, [missing, "N теста принят равным N базы до запуска — при запуске порог "
+                                                   "пересчитывается на ожидаемом N теста"]))
+    return Number(**common, status=status, value=NOISE_VERDICT_Z * se_d, missing=missing)
 
 
 def _next_month(day: date) -> date:

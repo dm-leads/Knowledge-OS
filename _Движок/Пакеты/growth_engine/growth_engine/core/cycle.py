@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
-from .economy import noise
+from .economy import is_legacy_noise, noise_diff, noise_min_effect, share_base
 from .errors import GuardViolation
 from .number import Number
 from .registry import CHANGE_ABSOLUTE, CHANGE_KINDS, COUNT_UNITS, MODEL_SYSTEM, HStatus, Hypothesis, transition
@@ -64,7 +64,9 @@ GATE_STATUSES = (HStatus.IDEA, HStatus.RESEARCH, HStatus.CANDIDATE, HStatus.BLOC
 
 
 def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> Hypothesis:
-    """Страж 5: порог шума главной доли считает движок экономики; ожидаемое изменение меньше порога — research кодом.
+    """Страж 5: порог шума главной доли считает движок экономики как шум разницы двух долей (база и окно теста; до
+    запуска N теста принят равным N базы); ожидаемое изменение меньше порога или меньше минимума мощности 80 %
+    (2,842·SE_D) — research кодом.
     Вид изменения объявляется явно (страж 9): абсолютное — в долях (0,01 = 1 п.п.), относительное — доля от текущего
     значения (0,10 = +10%), в п.п. его переводит код. Порог здесь — на базе доли; при запуске теста реестр пересчитывает
     его из той же доли на ожидаемом N теста. Объявленное до запуска после запуска не переписывается (страж 7)."""
@@ -83,7 +85,7 @@ def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> 
     if expected is not None and (abs(expected) > 1 or (p is not None and not 0 <= p + expected <= 1)):
         raise GuardViolation(5, f"гипотеза {h.id}: ожидаемая доля {(p or 0) + expected:g} вне [0; 1] или изменение по "
                                 "модулю больше 1 — изменение записано не в долях")
-    threshold = noise(share)
+    threshold = noise_diff(share)   # до запуска N теста не объявлен — принят равным N базы, порог — оценка
     stamped = replace(h, expected_delta=expected, expected_kind=kind, noise_share=share, noise_threshold=threshold)
     if expected is None:
         reason = "доля не определена — относительное изменение не переводится в п.п. (страж 5)"
@@ -92,6 +94,10 @@ def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> 
     elif abs(expected) < threshold.value:
         reason = (f"ожидаемое изменение {_points(expected)} п.п. меньше порога шума "
                   f"{_points(threshold.value)} п.п. (страж 5)")
+    elif abs(expected) < noise_min_effect(threshold.value):
+        reason = (f"тест не увидит такой эффект при этом объёме (мощность < 80 %): ожидаемое изменение "
+                  f"{_points(expected)} п.п. меньше минимума {_points(noise_min_effect(threshold.value))} п.п. "
+                  f"при пороге шума {_points(threshold.value)} п.п. (страж 5)")
     else:
         return stamped
     if h.status is HStatus.RESEARCH:
@@ -106,7 +112,8 @@ def measure(h: Hypothesis, measured: Number) -> Hypothesis:
     """Замер теста (Х9) — единственный путь в статус «замер». Замер — та же доля, что у гейта шума (метрика, кабинет,
     поток, разрез, единица, система), за объявленное окно от даты старта, снятый не раньше конца окна (у отложенного
     замера — не раньше его даты). Попал ли в порог — считает код: изменение от доли гейта того же знака, что ожидание,
-    и не меньше объявленного до старта порога (страж 7)."""
+    и не меньше порога: большего из объявленного до старта (страж 7) и пересчитанного по фактическому N теста (1.8.0).
+    Если по фактическому N нормальное приближение неприменимо, попадание в порог не засчитывается."""
     if h.status not in MEASURABLE:
         raise GuardViolation(7, f"гипотеза {h.id}: замер добавляется только к гипотезе «в тесте» или «отложенный "
                                 f"замер», а статус — «{h.status.value}»")
@@ -132,8 +139,31 @@ def measure(h: Hypothesis, measured: Number) -> Hypothesis:
     if measured.value is None:
         raise GuardViolation(7, f"гипотеза {h.id}: у замера нет значения — {measured.missing or 'нет данных'}")
     delta = measured.value - base.value
-    in_threshold = delta != 0 and (delta > 0) == (h.expected_delta > 0) and abs(delta) >= h.threshold
-    reason = (f"изменение {_points(delta)} п.п. от доли гейта, порог ± {_points(h.threshold)} п.п. — "
+    # 1.8.0: фактический N теста меньше ожидаемого делает объявленный порог заниженным — порог пересчитывается по
+    # фактическому N (знаменатель замера «метрика=N») и берётся большее из двух. Только ужесточение: объявленный до
+    # старта порог не переписывается (страж 7).
+    actual_n = share_base(measured)
+    threshold, note, countable = h.threshold, f"объявлен до старта {_points(h.threshold)} п.п.", True
+    if actual_n is None or share_base(base) is None:
+        if is_legacy_noise(h.noise_threshold):
+            note += ("; фактический N теста или N базы неизвестен (знаменатель не вида «метрика=N») — запуск до 1.8.0, "
+                     "порог объявленный")
+        else:
+            # Неизвестный объём не подтверждает, что объявленного порога хватает: положительного вердикта нет.
+            countable = False
+            note += ("; фактический N теста или N базы неизвестен (знаменатель не вида «метрика=N») — порог по факту "
+                     "не проверить, в порог не засчитано: нужен замер со счётчиками")
+    else:
+        recomputed = noise_diff(base, actual_n)
+        if recomputed.value is None:
+            countable = False
+            note += f"; по фактическому N = {actual_n} порог не определён: {recomputed.missing} — в порог не засчитано"
+        else:
+            threshold = max(h.threshold, recomputed.value)
+            note += f", по фактическому N = {actual_n} — {_points(recomputed.value)} п.п."
+    in_threshold = (countable and delta != 0 and (delta > 0) == (h.expected_delta > 0)
+                    and abs(delta) >= threshold)
+    reason = (f"изменение {_points(delta)} п.п. от доли гейта, порог ± {_points(threshold)} п.п. ({note}) — "
               f"{'в пороге' if in_threshold else 'не в пороге'}")
     return transition(h, HStatus.MEASURED, measured=measured, in_threshold=in_threshold, status_reason=reason)
 

@@ -33,7 +33,7 @@ from .core.bottleneck import Bottleneck, Candidate, choose, stage_gaps
 from .core.config import parse_config
 from .core.cycle import (CREDIBILITY_FACTORS, EFFORT_FACTORS, Assumption, build_evidence, order_assumptions,
                          rat_priority, score)
-from .core.economy import shift_share
+from .core.economy import noise_min_effect, shift_share
 from .core.errors import GuardViolation
 from .core.ladders import UnitOfAction
 from .core.number import Number, Status
@@ -580,7 +580,9 @@ def _gate(store, hid: str, fields: dict, out, label: str) -> int:
     # видна, и агент переводил проценты в долю сам — приёмочный прогон 7б назвал это скрытым условием.
     if stored.noise_threshold is not None and stored.noise_threshold.value is not None:
         out(f"   для карточки запуска: threshold не ниже {stored.noise_threshold.value:.6f}".rstrip("0")
-            + " (доля, не проценты)")
+            + " (доля, не проценты; при N теста = N базы — при меньшем ожидаемом N реестр пересчитает порог выше)")
+        out(f"   минимум ожидаемого изменения для мощности 80 %: "
+            f"{noise_min_effect(stored.noise_threshold.value):.6f}".rstrip("0") + " (доля)")
     reason = f" — {stored.status_reason}" if stored.status_reason else ""
     out(f"ИТОГ: статус гипотезы {hid} — «{stored.status.value}»{reason}")
     return 0

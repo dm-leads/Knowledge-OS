@@ -39,8 +39,9 @@ CARD = dict(cycle_id="Ц-1", business_task="объём лидов", tree_branch=
             unit_of_action=UNIT, fact_basis=FACT, effect_goal_units=EFFECT, effect_rub=EFFECT_RUB,
             mechanic="вычитание шага", main_metric="cr1", owner="Дмитрий")
 # Главная доля гипотезы — веб-CR1 окна августа (1 578 / 101 146; окно не старше квартала до старта 20.09). Гейт шума
-# объявляет ожидание +0,40 п.п.; при запуске реестр считает порог шума на ожидаемом N теста 9 000:
-# 2·√(p(1−p)/9000) ≈ 0,26 п.п., поэтому объявленный порог — 0,30 п.п.
+# объявляет ожидание +0,45 п.п.; при запуске реестр считает порог шума на ожидаемом N теста 9 000:
+# с 1.8.0 — шум разницы долей 2·√(p(1−p)·(1/101146 + 1/9000)) ≈ 0,27 п.п. (объявленный порог — 0,30 п.п.), минимум
+# ожидания для мощности 80 % — порог вердикта 0,30 п.п. + 0,842·SE_D ≈ 0,41 п.п. (ожидание 0,45 п.п. проходит).
 NOISE_SHARE = ratio(n("leads", 1578, flow="web"), n("visits", 101146, flow="web"), "cr1", CFG)
 LAUNCH = dict(zone=ZONE_OWN, change="убрать шаг 2 формы подбора", start_date=date(2026, 9, 20),
               window_days=28, expected_n=9000, threshold=0.003,
@@ -53,7 +54,7 @@ def candidate(hid="H-001", **card):
     return transition(h, HStatus.CANDIDATE, **{**CARD, **card})
 
 
-def gated(hid="H-001", change=0.004, **card):
+def gated(hid="H-001", change=0.0045, **card):
     """Кандидат после гейта шума: ожидание объявлено абсолютным изменением главной доли."""
     return apply_noise_gate(candidate(hid, **card), NOISE_SHARE, change, CHANGE_ABSOLUTE)
 

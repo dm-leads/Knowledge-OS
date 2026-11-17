@@ -121,10 +121,15 @@ def _finite(value) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def _check_noise(h: Hypothesis) -> Hypothesis:
+def _check_noise(h: Hypothesis, legacy: bool = False) -> Hypothesis:
     """Страж 5: порог шума пересчитывается кодом из главной доли гипотезы на ожидаемом N теста — готовому числу порога
-    не верим. Объявленный порог и ожидаемое изменение — абсолютные, в долях (0,01 = 1 п.п.), не ниже порога шума."""
-    from .economy import noise   # движок экономики берёт из реестра имя системы модели — импорт при вызове
+    не верим. Объявленный порог и ожидаемое изменение — абсолютные, в долях (0,01 = 1 п.п.), не ниже порога шума.
+
+    С 1.8.0 порог — шум разницы двух долей (база до старта и окно теста), а ожидаемое изменение — не меньше минимума
+    мощности 80 % (2,842·SE_D). legacy=True — проверка записи, запущенной до 1.8.0 (порог одной доли «ожидаемый N
+    теста=N»): объявленное до старта не переписывается (страж 7), поэтому такая запись сверяется по правилу своего
+    запуска. Новые запуски — всегда по новому правилу."""
+    from .economy import NOISE_POWER_Z, NOISE_VERDICT_Z, noise, noise_diff, noise_min_effect   # экономика импортирует реестр — импорт при вызове
 
     share = h.noise_share
     if share is None or h.expected_delta is None:
@@ -151,7 +156,7 @@ def _check_noise(h: Hypothesis) -> Hypothesis:
         raise GuardViolation(5, f"гипотеза {h.id}: порог ± {h.threshold:g} — нужен больше нуля")
     if isinstance(h.expected_n, bool) or not isinstance(h.expected_n, int) or h.expected_n <= 0:
         raise GuardViolation(5, f"гипотеза {h.id}: ожидаемый N теста {h.expected_n!r} — нужно целое больше нуля")
-    at_launch = noise(share, base=h.expected_n)
+    at_launch = noise(share, base=h.expected_n) if legacy else noise_diff(share, h.expected_n)
     if at_launch.value is None:
         raise GuardViolation(5, f"гипотеза {h.id}: порог шума при N = {h.expected_n} не определён — {at_launch.missing}")
     if not 0 <= share.value + h.expected_delta <= 1:
@@ -163,6 +168,14 @@ def _check_noise(h: Hypothesis) -> Hypothesis:
     if abs(h.expected_delta) < at_launch.value:
         raise GuardViolation(5, f"гипотеза {h.id}: ожидаемое изменение {h.expected_delta:g} меньше шума "
                                 f"{at_launch.value:g} при N = {h.expected_n} — это research, а не тест")
+    # Мощность 80 % — относительно фактического порога вердикта: объявленный выше шума порог поднимает минимум.
+    minimum = max(noise_min_effect(at_launch.value),
+                  h.threshold + NOISE_POWER_Z * at_launch.value / NOISE_VERDICT_Z)
+    if not legacy and abs(h.expected_delta) < minimum:
+        raise GuardViolation(5, f"гипотеза {h.id}: тест не увидит такой эффект при этом объёме (мощность < 80 %) — "
+                                f"ожидаемое изменение {h.expected_delta:g} меньше минимума {minimum:g} при пороге "
+                                f"вердикта {max(h.threshold, at_launch.value):g} (шум {at_launch.value:g}) и "
+                                f"N = {h.expected_n} — это research, а не тест")
     return replace(h, noise_threshold=at_launch)
 
 
@@ -254,7 +267,8 @@ def check_state(h: Hypothesis) -> None:
             raise GuardViolation(7, f"гипотеза {h.id}: зона «{h.zone}» не из контракта")
         if h.status is HStatus.WAITING_OWNER and h.zone != ZONE_PACKAGE:
             raise GuardViolation(7, f"гипотеза {h.id}: «ждёт владельца» — только для пакета вне маркетинга")
-        if _check_noise(h).noise_threshold != h.noise_threshold:
+        from .economy import is_legacy_noise   # экономика импортирует реестр — импорт при вызове
+        if _check_noise(h, legacy=is_legacy_noise(h.noise_threshold)).noise_threshold != h.noise_threshold:
             raise GuardViolation(5, f"гипотеза {h.id}: порог шума в записи не совпадает с пересчётом движка — запись "
                                     "изменена вне движка")
     if h.status is HStatus.DEFERRED:

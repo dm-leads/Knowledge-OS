@@ -15,15 +15,18 @@ from growth_engine.core.number import Status
 from growth_engine.core.registry import CHANGE_ABSOLUTE, CHANGE_RELATIVE, HStatus, transition
 from growth_engine.tests.helpers import CFG, LAUNCH, MAY, NOISE_SHARE, candidate, gated, n
 
-# Доля модели v1.0, §4: 712 покупателей на 1 994 New First SQL — порог шума 2,15 п.п. на базе доли.
+# Доля модели v1.0, §4: 712 покупателей на 1 994 New First SQL — порог шума разницы 3,03 п.п. при N теста = N базы
+# (до 1.8.0 — 2,15 п.п. шума одной доли); минимум ожидания для мощности 80 % — 4,31 п.п.
 SHARE = ratio(n("sales", 712), n("sales_entry", 1994), "c1", CFG)
 C1 = dict(main_metric="c1")   # главная метрика гипотезы — та же доля, что и у порога
 ABS, REL = CHANGE_ABSOLUTE, CHANGE_RELATIVE
 
 
-def formula(p, observations):
-    """Порог шума, посчитанный в тесте независимо от движка: 2·√(p(1−p)/N)."""
-    return 2 * math.sqrt(p * (1 - p) / observations)
+def formula(p, base_n, test_n=None):
+    """Порог шума, посчитанный в тесте независимо от движка (1.8.0): шум разницы двух долей
+    2·√(p(1−p)·(1/N_base + 1/N_test)); до запуска N теста принят равным N базы."""
+    test_n = base_n if test_n is None else test_n
+    return 2 * math.sqrt(p * (1 - p) * (1 / base_n + 1 / test_n))
 
 
 def launch(h, **changes):
@@ -34,7 +37,7 @@ def launch(h, **changes):
 
 def test_expected_change_below_noise_goes_to_research():
     h = apply_noise_gate(candidate(**C1), SHARE, 0.01, ABS)
-    assert h.status is HStatus.RESEARCH and "страж 5" in h.status_reason and "2,15 п.п." in h.status_reason
+    assert h.status is HStatus.RESEARCH and "страж 5" in h.status_reason and "3,03 п.п." in h.status_reason
     assert h.noise_threshold.value == pytest.approx(formula(712 / 1994, 1994)) and h.noise_share == SHARE
     assert (h.expected_delta, h.expected_kind) == (0.01, ABS)
 
@@ -49,10 +52,12 @@ def test_negative_expected_change_is_compared_by_size():
 
 # Ревью Codex 15.09: «рост 10%» к доле 35,71% — это +3,57 п.п., а не +10 п.п.; переводит код.
 def test_relative_change_is_converted_to_points_by_code():
-    h = apply_noise_gate(candidate(**C1), SHARE, 0.10, REL)
-    assert h.status is HStatus.CANDIDATE and h.expected_delta == pytest.approx(712 / 1994 * 0.10)
+    h = apply_noise_gate(candidate(**C1), SHARE, 0.15, REL)
+    assert h.status is HStatus.CANDIDATE and h.expected_delta == pytest.approx(712 / 1994 * 0.15)
     assert h.expected_kind == REL
-    assert apply_noise_gate(candidate(**C1), SHARE, 0.05, REL).status is HStatus.RESEARCH   # +1,79 п.п. < 2,15
+    assert apply_noise_gate(candidate(**C1), SHARE, 0.05, REL).status is HStatus.RESEARCH   # +1,79 п.п. < 3,03
+    weak = apply_noise_gate(candidate(**C1), SHARE, 0.10, REL)   # +3,57 п.п.: выше порога 3,03, ниже минимума 4,31
+    assert weak.status is HStatus.RESEARCH and "мощность < 80 %" in weak.status_reason
 
 
 @pytest.mark.parametrize("kind", ["", "п.п.", None])
@@ -113,8 +118,8 @@ def test_gate_after_launch_rejected():
 
 def test_launch_recomputes_noise_at_expected_n():
     h = launch(gated())
-    assert h.noise_threshold.value == pytest.approx(formula(1578 / 101146, 9000))
-    assert h.noise_threshold.denominator == "ожидаемый N теста=9000"
+    assert h.noise_threshold.value == pytest.approx(formula(1578 / 101146, 101146, 9000))
+    assert h.noise_threshold.denominator == "разница долей: база N=101146, тест N=9000"
 
 
 def test_launch_without_gate_stops():

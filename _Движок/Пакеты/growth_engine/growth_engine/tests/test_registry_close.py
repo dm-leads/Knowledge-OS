@@ -81,7 +81,7 @@ def measured(folder, hid="H-001"):
     s = store(folder)
     s.create_numbers([FACT, EFFECT, EFFECT_RUB, NOISE_SHARE, MEASURED_SHARE])
     call(folder, "hypothesis", id=hid, status="candidate", json=card_json())
-    call(folder, "gate", id=hid, json=json.dumps({"share_id": number_id(NOISE_SHARE), "change": 0.004,
+    call(folder, "gate", id=hid, json=json.dumps({"share_id": number_id(NOISE_SHARE), "change": 0.0045,
                                                   "kind": "абсолютное"}, ensure_ascii=False))
     call(folder, "hypothesis", id=hid, status="в тесте", json=launch_json())
     call(folder, "measure", id=hid, json=json.dumps({"measured_id": number_id(MEASURED_SHARE)}, ensure_ascii=False))
