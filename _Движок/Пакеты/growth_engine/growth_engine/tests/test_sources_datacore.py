@@ -234,3 +234,21 @@ def test_flow_is_part_of_the_address(adapter):
               breakdown=None, as_of=RUN)
     with pytest.raises(SourceError, match="поток «all»"):
         adapter.fetch(q)
+
+
+def test_rows_of_different_flows_do_not_overwrite_each_other(tmp_path):
+    """datacore 1.6.0 публикует одну метрику потоками all, web и no_visit — каждый поток своим числом (1.7.4)."""
+    rows = [dict(number("mql", "b1", 621.0)), dict(number("mql", "b1", 414.0), flow="web"),
+            dict(number("mql", "b1", 207.0), flow="no_visit"), dict(number("visits", "b1", 1000.0), flow="web")]
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps({"numbers": rows}, ensure_ascii=False), encoding="utf-8")
+    a = DatacoreAdapter({"published": str(path), "metrics": {"mql": "mql", "visits": "visits"}})
+
+    def get(metric, flow):
+        return a.fetch(Query(metric=metric, scope="b1", flow=flow, period_start=AUG[0], period_end=AUG[1],
+                             breakdown=None, as_of=RUN))[0].value
+
+    assert (get("mql", "all"), get("mql", "web"), get("mql", "no_visit")) == (621.0, 414.0, 207.0)
+    assert get("visits", "web") == 1000.0
+    with pytest.raises(SourceError, match="поток «web»"):
+        get("visits", "all")

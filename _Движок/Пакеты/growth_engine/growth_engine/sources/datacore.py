@@ -83,8 +83,10 @@ class DatacoreAdapter:
             raise SourceError(f"файл публикации ядра не читается: {type(exc).__name__}: {exc}") from exc
         index = {}
         for row in payload.get("numbers") or []:
+            # Поток — часть ключа (1.7.4): ядро публикует одну метрику потоками all, web и no_visit, и строки разных
+            # потоков иначе затирали бы друг друга. Строка без потока — «all», как в публикациях до datacore 1.6.0.
             key = (row.get("metric"), row.get("scope"), row.get("segment") or "",
-                   row.get("period_start"), row.get("period_end"))
+                   row.get("period_start"), row.get("period_end"), row.get("flow") or "all")
             index[key] = row
         self._published = {"payload": payload, "index": index}
         return self._published
@@ -93,11 +95,15 @@ class DatacoreAdapter:
         got = self._load_published()
         key = (name, self._scope_name(query.scope), query.breakdown or "",
                query.period_start.isoformat(), query.period_end.isoformat())
-        row = got["index"].get(key)
+        row = got["index"].get(key + (query.flow,))
         if row is None:
             months = self._months_of(query)
             if months and self.cfg is not None:
-                return self._sum_of_months(query, name, months)
+                return self._sum_of_months(query, name, months)   # сначала месяцы того же потока (ревью 1.7.4)
+            other = sorted(k[5] for k in got["index"] if k[:5] == key)
+            if other:
+                raise SourceError(f"в публикации ядра «{name}» для «{query.scope}» — поток «{', '.join(other)}», "
+                                  f"а запрошен «{query.flow}»; ядро не публикует этот поток отдельно")
             published_at = (got["payload"].get("published_at") or "")[:10]
             raise SourceError(f"в публикации ядра нет числа «{name}» для «{query.scope}» за "
                               f"{query.period_start}–{query.period_end}"
@@ -135,8 +141,8 @@ class DatacoreAdapter:
         got = self._load_published()
         prefix = f"{query.breakdown}="
         scope = self._scope_name(query.scope)
-        window = [(segment, row) for (metric, sc, segment, start, end), row in got["index"].items()
-                  if metric == name and sc == scope
+        window = [(segment, row) for (metric, sc, segment, start, end, flow), row in got["index"].items()
+                  if metric == name and sc == scope and flow == query.flow
                   and start == query.period_start.isoformat() and end == query.period_end.isoformat()]
         if not window:
             # Окна нет в публикации совсем — это пробел периода, а не «разрез не публикуется» (ревью 17.11.2026, п. 2).
@@ -272,7 +278,7 @@ class DatacoreAdapter:
         if self.section.get('published'):
             got = self._load_published()
             return {metric: (got['index'].get((self._metric_name(metric), self._scope_name(scope), '',
-                                               start.isoformat(), end.isoformat())) or {}).get('value')
+                                               start.isoformat(), end.isoformat(), 'all')) or {}).get('value')
                     for metric in metrics}
         registry, core_cfg, connect, url = self._load_core()
         out = {}
