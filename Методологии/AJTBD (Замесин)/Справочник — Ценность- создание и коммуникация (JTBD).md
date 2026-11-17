@@ -1,7 +1,7 @@
 ---
 area: ajtbd
 type: reference
-status: draft
+status: active
 description: |
   Рабочий справочник по созданию и коммуникации ценности в JTBD-подходе Замесина: формулы, 12 механик, диагностические матрицы, психологические основы покупки, антипаттерны.
 author: Дмитрий + Claude (AI-assistant)

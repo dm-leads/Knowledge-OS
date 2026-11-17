@@ -6,7 +6,7 @@ description: |
   значения статусов, опциональный gitlab_url, soft mirror и структура _manifest.md как навигации контура.
 author: Дмитрий + Claude (AI-assistant)
 created: 2026-06-28
-updated: 2026-06-28
+updated: 2026-11-17
 review_cycle: 3m
 last_reviewed: 2026-06-28
 tags:
@@ -35,7 +35,7 @@ description: |
 author: <Имя>
 created: YYYY-MM-DD          # неизменна
 updated: YYYY-MM-DD          # дата последней содержательной правки
-review_cycle: 6m | 3m | never
+review_cycle: 1m | 3m | 6m | 12m | never
 last_reviewed: YYYY-MM-DD    # дата осознанного пересмотра (≠ updated)
 gitlab_url: <url>            # ОПЦИОНАЛЬНО — только если контур привязан к GitLab
 tags:
@@ -48,11 +48,16 @@ tags:
 - Поле размещения (`area`/`project`/`resource_kind`) обязательно для документов **проекта**; документы
   самого движка (`_Движок/Канон`) его опускают.
 
-## 2. review_cycle ← тип
+## 2. review_cycle ← скорость устаревания темы
 
-- **6m:** policy, methodology, playbook, reference, guide, bootstrap, template.
-- **3m:** standard, workflow, runbook, instruction.
-- **never:** analytics, retrospective, postmortem, audit, research, decision (снапшоты).
+Закрытый список `1m / 3m / 6m / 12m / never` ([ADR-0007](<../0 — System Docs/ADR-log/0007-methodbase-check-types-review-cycle.md>)).
+Срок выбирается по тому, как быстро устаревает тема, а не по типу:
+
+- **1m** — карты и реестры, которые меняются с каждым новым документом;
+- **3m** — закон, правила площадок, стандарты и процессы, которые часто правятся;
+- **6m** — методологии, справочники, гайды по умолчанию;
+- **12m** — разборы первоисточников и книг, которые сами не меняются;
+- **never** — снапшоты: analytics, retrospective, postmortem, audit, research, decision.
 
 При `review_cycle: never` поле `last_reviewed` = `created`.
 

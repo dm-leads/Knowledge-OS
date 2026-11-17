@@ -1,7 +1,7 @@
 ---
 area: unit-economics
 type: reference
-status: draft
+status: active
 description: |
   Рабочий справочник по модулям 8–9 курса Красинского: концепция «Выгода vs Налог» в коммуникации, полный свод формул AMPPU/AMPU/CAC/COGS, алгоритм расчёта COGS 1st sale через CJM операционных процессов, инструменты AAB-тестирования и диагностики воронки.
 author: Дмитрий + Claude (AI-assistant)

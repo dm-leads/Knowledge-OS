@@ -1,7 +1,7 @@
 ---
 area: unit-economics
 type: reference
-status: draft
+status: active
 description: |
   Справочник по всем xlsx-шаблонам курса Ильи Красинского: что считает каждая модель, входы → выходы, листы, драйвер-ячейки, ключевые формулы и правила работы с моделью. Сами .xlsx лежат в папке «Шаблоны».
 author: Дмитрий + Claude (AI-assistant)
