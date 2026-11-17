@@ -1,4 +1,4 @@
-"""Анти-дубли до модели — семь слоёв (Т10).
+"""Анти-дубли до модели — семь слоёв (Т10) и восьмой — замечание (1.6.0).
 
 Кандидат — тема и не меньше трёх формулировок: одна удобная формулировка обманывает проверку. Слои считаются все,
 даже после первого сработавшего блокирующего: отчёт показывает каждый. Пара «кандидат — страница» из белого списка
@@ -26,7 +26,10 @@ from ..core.urls import is_own, norm_url, slug_of
 
 BLOCK, WARN, PASS, SKIPPED, NO_DATA = "пересекается", "спорно", "чисто", "пропущен", "нет данных"
 LAYER_NAMES = {1: "смысловой ключ", 2: "тексты статей", 3: "общая выдача", 4: "наша страница в топ-10",
-               5: "продающая страница", 6: "лимит на головной термин", 7: "почти-дубль заголовка"}
+               5: "продающая страница", 6: "лимит на головной термин", 7: "почти-дубль заголовка",
+               8: "редкая основа в заголовке"}
+NOTE = "замечание"             # слой 8 (1.6.0): строка в отчёте, вердикт гейта не меняет
+RARE_TITLES, RARE_SHARE = 3, 0.05
 BODY_CAP = 40
 HEADING_BONUS = 0.5
 MIN_FORMULATIONS = 3
@@ -444,12 +447,45 @@ def layer_title(ctx, cand, skip) -> LayerResult:
     return LayerResult(7, PASS, f"наибольшее сходство заголовков {best[0]:.2f}", numbers=numbers)
 
 
+def _shares(part: frozenset, key: Key) -> bool:
+    return any(part & other for other in key.parts)
+
+
+def layer_rare_title(ctx, cand, skip) -> LayerResult:
+    """Слой 8 (1.6.0, урок инцидента «тема свободна при живой статье-близнеце»): ключ темы и заголовок живой страницы
+    делят не меньше двух основ, и одна из них редкая — встречается в заголовках не больше max(1, min(3, 5 % страниц)).
+    Только замечание в отчёте: доля ложных тревог ещё не замерена на живом корпусе (`known-answers --audit`); перевод
+    в «спорно» — решением по замеру."""
+    key = cand.key(ctx.norm)
+    titles = [(item.page.url, item.page.title, item.title_key) for item in ctx.index.pages
+              if item.page.slug not in skip and item.page.slug not in cand.skip_slugs]
+    for page in ctx.pages().values():
+        if page.get("source") == "запись выпуска" and not _skip(page, skip) and page["id"] not in cand.skip_slugs:
+            titles.append((page["url"], page.get("title", ""), ctx.norm.key(page.get("title", ""))))
+    if not key or not titles:
+        return LayerResult(8, PASS, "заголовков для сверки нет")
+    cap = max(1, min(RARE_TITLES, int(RARE_SHARE * len(titles))))
+    df = [sum(1 for _, _, tk in titles if _shares(part, tk)) for part in key.parts]
+    hits = []
+    for url, title, tk in titles:
+        common = [i for i, part in enumerate(key.parts) if _shares(part, tk)]
+        rare = [i for i in common if df[i] <= cap]
+        if len(common) >= 2 and rare:
+            hits.append((url, title, [key.stems()[i] for i in rare]))
+    if not hits:
+        return LayerResult(8, PASS, f"редких общих основ с заголовками нет (редкая — не больше {cap} заголовков)")
+    url, title, rare = hits[0]
+    more = f"; ещё страниц: {len(hits) - 1}" if len(hits) > 1 else ""
+    return LayerResult(8, NOTE, f"основа «{', '.join(rare)}» есть в заголовке живой страницы «{title}» — проверить, "
+                                f"не та же ли тема{more}", url, numbers={"pages": len(hits), "cap": cap})
+
+
 def layer_2(ctx, cand, skip) -> LayerResult:
     return layer_texts(ctx.index, cand.formulations, ctx.p["thresholds"], skip_slugs=cand.skip_slugs | skip)
 
 
 LAYERS = {1: layer_key, 2: layer_2, 3: layer_serp, 4: layer_own_top, 5: layer_sales, 6: layer_head_cap,
-          7: layer_title}
+          7: layer_title, 8: layer_rare_title}
 
 
 def run_layers(ctx, candidate, layers=None) -> list[LayerResult]:

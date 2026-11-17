@@ -112,11 +112,11 @@ def test_job_name_with_dash_listed_and_removed_exactly(project):
 def test_low_data_window_is_remeasured(project):
     from .test_bets_wave3 import money_file, record, window
     instance = Instance(project, today=TODAY)
-    store.write_json(instance.file("bets"), "bets", [record()])
+    store.write_json(instance.file("bets"), "bets", [record(expectation_numbers=[{"value": 20, "unit": "заявки"}])])
     money_file(project, [])
     bets_cmd.measure(Instance(project, today=TODAY))
     assert bets.load(instance)[0]["measures"]["90"]["proposed"] == bets.LOW_DATA
-    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])     # выгрузка пришла позже
+    money_file(project, [("otoplenie-teplicy", 30000, 12, *window("2025-10-01", 90))])     # выгрузка пришла позже
     bets_cmd.measure(Instance(project, today=TODAY))
     assert bets.load(instance)[0]["measures"]["90"]["proposed"] == "сыграла"
 
@@ -194,11 +194,11 @@ def test_real_bet_remeasured_after_corpus_record(project):
         "measures": {"90": {"proposed": "ставки нет", "result": "ставки нет"}}}])
     topic = {"id": "T0009", "topic": "т", "direction": "теплицы", "bet": {
         "hypothesis": "h", "hypothesis_id": "H-1", "expectation": "4 заявки", "fail_threshold": "0",
-        "expectation_numbers": [{"value": 4, "unit": "заявки"}], "unit": "article", "planned_count": 1}}
+        "expectation_numbers": [{"value": 20, "unit": "заявки"}], "unit": "article", "planned_count": 1}}
     bets.add(instance, topic, "example.ru/blog/otoplenie-teplicy", "2025-10-01")
     rec = bets.load(instance)[0]
     assert "measures" not in rec and rec["measures_corpus"]["90"]["result"] == "ставки нет"
-    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
+    money_file(project, [("otoplenie-teplicy", 30000, 12, *window("2025-10-01", 90))])
     bets_cmd.measure(Instance(project, today=TODAY))
     assert bets.load(instance)[0]["measures"]["90"]["proposed"] == "сыграла"
 
@@ -303,8 +303,8 @@ def test_schtasks_read_back_in_oem(monkeypatch):
 
 def test_threshold_window_words_and_half_expectation_at_90():
     assert bets.number_in("за 90 дней — ни одной заявки") == 0.0
-    rec = {"bet_missing": False, "expectation_numbers": [{"value": 4, "unit": "заявки"}], "fail_threshold": "0"}
-    got, why = bets.decide(rec, {"step": 1, "money": {"value": 1, "status": "факт"}, "leads": {"value": 2}}, 2, "90")
+    rec = {"bet_missing": False, "expectation_numbers": [{"value": 20, "unit": "заявки"}], "fail_threshold": "0"}
+    got, why = bets.decide(rec, {"step": 1, "money": {"value": 1, "status": "факт"}, "leads": {"value": 12}}, 2, "90")
     assert got == "сыграла" and "половина" in why
 
 
@@ -320,14 +320,17 @@ def test_leads_without_average_check_kept(project):
 
 
 def test_window_90_halves_threshold_too():
-    rec = {"bet_missing": False, "expectation_numbers": [{"value": 8, "unit": "заявки"}], "fail_threshold": "5 заявок"}
+    """1.6.0: на окне 90 ожидание и порог — половина, «провала» нет (рост нелинейный); провал — только на 180."""
+    rec = {"bet_missing": False, "expectation_numbers": [{"value": 40, "unit": "заявки"}], "fail_threshold": "10 заявок"}
     got, why = bets.decide(rec, {"step": 1, "money": {"value": 100, "status": "факт"},
-                                 "leads": {"value": 3, "status": "факт"}}, 2, "90")
-    assert got == bets.LOW_DATA and "порогом 2.5" in why                  # темп 6 за 180 — выше порога 5
+                                 "leads": {"value": 8, "status": "факт"}}, 2, "90")
+    assert got == bets.LOW_DATA and "порогом 5" in why                    # темп 16 за 180 — выше порога 10
+    got, why = bets.decide(rec, {"step": 1, "money": {"value": 100, "status": "факт"},
+                                 "leads": {"value": 2, "status": "факт"}}, 2, "90")
+    assert got == bets.LOW_DATA and "на 180" in why
     got, _ = bets.decide(rec, {"step": 1, "money": {"value": 100, "status": "факт"},
-                               "leads": {"value": 2, "status": "факт"}}, 2, "90")
+                               "leads": {"value": 4, "status": "факт"}}, 2, "180")
     assert got == bets.FAILED
-
 
 def test_leads_bet_decides_without_average_check():
     rec = {"bet_missing": False, "expectation_numbers": [{"value": 8, "unit": "заявки"}], "fail_threshold": "0"}

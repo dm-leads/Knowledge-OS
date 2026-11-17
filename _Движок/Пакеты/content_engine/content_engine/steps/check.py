@@ -96,8 +96,15 @@ def run_check(instance) -> list[dict]:
 
     def corpus():
         pages, report = instance.corpus()
-        light = GREEN if pages else RED
-        return _item("корпус", light, f"страниц {len(pages)}, без разделов {len(report['without_sections'])}")
+        if pages:
+            return _item("корпус", GREEN, f"страниц {len(pages)}, без разделов {len(report['without_sections'])}")
+        pace = instance.p["queue"]["pace"]
+        since = pace["domain_since"]
+        if since and (instance.today - date.fromisoformat(since)).days < pace["new_domain_days"]:
+            return _item("корпус", YELLOW, f"страниц 0 — новый сайт (домен с {since}): статьи появятся с первой "
+                                           "выкладкой")
+        return _item("корпус", RED, "страниц 0", "сайт с историей — `content-engine corpus import` и папка в "
+                                                 "corpus.folders; новый сайт — queue.pace.domain_since")
 
     items.append(_probe("корпус", corpus))
     items.append(_freshness(instance))

@@ -12,6 +12,11 @@
   отказ.
 
 Запрет пустого сдвига даты (Т36.4) — проверка `refresh_change` гейта статьи против этого эталона: `change_share`.
+
+Защита (1.6.0, аудит 17.11.2026): лидер выдачи — страница с позицией 1–`LEADER_TOP` по запросу свежего снимка Search
+Console с показами не ниже `refresh.min_impressions` — не кандидат ни одной ветки и не берётся `take` («Карантин
+лидеров», SEO-диагностика); строки Вебмастера лидера не дают — у него нет разреза по странице. Ветка возраста не берёт
+статью со ставкой, у которой окно замера 180 открыто: правка смешала бы её итог.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from ..core.urls import norm_url, slug_of
 from . import queue as queue_mod
 
 TYPE = "refresh"
+LEADER_TOP = 3                     # «Карантин лидеров»: топ-1–3 не переписываем
 FORMULATIONS = 5
 OPEN = (queue_mod.CANDIDATE, queue_mod.GATED, queue_mod.TAKEN)
 
@@ -70,8 +76,42 @@ def _zone(instance, cands: dict, no_data: list) -> dict:
     return {"status": "ок", "snapshot": last, "found": found}
 
 
+def _leaders(instance) -> dict:
+    """Лидеры выдачи по свежему снимку Search Console: адрес → «запрос: позиция»; снимка нет — статус «нет данных»."""
+    from ..core.positions import GOOGLE
+    r = instance.p["refresh"]
+    rows = [x for x in store.read_jsonl(instance.file("positions"), missing_ok=True) if x.get("engine") == GOOGLE]
+    if not rows:
+        return {"status": NO_DATA, "why": "снимка позиций Search Console нет — лидеры выдачи не проверены",
+                "pages": {}}
+    last = max(x["date"] for x in rows)
+    if (instance.today - date.fromisoformat(last)).days > r["positions_max_age"]:
+        return {"status": NO_DATA, "why": f"снимок Search Console от {last} старше {r['positions_max_age']} дн. — "
+                                          "лидеры выдачи не проверены", "pages": {}}
+    pages = {}
+    for x in rows:
+        if (x["date"] == last and x.get("position") is not None and x["position"] <= LEADER_TOP
+                and (x.get("impressions") or 0) >= r["min_impressions"]):
+            pages.setdefault(norm_url(x["url"]), f"«{x['query']}»: позиция {x['position']}, показов {x['impressions']}")
+    return {"status": "ок", "snapshot": last, "pages": pages}
+
+
+def _open_windows(instance) -> dict[str, str]:
+    """Адрес статьи со ставкой → день конца окна 180, если окно открыто и замера 180 нет."""
+    from ..core import bets
+    out = {}
+    for r in bets.load(instance):
+        if r.get("bet_missing") or not r.get("published") or "180" in (r.get("measures") or {}):
+            continue
+        end = date.fromisoformat(r["published"]) + timedelta(days=180)
+        if end > instance.today:
+            out[norm_url(r["url"])] = end.isoformat()
+    return out
+
+
 def _age(instance, cands: dict, no_data: list) -> dict:
     days = _published_days(instance)
+    windows = _open_windows(instance)
     limit = instance.p["refresh"]["age_days"]
     found = 0
     for item in instance.index().pages:
@@ -84,6 +124,10 @@ def _age(instance, cands: dict, no_data: list) -> dict:
             no_data.append({"url": url, "kind": "age", "why": "дня выкладки нет ни в книге ставок, ни в шапке корпуса"})
             continue
         age = (instance.today - date.fromisoformat(day)).days
+        if age >= limit and url in windows:
+            no_data.append({"url": url, "kind": "age", "why": f"окно замера ставки открыто до {windows[url]} — "
+                                                              "правка смешала бы итог ставки"})
+            continue
         if age >= limit:
             found += 1
             _reason(cands, url, {"kind": "age", "day": day, "age_days": age,
@@ -135,6 +179,11 @@ def collect(instance) -> tuple[dict, dict, list]:
     no_data: list[dict] = []
     blocks = {"zone": _zone(instance, cands, no_data), "age": _age(instance, cands, no_data),
               "ai": _ai(instance, cands), "behavior": _behavior(instance, cands)}
+    leaders = _leaders(instance)
+    for url, why in leaders["pages"].items():
+        if cands.pop(url, None) is not None:
+            no_data.append({"url": url, "kind": "leader", "why": f"лидер выдачи — {why}; лидеров не правим"})
+    blocks["leaders"] = {k: v for k, v in leaders.items() if k != "pages"} | {"found": len(leaders["pages"])}
     return cands, blocks, no_data
 
 
@@ -244,6 +293,10 @@ def take(instance, url: str, max_quota: int | None = None) -> dict:
         topics = queue_mod.load(instance)
         if any(t.get("type") == TYPE and norm_url(t["page"]) == url and t["status"] in OPEN for t in topics):
             raise GateRefused(f"правка {url} уже в очереди — повторно не ставится")
+        leader = _leaders(instance)["pages"].get(url)
+        if leader:
+            raise GateRefused(f"{url}: лидер выдачи — {leader}; лидеров не правим (SEO-диагностика, «Карантин "
+                              "лидеров»)")
         since = (instance.today - timedelta(days=7)).isoformat()
         week = [t for t in topics if t.get("type") == TYPE and (t.get("taken") or "") > since]
         if len(week) >= r["weekly_limit"]:

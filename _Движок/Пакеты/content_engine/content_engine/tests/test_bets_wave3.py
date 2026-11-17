@@ -92,12 +92,12 @@ def test_machine_article_gets_no_second_record(project, corpus):
 
 def test_measure_from_publication_day_not_build(project):
     instance = Instance(project, today=TODAY)
-    store.write_json(instance.file("bets"), "bets", [record()])
+    store.write_json(instance.file("bets"), "bets", [record(expectation_numbers=[{"value": 20, "unit": "заявки"}])])
     f, t = window("2025-10-01", 90)
-    money_file(project, [("otoplenie-teplicy", 30000, 5, f, t)])
+    money_file(project, [("otoplenie-teplicy", 30000, 12, f, t)])
     bets_cmd.measure(Instance(project, today=TODAY))
     m = bets.load(instance)[0]["measures"]["90"]
-    assert m["money"]["period_from"] == "2025-10-01" and m["proposed"] == "сыграла"   # 5 ≥ 4 заявок
+    assert m["money"]["period_from"] == "2025-10-01" and m["proposed"] == "сыграла"   # 12 ≥ 10 заявок окна 90, отрыв от порога 0 больше шума ±6,3
     assert m["result"] is None                                           # итог ставит человек
 
 
@@ -134,8 +134,8 @@ def test_missing_row_is_no_data_not_failure(project):
 def test_between_threshold_and_expectation_is_low_data(project):
     instance = Instance(project, today=TODAY)
     store.write_json(instance.file("bets"), "bets", [record(fail_threshold="1 заявка", expectation_numbers=[
-        {"value": 8, "unit": "заявки"}])])                        # на 90-й день ожидание — половина: 4
-    money_file(project, [("otoplenie-teplicy", 9000, 2, *window("2025-10-01", 90))])
+        {"value": 40, "unit": "заявки"}])])                       # на 90-й день ожидание — половина: 20
+    money_file(project, [("otoplenie-teplicy", 9000, 10, *window("2025-10-01", 90))])
     bets_cmd.measure(Instance(project, today=TODAY))
     m = bets.load(instance)[0]["measures"]["90"]
     assert m["proposed"] == "мало данных" and "между порогом" in m["why"]
@@ -161,8 +161,8 @@ def test_write_under_lock_refuses_parallel(project):
 
 def test_result_needs_human_before_proposal(project):
     instance = Instance(project, today=TODAY)
-    store.write_json(instance.file("bets"), "bets", [record()])
-    money_file(project, [("otoplenie-teplicy", 30000, 5, *window("2025-10-01", 90))])
+    store.write_json(instance.file("bets"), "bets", [record(expectation_numbers=[{"value": 20, "unit": "заявки"}])])
+    money_file(project, [("otoplenie-teplicy", 30000, 12, *window("2025-10-01", 90))])
     bets_cmd.measure(Instance(project, today=TODAY))
     with pytest.raises(GateRefused):
         bets_cmd.propose(Instance(project, today=TODAY))                # итог не принят — предложения нет

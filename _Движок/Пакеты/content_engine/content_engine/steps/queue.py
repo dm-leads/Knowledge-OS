@@ -124,7 +124,12 @@ def priority_key(instance, topic: dict) -> tuple:
 
 def _formulations(instance, cand: dict, demand_rows: list[dict]) -> list[str]:
     limit = instance.p["queue"]["max_formulations"]
-    out = list(dict.fromkeys(cand["queries"]))[:limit]
+    # 1.6.0 (урок инцидента «формулировки по весу»): тему выражают голова кластера и запросы со всеми её основами —
+    # они первыми; самые весомые запросы кластера могут говорить о другом, и гейт проверил бы не ту тему
+    head_key = instance.norm.key(cand["head"])
+    queries = list(dict.fromkeys(cand["queries"]))
+    with_head = [q for q in queries if head_key.similarity(instance.norm.key(q)) == 1.0]
+    out = list(dict.fromkeys(([cand["head"]] if cand.get("head") else []) + with_head + queries))[:limit]
     if len(out) < 3:
         # мало запросов в кластере — добавляем запросы спроса, где есть все основы головного запроса
         head = instance.norm.key(cand["head"])
@@ -490,9 +495,15 @@ def run(args) -> int:
                 f"добавлено {out['added']}, снято предфильтром "
                 f"{out['rejected']}; {out['write']}")
     elif args.action == "refill":
+        built = instance.file("queue").is_file()
         out = refill(instance, args.count, args.max_quota)
         text = "\n".join([f"Пополнение: {out['hint']}"] + [f"  {tid}: {v}" for tid, v in out["results"]]
                          + [f"запас после пополнения: {out['stock']}"])
+        if not out["results"] and out["stock"] < instance.p["queue"]["norm"]:
+            code = 1                                   # 1.6.0: ноль кандидатов при запасе ниже нормы — не «готово»
+            text += ("\n! кандидатов нет: очередь не собрана — `content-engine queue build`" if not built else
+                     "\n! кандидатов нет: все темы очереди разобраны или отсеяны — `content-engine map build` и "
+                     "отчёт `demand collect`")
     elif args.action == "status":
         out, code = status(instance)
         text = (f"Запас: {out['stock']} тем ≈ {out['days']} дней (норма {out['norm']}, пополнять при ≤ "

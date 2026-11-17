@@ -207,7 +207,7 @@ operations:
     next: [map build]
   gate topic:
     operation_id: gate.topic
-    name: гейт темы — семь слоёв анти-дублей, тип выдачи, ставка
+    name: гейт темы — восемь слоёв анти-дублей (восьмой — замечание), тип выдачи, ставка
     phrases: [проверь тему, не пересекается ли тема, гейт темы, можно ли писать на эту тему]
     module: Б2
     requires: тема и не меньше трёх формулировок (или --from-queue)
@@ -256,7 +256,7 @@ operations:
     secrets: [KEYSO_API_KEY, YANDEX_SEARCH_API_KEY]
     repeatable: true
     proof: [test_yandex_search_answers_when_keysso_refuses, test_paid_serp_needs_yes, test_paid_serp_unattended_spends_nothing, test_paid_serp_with_yes_calls_and_writes_spend, test_run_limit_and_yes_cover_whole_command]
-    exit_codes: {"0": пополнено, "2": бюджет-гейт без «да», "3": ошибка источника}
+    exit_codes: {"0": пополнено, "1": "кандидатов нет при запасе ниже нормы — queue build или map build", "2": бюджет-гейт без «да», "3": ошибка источника}
     agent_step: по «спорно» — `task_judge.md` в папке темы, ответ `judge.json`, проверка `judge check`
     next: [judge task, queue take]
   queue status:
@@ -1203,6 +1203,21 @@ operations:
     proof: [test_freeze_only_by_accept_and_only_candidate]
     exit_codes: {"0": записано, "1": не кандидат или кластера нет}
     next: [map build]
+  corpus import:
+    operation_id: corpus.import
+    name: выгрузка корпуса по карте сайта — опубликованные страницы в папку markdown с шапкой
+    phrases: [выгрузи корпус, выгрузи статьи сайта, собери корпус по карте сайта, импорт корпуса, corpus import]
+    module: Подключение
+    requires: site.sitemap_url или site.sitemap_file; разделы site.article_sections
+    produces: <--into>/<slug>.md — шапка slug, title, url, date, source; отчёт «записано N — прочитано N»; строка corpus.folders для профиля
+    side_writes: освобождает истёкшие брони
+    effects: [{type: external_read, when: карта сайта и страницы своего сайта (белый список site.domains)}, {type: filesystem_write}]
+    human: ""
+    repeatable: true
+    proof: [test_import_walks_sitemap_index_and_writes_markdown, test_import_keeps_foreign_file_and_skips_foreign_host, test_import_profile_line_passes_profile_check]
+    exit_codes: {"0": записано, "1": "адреса есть — не записано ни одной страницы", "3": карта сайта не читается или запись не подтвердилась чтением}
+    note: перед машиной на сайте с историей — один раз; повтор перезаписывает только свои файлы; папку в corpus.folders профиля вписывает человек
+    next: [check]
   competitors snap:
     operation_id: competitors.snap
     name: разведка конкурентов — снимок карт сайтов и новые адреса

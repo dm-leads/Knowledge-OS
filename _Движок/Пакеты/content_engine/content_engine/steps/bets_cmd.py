@@ -122,9 +122,8 @@ def measure(instance, *, only: str | None = None, as_of: date | None = None) -> 
             got = money.money(rec["url"], first.isoformat(), (end - timedelta(days=1)).isoformat())
             measured = {"step": got["step"], "money": got["money"].to_dict(),
                         "leads": got["leads"].to_dict() if got["leads"] else None}
-            result, why = bets.decide(rec, measured, min_step, key)
-            fresh[(rec["id"], key)] = {**measured, "proposed": result, "why": why,
-                                       "measured_on": today.isoformat(), "result": None}
+            fresh[(rec["id"], key)] = {**measured, "proposed": None, "why": "", "measured_on": today.isoformat(),
+                                       "result": None, **({"preliminary": True} if key == "90" else {})}
     with bets.update(instance) as box:
         for rec in box["records"]:
             for key in [str(w) for w in bets.WINDOWS]:
@@ -133,10 +132,51 @@ def measure(instance, *, only: str | None = None, as_of: date | None = None) -> 
                     continue                        # за время замера окно приняли или замерили — не перезаписываем
                 rec.setdefault("measures", {})[key] = m
                 counts["замерено"] += 1
-                lines.append(f"{rec['id']} +{key}: {m['proposed']} — {m['why']}")
+        _propose_groups(box["records"], min_step, today)
+        for rec in box["records"]:
+            for key in [str(w) for w in bets.WINDOWS]:
+                m = fresh.get((rec["id"], key))
+                if m is not None and (rec.get("measures") or {}).get(key) is m:
+                    lines.append(f"{rec['id']} +{key}: {m['proposed']} — {m['why']}")
     upcoming = sorted((v, r["id"], k) for r in box["records"] for k, v in (r.get("measure") or {}).items()
                       if v and date.fromisoformat(v) > today)
     return {"counts": counts, "lines": lines, "upcoming": upcoming[:10], "write": box["write"]}
+
+
+def _propose_groups(records: list[dict], min_step: int, today: date) -> None:
+    """Итог по ставке целиком (1.6.0): записи одной гипотезы с наступившим окном — одна группа, шум по сумме
+    (`bets.decide_group`). Запись группы с наступившим окном, но без замера, — группа «мало данных»: неполная ставка
+    итога не получает. Итог группы предлагается каждой её записи, у которой человек итог ещё не принял; принятые
+    итоги не меняются. Правка страницы внутри окна (по свежей записи книги) дополняет причину."""
+    from collections import defaultdict
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for rec in records:
+        if not rec.get("published"):
+            continue
+        first = date.fromisoformat(rec["published"])
+        for window in bets.WINDOWS:
+            if first + timedelta(days=window) <= today:
+                groups[(bets.group_key(rec), str(window))].append(rec)
+    for (_, key), members in groups.items():
+        missing = [r["id"] for r in members if key not in (r.get("measures") or {})]
+        items = [(r, r["measures"][key]) for r in members if key in (r.get("measures") or {})]
+        if missing:
+            result, why = bets.LOW_DATA, (f"ставка по {len(members)} статьям: окно наступило, а замера нет у "
+                                          f"{', '.join(missing)} — итог по неполной ставке не выносится")
+        else:
+            result, why = bets.decide_group(items, min_step, key)
+        for rec, m in items:
+            if m.get("result") is not None:
+                continue
+            first = date.fromisoformat(rec["published"])
+            end = (first + timedelta(days=int(key))).isoformat()
+            inside = sorted(x["day"] for x in rec.get("refreshed") or []
+                            if x.get("day") and first.isoformat() <= x["day"] < end)
+            note = ""
+            if inside:
+                m["refreshed_in_window"] = inside
+                note = f"; в окне правка {', '.join(inside)} — итог статьи вместе с правкой"
+            m["proposed"], m["why"] = result, why + note
 
 
 def accept(instance, tid: str, window: str, who: str, result: str | None, reason: str | None) -> str:

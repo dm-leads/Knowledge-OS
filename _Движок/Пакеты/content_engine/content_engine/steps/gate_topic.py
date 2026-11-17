@@ -1,4 +1,4 @@
-"""Гейт темы (Т11): семь слоёв анти-дублей, тип выдачи, поля ставки → вердикт и отчёт.
+"""Гейт темы (Т11): восемь слоёв анти-дублей (восьмой — замечание), тип выдачи, поля ставки → вердикт и отчёт.
 
 Вердикты и коды выхода: «свободно» — 0, «пересекается» и «коммерческая» — 1, «спорно» — 2, ошибка входа или
 источника — 3. Отладочные флаги `--offline` (без запросов к выдаче), `--layers` (только названные слои) и
@@ -129,7 +129,7 @@ def register(sub):
     from ..cli import add_profile
     parser = sub.add_parser("gate", help="гейт: topic | article")
     kinds = parser.add_subparsers(dest="kind", required=True)
-    p = kinds.add_parser("topic", help="гейт темы: семь слоёв анти-дублей, тип выдачи, ставка")
+    p = kinds.add_parser("topic", help="гейт темы: восемь слоёв анти-дублей, тип выдачи, ставка")
     add_profile(p)
     p.add_argument("topic", nargs="?", help="тема")
     p.add_argument("-f", "--formulation", action="append", default=[], help="формулировка (не меньше трёх)")
@@ -137,7 +137,7 @@ def register(sub):
     p.add_argument("--reserve", action="store_true", help="при «свободно» забронировать кластер")
     p.add_argument("--who", default="", help="кто бронирует")
     p.add_argument("--offline", action="store_true", help="без запросов к выдаче (неполный гейт)")
-    p.add_argument("--layers", help="только эти слои, через запятую; 0 — тип выдачи (неполный гейт)")
+    p.add_argument("--layers", help="только эти слои 1–8, через запятую; 0 — тип выдачи (неполный гейт)")
     p.add_argument("--exclude", action="append", default=[],
                    help="slug статьи, которую не считать (проверка; неполный гейт)")
     p.add_argument("--json", action="store_true", help="печатать отчёт JSON")
@@ -189,9 +189,9 @@ def parse_layers(text: str) -> set[int]:
         layers = {int(x) for x in text.split(",") if x.strip()}
     except ValueError as exc:
         raise EngineError(f"--layers: номера слоёв через запятую, получено «{text}»") from exc
-    wrong = layers - set(range(0, 8))
+    wrong = layers - set(range(0, 9))
     if not layers or wrong:
-        raise EngineError(f"--layers: слои 1–7 и 0 (тип выдачи), неизвестные: {sorted(wrong) or 'пусто'}")
+        raise EngineError(f"--layers: слои 1–8 и 0 (тип выдачи), неизвестные: {sorted(wrong) or 'пусто'}")
     return layers
 
 

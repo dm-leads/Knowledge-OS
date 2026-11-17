@@ -8,7 +8,7 @@
 `onboard.min_cluster_frequency` (оценка; Wordstat не подключён — «не подключено», а не «годна»), кто в топе (доля
 коммерческих доменов в кэше выдачи), есть ли цена заявки (`sources.value`), узкий ли регион; светофор `check`; вёрстка
 выборки живых страниц; технический чек-лист (`tech_checklist.yaml`: есть — пункты на ручную проверку, нет — «не
-подключено», строится в волне 3); `queue build`. Два решения человека — режим вычитки (`facts.mode`) и ритм
+подключено» с подсказкой `audit checklist --apply`); `queue build`. Два решения человека — режим вычитки (`facts.mode`) и ритм
 (`queue.per_day`) — пишутся в профиль только с `--answer`; без ответа — вопросы и код 2.
 """
 from __future__ import annotations
@@ -116,7 +116,7 @@ def onboard(instance, answers: dict[str, str]) -> tuple[dict, int]:
     report["check"] = {light: sum(1 for i in items if i["light"] == light)
                        for light in (check_mod.GREEN, check_mod.YELLOW, check_mod.RED, check_mod.OFF)}
     tech = instance.root / "tech_checklist.yaml"
-    report["tech"] = f"чек-лист есть: {tech} — пройти пункты" if tech.is_file() else f"{OFF} (строится в волне 3)"
+    report["tech"] = f"чек-лист есть: {tech} — пройти пункты" if tech.is_file() else f"{OFF} — `content-engine audit checklist --apply`"
     report["layout"] = OFF if not instance.p["publish"]["browser"] else "вёрстка выборки — `publish verify` страниц"
     try:
         built = queue_mod.build(instance)

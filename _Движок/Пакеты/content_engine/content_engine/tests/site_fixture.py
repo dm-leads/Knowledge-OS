@@ -20,6 +20,22 @@ def git(cwd: Path, *args: str) -> str:
     return out.stdout
 
 
+def _push_with_retry(work: Path, remote: Path, attempts: int = 3):
+    """1.6.0: однажды (17.11.2026, полный прогон) `push` в голый репозиторий ответил «repository does not exist»;
+    за 20 прогонов не воспроизвёлся. До трёх попыток с паузой; не вышло — сообщение с состоянием голого репозитория."""
+    import time
+    errors = []
+    for _ in range(attempts):
+        out = subprocess.run(["git", "-C", str(work), "push", "-u", "origin", "main"], capture_output=True, text=True,
+                             encoding="utf-8")
+        if out.returncode == 0:
+            return
+        errors.append(out.stderr.strip())
+        time.sleep(0.5)
+    raise AssertionError(f"push в {remote} (существует: {remote.exists()}, HEAD: {(remote / 'HEAD').exists()}): "
+                         + " | ".join(errors))
+
+
 class Page:
     def __init__(self, status: int, text: str = "", location: str = ""):
         self.status_code = status
@@ -39,8 +55,9 @@ class StaticSite:
     def __init__(self, root: Path):
         self.remote = root / "remote.git"
         self.work = root / "site"
-        subprocess.run(["git", "init", "--bare", "-b", "main", str(self.remote)], capture_output=True, check=True)
-        subprocess.run(["git", "init", "-b", "main", str(self.work)], capture_output=True, check=True)
+        for args in (["init", "--bare", "-b", "main", str(self.remote)], ["init", "-b", "main", str(self.work)]):
+            out = subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8")
+            assert out.returncode == 0, f"git {' '.join(args)}: {out.returncode} {out.stderr}"
         for key, value in (("user.name", "test"), ("user.email", "test@example.ru"), ("commit.gpgsign", "false")):
             git(self.work, "config", key, value)
         git(self.work, "remote", "add", "origin", str(self.remote))
@@ -48,7 +65,7 @@ class StaticSite:
         (self.work / "blog" / "index.html").write_text("<html><body>блог</body></html>", encoding="utf-8")
         git(self.work, "add", "-A")
         git(self.work, "commit", "-m", "start")
-        git(self.work, "push", "-u", "origin", "main")
+        _push_with_retry(self.work, self.remote)
         self.extra: dict[str, Page] = {}
         self.log: list[tuple[str, str]] = []
 
