@@ -1,12 +1,10 @@
 ---
 name: questions
-description: >
-  Use at the START of any unclear, new, or ambiguous task — when the user says "не знаю с чего начать",
-  "помоги разобраться / собери бриф / поставь задачу", "хочу сделать X, но не понимаю как", "чистый лист",
-  "brief me", "help me scope this", or hands over a vague goal before any real work. Instead of guessing,
-  this skill interrogates the request like an art-director: picks the right expert lens, decomposes by
-  Job-to-be-Done, and asks 7-20 calibrated questions to pull out a concrete brief you can then hand to any
-  agent. Kills the blank-page problem. Do NOT use for well-specified tasks that are already clear.
+description: >-
+  Бриф вместо чистого листа в начале неясной или новой задачи: выбирает экспертную оптику, раскладывает по
+  Job-to-be-Done и задаёт 7–20 калиброванных вопросов, чтобы получить конкретный бриф для любого агента. Фразы:
+  «не знаю с чего начать», «помоги разобраться», «собери бриф», «поставь задачу», «хочу сделать X, но не понимаю
+  как», «чистый лист», «brief me», «help me scope this». Не для задач, которые уже ясно поставлены.
 ---
 
 # questions — бриф вместо чистого листа

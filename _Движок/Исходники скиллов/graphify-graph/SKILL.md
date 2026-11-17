@@ -1,13 +1,11 @@
 ---
 name: graphify-graph
-description: >
-  Use when the user wants to understand a code repository through a graph — "build a graph of this
-  repo/codebase", "graphify this", "find the root cause", "how is X connected / called", "what depends
-  on X / what breaks if I change X", "show architectural hubs / god nodes", "explain this function's
-  neighbors", "shortest path between A and B in the code". Wraps the local graphify CLI in SAFE code-mode
-  (local AST, no API key, nothing leaves the machine). Applies per-repo; never installs graphify globally.
-  For root-cause work that also needs events/analytics/tickets, note that semantic mode sends data to a
-  backend — only with a LOCAL backend (Ollama) and never on PII/secrets.
+description: >-
+  Граф кода репозитория через локальный graphify CLI в безопасном режиме (локальный AST, без ключа API, данные
+  не уходят с машины): связи, зависимости, архитектурные узлы, корневые причины. Фразы: «построй граф
+  репозитория», «graphify this», «найди корневую причину», «как связан X», «что сломается, если поменять X»,
+  «god nodes», «путь между A и B в коде». Ставится в репозиторий, не глобально. Семантический режим — только с
+  локальным бэкендом (Ollama), без ПДн и секретов.
 ---
 
 # graphify-graph — граф по коду для навигации и корневых причин
@@ -49,6 +47,8 @@ description: >
 - Понять/онбордить незнакомый или наш код (MCP-серверы, скрипты, пайплайны): за минуту видно центр и связи.
 - Корневые причины: связать симптом → функции → вызовы. Для полного root-cause по продукту нужны ещё события/тикеты — это уже семантический режим с локальным бэкендом.
 - Предел: для одного лендинга/текста — избыточно. Ценность появляется на реальном коде/данных.
+
+Ещё фразы: «build a graph of this repo/codebase», «how is X connected / called», «what depends on X», «show architectural hubs», «explain this function's neighbors», «shortest path between A and B».
 
 ## Пример (обкатано на нашем Lark MCP)
 

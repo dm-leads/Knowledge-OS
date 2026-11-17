@@ -1,13 +1,11 @@
 ---
 name: image-edit
-description: >
-  Use to edit a RASTER image (JPG/PNG) seamlessly — change text or numbers inside a graphic/banner,
-  remove or add an object, restyle, fix a detail — where manual pixel-patching (Pillow crop/fill) would
-  leave a visible patch. Triggers on "поменяй цифру/текст на картинке/баннере", "убери/добавь объект на
-  фото", "отредактируй изображение", "замени X на Y на картинке", "edit this image/banner", "change the
-  number in this image", "seamless image edit". Uses Google Gemini image model (Nano Banana) via
-  GOOGLE_AI_STUDIO_API_KEY — it truly redraws the background instead of pasting a patch. Do NOT use for
-  pixel-perfect needs when the original design source (Figma/Canva/PSD) exists — edit the source instead.
+description: >-
+  Бесшовная правка растровой картинки (JPG/PNG) моделью Gemini (Nano Banana, ключ GOOGLE_AI_STUDIO_API_KEY):
+  заменить текст или цифру на баннере, убрать или добавить объект, сменить стиль, поправить деталь — где
+  заплатка в Pillow оставит шов. Фразы: «поменяй цифру на картинке», «поменяй текст на баннере», «убери объект с
+  фото», «добавь объект на фото», «отредактируй изображение», «замени X на Y на картинке». Не для случая, когда
+  есть исходник (Figma/Canva/PSD) — правят его.
 ---
 
 # image-edit — бесшовное редактирование картинок через Gemini
@@ -20,6 +18,8 @@ description: >
 
 - **Есть исходник макета** (Figma/Canva/PSD) → правь ИСХОДНИК, это пиксель-идеально. Спроси у Дмитрия.
 - **Только готовый JPG/PNG** → Gemini image edit (ниже). Бесшовно.
+
+Ещё фразы: «edit this image/banner», «change the number in this image», «seamless image edit».
 
 ## Перед запуском (обязательно)
 

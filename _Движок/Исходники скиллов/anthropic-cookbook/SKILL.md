@@ -1,15 +1,11 @@
 ---
 name: anthropic-cookbook
-description: >
-  Use when the user wants proven Claude API / Anthropic patterns and recipes for any project — prompt
-  caching, batch processing, evals and test-case generation, RAG / contextual embeddings / knowledge
-  graph, classification, summarization, text-to-SQL, vision (charts, PDFs, transcription), tool use and
-  structured JSON extraction, agent and multi-agent orchestration patterns, building Agent Skills,
-  extended thinking, memory/compaction, citations, moderation. Also triggers on phrases like "учебный
-  репо Антропика", "cookbook", "какие рецепты/навыки помогут", "как это делает Anthropic". Points to a
-  local read-only clone of anthropics/claude-cookbooks; read the relevant notebook and adapt its pattern.
-  Works in ANY project on this device. Reading the notebooks is free; only RUN them (needs Python + uv +
-  ANTHROPIC_API_KEY, consumes credits) if the user explicitly asks.
+description: >-
+  Рецепты Claude API из локальной копии anthropics/claude-cookbooks для любого проекта: кэш промптов, пакетная
+  обработка, оценки, RAG, классификация, извлечение JSON, инструменты, агенты и мультиагенты, Agent Skills,
+  расширенное мышление. Фразы: «учебный репо Антропика», «cookbook», «какие рецепты помогут», «какие навыки
+  помогут», «как это делает Anthropic». Ноутбуки читать бесплатно; запускать — только по явной просьбе (тратит
+  кредиты API).
 ---
 
 # Anthropic Cookbook — local reference library
@@ -18,6 +14,12 @@ description: >
 **пассивный справочник паттернов**. Это НЕ исполняемая среда — читаем код и переносим паттерн в задачу.
 
 **Локальный путь:** `C:\Users\redmi\Reference\claude-cookbooks`
+
+## Когда вызывать
+
+Ещё темы: генерация тестовых случаев, contextual embeddings, граф знаний, суммаризация, text-to-SQL, vision (графики, PDF, расшифровка), память и сжатие контекста, цитаты, модерация.
+
+Запуск ноутбука требует Python, uv и ANTHROPIC_API_KEY и тратит кредиты — только если владелец прямо попросил.
 
 ## Как использовать
 

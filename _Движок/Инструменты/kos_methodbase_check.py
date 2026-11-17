@@ -101,6 +101,9 @@ REQUIRED = ("type", "status", "description", "author", "created", "updated", "re
 DATE_FIELDS = ("created", "updated", "last_reviewed")
 MATURITY = {"active": "основа", "draft": "черновик"}
 DESCRIPTION_LIMIT = 1024
+# Бюджет списка навыков Claude Code — ~1 % окна контекста; при переполнении описания редких навыков выбрасываются
+# (code.claude.com/docs/en/skills, «Skill descriptions are cut short»). Мягкий предел канона — 500 знаков.
+DESCRIPTION_SOFT_LIMIT = 500
 FOOTER_LIMIT = 10
 SKILL_PATTERNS = ("growth-*", "ads-*")
 # Навыки с исходником вне канона (репозиторий компании, сторонние) и навыки, которые ставятся в проект.
@@ -119,7 +122,7 @@ RULES = {  # правило: (уровень, область) — doc: нахо�
     "type-prefix": ("error", "doc"), "name-prefix": ("warning", "doc"), "passport-block": ("error", "doc"),
     "manifest-catalog": ("error", "global"), "map-owner": ("error", "global"), "map-maturity": ("error", "global"),
     "skill-unknown": ("error", "global"), "skill-not-in-claude": ("error", "global"),
-    "skill-description": ("error", "doc"), "skill-yaml": ("warning", "doc"), "skill-not-linked": ("warning", "global"),
+    "skill-description": ("error", "doc"), "skill-description-long": ("warning", "doc"), "skill-yaml": ("warning", "doc"), "skill-not-linked": ("warning", "global"),
     "skill-neighbors": ("warning", "global"), "owners-config": ("error", "global"), "owner-copy": ("warning", "doc"),
     "project-name": ("warning", "doc"), "footer-long": ("warning", "doc"), "footer-missing": ("warning", "doc"),
 }
@@ -715,6 +718,10 @@ def check_skills(docs: list, root: Path, home: Path, out: list):
         if len(desc) > DESCRIPTION_LIMIT:
             out.append(Finding("skill-description", doc.rel, 1,
                                f"описание {len(desc)} знаков > {DESCRIPTION_LIMIT}", f"описание > {DESCRIPTION_LIMIT}"))
+        elif len(desc) > DESCRIPTION_SOFT_LIMIT:
+            out.append(Finding("skill-description-long", doc.rel, 1,
+                               f"описание {len(desc)} знаков > {DESCRIPTION_SOFT_LIMIT}: съедает бюджет списка навыков",
+                               f"описание > {DESCRIPTION_SOFT_LIMIT}"))
         if not is_link(home / name):
             state = "нет" if not (home / name).exists() else "папка, а не ссылка"
             out.append(Finding("skill-not-linked", doc.rel, 0, f"в {home} не стоит ссылкой ({state})", "не ссылка"))

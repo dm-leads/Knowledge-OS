@@ -1,14 +1,11 @@
 ---
 name: second-agent
-description: >
-  Use when a task would genuinely benefit from an INDEPENDENT second opinion from a different model
-  (OpenAI Codex) rather than another same-model subagent. Three proven patterns: (1) independent review
-  of finished work before it ships — code, plans, analytical documents, prompts, numbers; (2) rescue when
-  stuck after ~2 failed attempts at the same approach; (3) adversarial fact-check where an error is
-  expensive. Also triggers on "позови кодекс", "вторым мнением", "перепроверь другой моделью", "get a
-  second opinion", "adversarial review". Claude decides when to invoke this — the user should not have to
-  know. Do NOT use for routine work, creative/ToV writing, or tasks needing our MCP/memory context.
-  Fact-check of a Content Engine article (вычитка фактов статьи машины) runs through content-engine.
+description: >-
+  Независимое второе мнение другой модели (OpenAI Codex), а не субагента той же модели: приёмка готовой работы
+  до выпуска (код, планы, документы, промпты, цифры), выход из тупика после ~2 неудачных попыток, проверка
+  фактов, где ошибка дорогая. Фразы: «позови кодекс», «вторым мнением», «перепроверь другой моделью», «get a
+  second opinion», «adversarial review». Решает Claude сам. Не для рутины, текстов под тон, задач с нашими MCP и
+  памятью; вычитка статьи машины — content-engine.
 ---
 
 # second-agent — когда звать Codex (вторую модель)
