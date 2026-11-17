@@ -195,3 +195,20 @@ def test_google_book_and_folder_together_stop():
         with open_store(Namespace(out="папка", lark_book=None, google_book="книга"), ()):
             pass
     assert e.value.guard == 13
+
+
+def test_service_account_key_opens_book_without_user_token(tmp_path, monkeypatch):
+    """1.7.5: ключ сервисного аккаунта (type=service_account) открывает книгу своим путём — для прогона на сервере."""
+    import json as _json
+    import sys as _sys
+    import types as _types
+    from growth_engine.storage import google_sheets as gs
+    key = tmp_path / "sa.json"
+    key.write_text(_json.dumps({"type": "service_account", "client_email": "x@y"}), encoding="utf-8")
+    monkeypatch.setenv(gs.TOKEN_ENV, str(key))
+    opened = {}
+    fake = _types.SimpleNamespace(
+        service_account_from_dict=lambda info: _types.SimpleNamespace(open_by_key=lambda book: opened.setdefault("book", book)),
+        authorize=lambda credentials: (_ for _ in ()).throw(AssertionError("личный токен не должен использоваться")))
+    monkeypatch.setitem(_sys.modules, "gspread", fake)
+    assert gs.open_with_user_token("книга") == "книга"

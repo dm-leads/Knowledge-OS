@@ -43,7 +43,12 @@ def open_with_user_token(book: str):
     if not path.is_file():
         raise GuardViolation(13, f"нет ключа Google: файла токена нет по пути из {TOKEN_ENV} — нужна авторизация "
                                  "сервера Google Sheets", GuardViolation.COVERAGE)
-    credentials = Credentials.from_authorized_user_info(json.loads(path.read_text(encoding="utf-8")))
+    info = json.loads(path.read_text(encoding="utf-8"))
+    if info.get("type") == "service_account":
+        # Ключ сервисного аккаунта (1.7.5): для прогона по расписанию на сервере — доступ только к книгам, где аккаунт
+        # добавлен редактором, а не ко всему диску владельца, как у личного токена.
+        return gspread.service_account_from_dict(info).open_by_key(book)
+    credentials = Credentials.from_authorized_user_info(info)
     return gspread.authorize(credentials).open_by_key(book)
 
 
