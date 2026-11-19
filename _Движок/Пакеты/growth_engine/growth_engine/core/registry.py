@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from enum import Enum
 
 from .errors import GuardViolation
@@ -53,7 +53,8 @@ ALLOWED = {
     HStatus.BLOCKED_NO_DATA: {HStatus.RESEARCH, HStatus.ARCHIVE},
     HStatus.CANDIDATE: {HStatus.IN_TEST, HStatus.WAITING_OWNER, HStatus.RESEARCH, HStatus.ARCHIVE},
     HStatus.WAITING_OWNER: {HStatus.IN_TEST, HStatus.ARCHIVE},
-    HStatus.IN_TEST: {HStatus.MEASURED, HStatus.DEFERRED},
+    # «в тесте → архив» — только тест, который не стартовал (1.7.6): без замера и с причиной словами, иначе страж 7.
+    HStatus.IN_TEST: {HStatus.MEASURED, HStatus.DEFERRED, HStatus.ARCHIVE},
     HStatus.DEFERRED: {HStatus.MEASURED},
     HStatus.MEASURED: {HStatus.CONCLUDED},
     HStatus.CONCLUDED: {HStatus.ARCHIVE},
@@ -210,6 +211,21 @@ def transition(h: Hypothesis, to: HStatus, **changes) -> Hypothesis:
         if declared:
             raise GuardViolation(5, f"гипотеза {h.id}: {', '.join(declared)} объявляются гейтом шума до запуска, "
                                     "а не при запуске")
+    if h.status is HStatus.IN_TEST and to is HStatus.ARCHIVE:
+        # Запуск, которого не было на деле (вариант не выложили), закрывается архивом с причиной. Тест, у которого есть
+        # замер, так закрыть нельзя: его исход решает замер и вывод цикла, а не архив (1.7.6).
+        if h.measured is not None:
+            raise GuardViolation(7, f"гипотеза {h.id}: у теста есть замер — закрывается выводом цикла, а не архивом")
+        if not str(changes.get("status_reason") or "").strip() or changes.get("not_started") is not True:
+            raise GuardViolation(7, f"гипотеза {h.id}: «в тесте → архив» — только для теста, который не стартовал: "
+                                    "нужны признак not_started: true и причина словами (status_reason)")
+        # После конца окна архив запрещён: тест с прошедшим окном закрывает замер или откладывание, иначе архивом
+        # прятали бы неудачный тест без замера (ревью 1.8.1). Проверка кодом, а не текстом причины.
+        if h.start_date and h.window_days and date.today() >= h.start_date + timedelta(days=int(h.window_days)):
+            raise GuardViolation(7, f"гипотеза {h.id}: окно теста кончилось — закрывается замером или отложенным "
+                                    "замером, а не архивом")
+        changes = {k: v for k, v in changes.items() if k != "not_started"}
+        changes["status_reason"] = "тест не стартовал: " + str(changes["status_reason"]).strip()
     new = replace(h, status=to, **changes)
     if to is HStatus.CANDIDATE:
         _check_card(new)

@@ -19,6 +19,8 @@ from .base import ProbeResult, Query, ReadOnlyClient, SourceError
 SYSTEM = "metrika"
 ENDPOINT = "stat/v1/data"
 BREAKDOWN = "landing_page"
+PARAM_PREFIX = "visit_param:"   # разрез по параметру визита (1.7.6): «visit_param:ab_h17» → сегменты «ab_h17=A», «ab_h17=B»
+LEAD_VISITS = "lead_visits"     # визиты, в которых достигнута хотя бы одна цель-заявка из lead_goals конфигурации (1.7.6)
 FLOW = "web"
 LOCAL_FILE = "(локальный файл)"
 EMPTY_PAGE = "(пусто)"
@@ -41,8 +43,40 @@ class MetrikaAdapter:
                                      {"Authorization": f"OAuth {secrets[token_env]}"},
                                      transport=transport, sleep=sleep)
 
+    def _lead_filter(self, period_end: date) -> tuple[str | None, list[str]]:
+        """Фильтр «в визите достигнута хотя бы одна цель-заявка». Список целей — в конфигурации (`lead_goals`, имена из
+        `goals`): какие цели считать заявкой, решает инстанс, а не адаптер. Визит с двумя заявками считается один раз —
+        это доля визитов, а не сумма достижений (сумма достижений бывает больше визитов и долей не является)."""
+        names = list(self.section.get("lead_goals") or [])
+        if not names:
+            raise GuardViolation(9, "«lead_visits»: в конфигурации веб-аналитики нет lead_goals — какие цели считать заявкой")
+        unknown = [name for name in names if name not in self.section["goals"]]
+        if unknown:
+            raise GuardViolation(9, f"«lead_visits»: цели {', '.join(unknown)} не описаны в goals")
+        # Мёртвая цель исключается только для окон после даты остановки (как у самой цели-метрики): до неё она
+        # срабатывала, и без неё история занижена (ревью 1.8.1, п. 3). Исключённые называются в пояснении числа.
+        dead = self.section["dead_goals"]
+        dead_now = set(dead["ids"]) if period_end > date.fromisoformat(dead["since"]) else set()
+        ids = [int(self.section["goals"][name]) for name in names]
+        live = [goal_id for goal_id in ids if goal_id not in dead_now]
+        skipped = [name for name in names if int(self.section["goals"][name]) in dead_now]
+        if not live:
+            return None, skipped
+        return "(" + " OR ".join(f"ym:s:goal{goal_id}IsReached=='Yes'" for goal_id in live) + ")", skipped
+
+    def _param(self, breakdown: str) -> str | None:
+        """Имя параметра визита из разреза «visit_param:<имя>»; имя — только из объявленных в конфигурации (страж 9)."""
+        if not breakdown or not breakdown.startswith(PARAM_PREFIX):
+            return None
+        name = breakdown[len(PARAM_PREFIX):]
+        if name not in (self.section.get("visit_params") or []):
+            raise GuardViolation(9, f"параметр визита «{name}» не объявлен в visit_params конфигурации")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            raise GuardViolation(9, f"параметр визита «{name}»: допустимы латиница, цифры и «_»")
+        return name
+
     def _expression(self, metric: str) -> tuple[str, int | None]:
-        if metric == "site_visits":
+        if metric in ("site_visits", LEAD_VISITS):
             return "ym:s:visits", None
         name = metric.removeprefix("goal_")
         if metric.startswith("goal_") and name in self.section["goals"]:
@@ -65,8 +99,22 @@ class MetrikaAdapter:
             raise GuardViolation(9, "веб-аналитика видит только веб-поток — запрос с потоком web")
         if query.scope not in self.section["scopes"]:
             raise GuardViolation(9, f"кабинет «{query.scope}» не объявлен для веб-аналитики")
-        if query.breakdown not in (None, BREAKDOWN):
-            raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {BREAKDOWN}")
+        param = self._param(query.breakdown)
+        if query.breakdown not in (None, BREAKDOWN) and param is None:
+            raise NotImplementedError(f"разрез «{query.breakdown}» пока не поддержан — только {BREAKDOWN} "
+                                      f"и {PARAM_PREFIX}<параметр>")
+        filters, skipped = [], []
+        if query.metric == LEAD_VISITS:
+            lead_filter, skipped = self._lead_filter(query.period_end)
+            if lead_filter is None:
+                common = dict(metric=query.metric, level=self.cfg.rule(query.metric).level, scope=query.scope,
+                              flow=FLOW, period_start=query.period_start, period_end=query.period_end,
+                              as_of=query.as_of, source=f"A:{SYSTEM}:{ENDPOINT}")
+                return [Number(**common, status=Status.NO_DATA, value=None,
+                               missing="все цели-заявки не срабатывают в этом окне (Т5) — «нет данных», а не 0")]
+            filters.append(lead_filter)
+        if param:
+            filters.append(f"ym:s:paramsLevel1=='{param}'")
         expression, goal_id = self._expression(query.metric)
         common = dict(metric=query.metric, level=self.cfg.rule(query.metric).level, scope=query.scope, flow=FLOW,
                       period_start=query.period_start, period_end=query.period_end, as_of=query.as_of,
@@ -81,19 +129,32 @@ class MetrikaAdapter:
             params = {"ids": self.counter, "metrics": expression, "date1": start.isoformat(),
                       "date2": (end - timedelta(days=1)).isoformat(), "accuracy": self.section["accuracy"]}
             if query.breakdown:
-                params.update({"dimensions": "ym:s:startURLPath", "limit": limit})
+                # Параметры визита — множество: измерение ключа рядом со значением, строки чужих ключей отбрасываются
+                # (ревью 1.8.1, п. 1), иначе значение другого параметра того же визита попало бы в сегменты.
+                params.update({"dimensions": "ym:s:paramsLevel1,ym:s:paramsLevel2" if param else "ym:s:startURLPath",
+                               "limit": limit})
+            if filters:
+                params["filters"] = " AND ".join(filters)
             body = self.client.call("GET", ENDPOINT, params=params)
             sampled = sampled or bool(body.get("sampled"))
             if query.breakdown:
                 rows = body.get("data") or []
                 truncated = truncated or len(rows) >= limit
                 for row in rows:
-                    segment = self._segment(str((row["dimensions"][0] or {}).get("name") or ""))
+                    if param:
+                        if str((row["dimensions"][0] or {}).get("name") or "") != param:
+                            continue
+                        name = str((row["dimensions"][1] or {}).get("name") or "")
+                    else:
+                        name = str((row["dimensions"][0] or {}).get("name") or "")
+                    segment = f"{param}={name or EMPTY_PAGE}" if param else self._segment(name)
                     by_segment[segment] = by_segment.get(segment, 0.0) + float(row["metrics"][0])
             else:
                 total += float((body.get("totals") or [0])[0])
         notes = [text for flag, text in ((sampled, "сэмплирование веб-аналитики"),
                                          (truncated, f"разрез обрезан на {limit} строках")) if flag]
+        if skipped:
+            notes.append(f"цели-заявки не срабатывают в окне и не учтены: {', '.join(skipped)}")
         status = Status.ESTIMATE if notes else Status.FACT
         missing = "; ".join(notes)
         if not query.breakdown:
