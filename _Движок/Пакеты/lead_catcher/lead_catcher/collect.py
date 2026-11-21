@@ -15,6 +15,7 @@ import csv
 import datetime as dt
 import json
 import random
+import re
 from pathlib import Path
 
 from lead_catcher.accounts import Account, client
@@ -291,3 +292,85 @@ async def find_chats(p: Profile, acc: Account, words: list[str]) -> int:
         back = sum(1 for _ in csv.reader(f, delimiter=";")) - 1
     print(f"групп найдено: {len(found)}; записано и прочитано обратно: {back}; файл: {out}")
     return 0 if back == len(found) else 1
+
+
+def _private_dir(p: Profile) -> Path:
+    """Папка для контактов администраторов: задана в профиле и вне git (или закрыта .gitignore)."""
+    from lead_catcher.onboard import _ignored, _in_git
+
+    if p.private_dir is None:
+        raise ProfileError("в профиле нет private_dir — контакты администраторов писать некуда (нужна папка вне git)")
+    d = p.private_dir / dt.date.today().isoformat()
+    d.mkdir(parents=True, exist_ok=True)
+    repo = _in_git(d.resolve())
+    if repo is not None and not _ignored(repo, d.resolve() / "probe.csv"):
+        raise ProfileError(f"private_dir {p.private_dir} внутри git-репозитория {repo} и не закрыта .gitignore")
+    return d
+
+
+def _write_csv(f: Path, cols: list[str], rows: list[dict]) -> int:
+    with f.open("w", encoding="utf-8-sig", newline="") as fh:
+        wr = csv.writer(fh, delimiter=";")
+        wr.writerow(cols)
+        for r in rows:
+            wr.writerow([" ".join(str(r.get(k, "")).split()) for k in cols])
+    with f.open(encoding="utf-8-sig", newline="") as fh:
+        return sum(1 for _ in csv.reader(fh, delimiter=";")) - 1
+
+
+CONTACT_RX = re.compile(r"(?<!\w)@\w{4,}|(?:https?://)?t\.me/\S+|(?:\+?\d[\s\-()]*){10,15}")
+
+
+async def chat_info(p: Profile, acc: Account, handles: list[str]) -> int:
+    """Карточки открытых групп для трека «администраторы»: описание группы, привязанный канал, администраторы,
+    видимые без вступления. В данные проекта (git) — только признаки: «контакт есть», число администраторов.
+    Описание целиком и @адреса администраторов — в private_dir профиля (вне git). Тексты сообщений не читаются."""
+    from telethon import functions, types
+
+    priv = _private_dir(p)
+    rows, private = [], []
+    c = await _connected(acc)
+    try:
+        for h in handles:
+            name = norm_chat(h)
+            row = {"адрес": "@" + name, "группа": ""}
+            try:
+                ent = await c.get_entity(name)
+                full = await c(functions.channels.GetFullChannelRequest(channel=ent))
+                about = (full.full_chat.about or "").strip()
+                row.update({"группа": ent.title or "",
+                            "участников": full.full_chat.participants_count or "",
+                            "контакт в описании": "да" if CONTACT_RX.search(about) else "нет",
+                            "привязанный канал": "да" if getattr(full.full_chat, "linked_chat_id", None) else "нет"})
+                admins = []
+                try:
+                    async for u in c.iter_participants(ent, filter=types.ChannelParticipantsAdmins()):
+                        admins.append(("@" + u.username if u.username else "без адреса") + (" (бот)" if u.bot else ""))
+                    row["администраторов видно"] = len(admins)
+                except StopSignal:
+                    raise
+                except Exception as e:
+                    await handle(p, acc, e)
+                    row["администраторов видно"] = f"нет: {type(e).__name__}"
+                contacts = ", ".join(dict.fromkeys(m.group(0).strip() for m in CONTACT_RX.finditer(about)))
+                private.append({"адрес": "@" + name, "группа": row["группа"], "описание": about,
+                                "контакты из описания": contacts, "администраторы": ", ".join(admins)})
+            except StopSignal:
+                raise
+            except Exception as e:
+                await handle(p, acc, e)
+                row["администраторов видно"] = f"ошибка: {type(e).__name__}"
+            rows.append(row)
+            print(f"{row['адрес']}: контакт в описании — {row.get('контакт в описании', '?')}, "
+                  f"администраторов видно — {row['администраторов видно']}")
+            await pause(p, 1.5)
+    finally:
+        await c.disconnect()
+    out = new_file(out_dir(p), "описания чатов", ".csv")
+    back = _write_csv(out, ["группа", "адрес", "участников", "контакт в описании", "привязанный канал",
+                            "администраторов видно"], rows)
+    pout = new_file(priv, "контакты администраторов", ".csv")
+    pback = _write_csv(pout, ["группа", "адрес", "описание", "контакты из описания", "администраторы"], private)
+    print(f"карточек: {len(rows)}, прочитано обратно {back}; файл: {out}")
+    print(f"закрытый файл (вне git): записано {len(private)}, прочитано обратно {pback}; {pout}")
+    return 0 if rows and back == len(rows) and pback == len(private) else 1

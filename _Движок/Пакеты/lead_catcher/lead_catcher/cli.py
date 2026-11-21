@@ -6,6 +6,7 @@
   check [N]                  жива ли сессия номера (по умолчанию — активного)
   use N                      сделать номер активным (решение человека)
   find-chats СЛОВО|@адрес …  карта открытых групп: название, участники, живость (без текстов)
+  chat-info @чат …           описание группы и видимые администраторы (контакты — в private_dir, вне git)
   read-sample @чат[:часы] …  [--hours 24 --max 300]   пробное чтение разрешённых чатов
   search-groups --groups @чат … --words слово …  [--days 365 --limit 30]   поиск по истории разрешённых чатов
 
@@ -53,6 +54,8 @@ def _parser() -> argparse.ArgumentParser:
     u.add_argument("n", type=int)
     fc = sub.add_parser("find-chats")
     fc.add_argument("words", nargs="+")
+    ci = sub.add_parser("chat-info")
+    ci.add_argument("handles", nargs="+")
     rs = sub.add_parser("read-sample")
     rs.add_argument("groups", nargs="+")
     rs.add_argument("--hours", type=int, default=24)
@@ -131,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"аккаунт №{acc.number}; сеть: {acc.net_label}")
     if a.cmd == "find-chats":
         return asyncio.run(C.find_chats(p, acc, a.words))
+    if a.cmd == "chat-info":
+        return asyncio.run(C.chat_info(p, acc, a.handles))
     if a.cmd == "read-sample":
         return asyncio.run(C.read_sample(p, acc, a.groups, a.hours, a.max))
     if a.cmd == "search-groups":

@@ -330,3 +330,49 @@ def test_onboard_accepts_gitignored_store_inside_repo(tmp_path):
     assert made
     with pytest.raises(SystemExit, match="gitignore"):
         onboard(tmp_path / "proj" / "inst2", str(store / ".env"), str(repo / "open"), [(1, "ID1", "HASH1")], [])
+
+
+# --- 1.2.0: карточки групп и администраторы ---
+def _chatinfo_client():
+    from types import SimpleNamespace as NS
+
+    class FC:
+        async def connect(self): pass
+        async def disconnect(self): pass
+        async def is_user_authorized(self): return True
+        async def get_entity(self, name): return NS(title=f"ЖК {name}")
+
+        async def __call__(self, req):
+            return NS(full_chat=NS(about="Админ сети чатов: @net_admin_x, реклама — t.me/net_ads", participants_count=4000,
+                                   linked_chat_id=None))
+
+        def iter_participants(self, ent, filter=None):
+            async def gen():
+                yield NS(username="admin_one", bot=False)
+                yield NS(username=None, bot=True)
+            return gen()
+    return FC()
+
+
+def test_chat_info_needs_private_dir(tmp_path, monkeypatch):
+    inst = make_instance(tmp_path)
+    p = P.load(inst)
+    monkeypatch.setattr(collect, "client", lambda acc: _chatinfo_client())
+    with pytest.raises(P.ProfileError, match="private_dir"):
+        asyncio.run(collect.chat_info(p, A.resolve(p, 1), ["@a_chat"]))
+
+
+def test_chat_info_keeps_contacts_out_of_project_data(tmp_path, monkeypatch):
+    inst = make_instance(tmp_path)
+    f = inst / "profile.yaml"
+    f.write_text(f.read_text(encoding="utf-8") + f'private_dir: "{(tmp_path / "private").as_posix()}"\n',
+                 encoding="utf-8")
+    p = P.load(inst)
+    monkeypatch.setattr(collect, "client", lambda acc: _chatinfo_client())
+    monkeypatch.setattr(collect, "pause", lambda *a, **k: asyncio.sleep(0))
+    assert asyncio.run(collect.chat_info(p, A.resolve(p, 1), ["@a_chat", "@b_chat"])) == 0
+    public = "".join(x.read_text(encoding="utf-8-sig") for x in p.data_dir.rglob("описания чатов-*.csv"))
+    private = "".join(x.read_text(encoding="utf-8-sig") for x in (tmp_path / "private").rglob("*.csv"))
+    assert "@a_chat" in public and ";да;" in public
+    for secret in ("net_admin_x", "admin_one", "net_ads"):
+        assert secret not in public and secret in private

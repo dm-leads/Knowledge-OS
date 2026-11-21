@@ -64,6 +64,7 @@ class Profile:
     accounts: dict[int, AccountSpec]
     seconds_between_requests: float = 3.0
     messages_per_day: int = 500
+    private_dir: Path | None = None   # контакты администраторов и полные описания — вне git
     _env: dict[str, str] | None = field(default=None, repr=False)
 
     # --- секреты ---
@@ -188,6 +189,7 @@ def load(instance_dir: str | Path) -> Profile:
         accounts=accs,
         seconds_between_requests=float(pace.get("seconds_between_requests", 3)),
         messages_per_day=int(pace.get("messages_per_day_to_model", 500)),
+        private_dir=_path(root, d.get("private_dir"), "private_dir", required=False),
     )
 
 
