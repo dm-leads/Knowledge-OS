@@ -398,3 +398,8 @@ def test_describe_code_app_then_sms():
     assert "НЕ по SMS" in text and "по SMS" in text.split("Не пришёл")[1] and "60" in text
     last = T.SentCode(type=T.SentCodeTypeSms(length=5), phone_code_hash="h")
     assert "Другого способа" in A.describe_code(last)
+
+
+def test_cli_error_is_printed_not_silent(tmp_path, capsys):
+    rc = cli.main(["--instance", str(tmp_path / "nope"), "status"])
+    assert rc == 3 and "ОШИБКА" in capsys.readouterr().err

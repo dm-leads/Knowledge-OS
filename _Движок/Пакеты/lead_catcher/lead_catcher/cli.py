@@ -48,6 +48,12 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("status")
     lg = sub.add_parser("login")
     lg.add_argument("n", type=int)
+    lg.add_argument("--phone", help="шаг 1 входа в два шага: запросить код (номер не печатается)")
+    lg.add_argument("--code", help="шаг 2: код из приложения Telegram")
+    lg.add_argument("--resend", action="store_true", help="запросить код другим способом")
+    lg.add_argument("--password", action="store_true", help="облачный пароль — вводит человек в своём терминале")
+    lg.add_argument("--keys", type=int, help="диагностика: ключи другого номера для этого входа")
+    lg.add_argument("--direct", action="store_true", help="диагностика: без прокси")
     ck = sub.add_parser("check")
     ck.add_argument("n", type=int, nargs="?")
     u = sub.add_parser("use")
@@ -89,6 +95,28 @@ async def _status(p) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Любая ошибка — одной строкой на экран (через маску), а не молча: 21.11.2026 вход падал без текста,
+    человек видел «код не пришёл» вместо причины."""
+    from lead_catcher.profile import ProfileError
+    try:
+        return _run(argv)
+    except ProfileError as e:
+        print(f"ОШИБКА: {e}", file=sys.stderr)
+        return 3
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:  # Telegram, сеть, прокси
+        print(f"ОШИБКА Telegram/сети: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
+    finally:
+        for s in (sys.stdout, sys.stderr):
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
+def _run(argv: list[str] | None = None) -> int:
     a = _parser().parse_args(argv)
     inst = Path(a.instance)
     if a.cmd == "onboard":
@@ -120,9 +148,17 @@ def main(argv: list[str] | None = None) -> int:
 
     from lead_catcher import accounts as A
     if a.cmd == "login":
-        acc = A.resolve(p, a.n)
-        print("сеть:", acc.net_label)
-        print(asyncio.run(A.login(acc)))
+        acc = A.with_overrides(p, A.resolve(p, a.n), a.keys, a.direct)
+        keys = f"ключи №{a.keys}" if a.keys is not None else f"ключи №{a.n}"
+        print(f"сеть: {acc.net_label}; {keys}")
+        if a.phone:
+            print(asyncio.run(A.send_code_step(acc, a.phone, {"keys": a.keys, "direct": a.direct})))
+        elif a.resend:
+            print(asyncio.run(A.resend_code_step(acc)))
+        elif a.code or a.password:
+            print(asyncio.run(A.code_step(acc, a.code, password=a.password)))
+        else:
+            print(asyncio.run(A.login(acc)))
         return 0
     if a.cmd == "check":
         acc = A.resolve(p, a.n)

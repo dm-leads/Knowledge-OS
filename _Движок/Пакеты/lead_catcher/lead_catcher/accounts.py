@@ -228,6 +228,91 @@ async def _enter_code(c, phone: str, sent) -> None:
     raise ProfileError("вход не завершён: слишком много попыток")
 
 
+# --- Вход в два шага (агент запрашивает код, человек передаёт код из приложения) -------------------------------
+# Состояние между шагами — файл <сессия>.pending рядом с сессией (папка секретов, вне git): номер телефона и
+# phone_code_hash. Облачный пароль — только интерактивно у человека (--password), в аргументы и чат не идёт.
+
+def _pending_file(acc: Account) -> Path:
+    return acc.session_path.with_name(acc.session_path.name + ".pending")
+
+
+def with_overrides(p: Profile, acc: Account, keys_from: int | None, direct: bool) -> Account:
+    """Диагностика входа: ключи другого номера (--keys M) и/или без прокси (--direct). Сессия остаётся своя."""
+    from dataclasses import replace
+    if keys_from is not None:
+        other = resolve(p, keys_from)
+        acc = replace(acc, api_id=other.api_id, api_hash=other.api_hash)
+    if direct:
+        acc = replace(acc, net={}, net_label="напрямую")
+    return acc
+
+
+async def send_code_step(acc: Account, phone: str, note: dict) -> str:
+    from lead_catcher.lock import SessionLock
+
+    phone = normalize_phone(phone)
+    acc.session_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
+    c = client(acc)
+    await c.connect()
+    try:
+        if await c.is_user_authorized():
+            return "вход уже выполнен — код не нужен"
+        sent = await c.send_code_request(phone)
+        _pending_file(acc).write_text(json.dumps({"phone": phone, "hash": sent.phone_code_hash, **note}),
+                                      encoding="utf-8")
+        return describe_code(sent) + f" Дальше: login {acc.number} --code <код> (те же --keys/--direct)."
+    finally:
+        await c.disconnect()
+        lock.release()
+
+
+async def resend_code_step(acc: Account) -> str:
+    from telethon.tl.functions.auth import ResendCodeRequest
+    from lead_catcher.lock import SessionLock
+
+    pend = json.loads(_pending_file(acc).read_text(encoding="utf-8"))
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
+    c = client(acc)
+    await c.connect()
+    try:
+        sent = await c(ResendCodeRequest(phone_number=pend["phone"], phone_code_hash=pend["hash"]))
+        pend["hash"] = sent.phone_code_hash
+        _pending_file(acc).write_text(json.dumps(pend), encoding="utf-8")
+        return describe_code(sent)
+    finally:
+        await c.disconnect()
+        lock.release()
+
+
+async def code_step(acc: Account, code: str | None, password: bool = False) -> str:
+    from telethon.errors import SessionPasswordNeededError
+    from lead_catcher.lock import SessionLock
+
+    pf = _pending_file(acc)
+    if not pf.is_file():
+        raise ProfileError(f"нет запроса кода для №{acc.number}: сначала login {acc.number} --phone <номер>")
+    pend = json.loads(pf.read_text(encoding="utf-8"))
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
+    c = client(acc)
+    await c.connect()
+    try:
+        try:
+            if password:
+                await c.sign_in(password=getpass.getpass("Облачный пароль (двухэтапная проверка): "))
+            else:
+                await c.sign_in(phone=pend["phone"], code=code.strip(), phone_code_hash=pend["hash"])
+        except SessionPasswordNeededError:
+            return (f"код принят, нужен облачный пароль: человек запускает в своём терминале "
+                    f"login {acc.number} --password (те же --keys/--direct)")
+        me = await c.get_me()
+        pf.unlink()
+        return f"вход выполнен: номер {acc.number}, аккаунт id …{str(me.id)[-3:]}; сессия {acc.session_file} — секрет"
+    finally:
+        await c.disconnect()
+        lock.release()
+
+
 def last_stop(p: Profile, number: int) -> dict | None:
     f = p.data_dir / "stops.jsonl"
     if not f.is_file():
