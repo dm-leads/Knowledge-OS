@@ -73,7 +73,20 @@ async def handle(p: Profile, acc: Account, e: BaseException) -> None:
 
 
 async def _connected(acc: Account):
+    """Подключение под замком сессии; замок снимается вместе с disconnect()."""
+    from lead_catcher.lock import SessionLock
+
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
     c = client(acc)
+    inner = c.disconnect
+
+    async def disconnect():
+        try:
+            await inner()
+        finally:
+            lock.release()
+
+    c.disconnect = disconnect
     await c.connect()
     if not await c.is_user_authorized():
         await c.disconnect()

@@ -23,6 +23,7 @@ class Account:
     session_path: Path          # без расширения: Telethon добавит .session
     net_label: str
     net: dict
+    owner: str = ""            # папка экземпляра — кто держит замок сессии
 
     @property
     def session_file(self) -> Path:
@@ -72,7 +73,7 @@ def resolve(p: Profile, number: int | None = None) -> Account:
         if url:
             label, net = parse_proxy(name, url)
             break
-    return Account(n, int(api_id), api_hash, p.sessions_dir / spec.session, label, net)
+    return Account(n, int(api_id), api_hash, p.sessions_dir / spec.session, label, net, str(p.root))
 
 
 def client(acc: Account, memory: bool = False):
@@ -106,6 +107,11 @@ async def check_session(acc: Account, p: Profile | None = None) -> str:
     """Есть ли вход и жива ли сессия; номер телефона и имя не печатаются. Стоп-ошибка пишется в журнал стопов."""
     if not acc.session_file.is_file():
         return "входа нет"
+    from lead_catcher.lock import SessionBusy, SessionLock
+    try:
+        lock = SessionLock(acc.session_file, acc.owner).acquire()
+    except SessionBusy as e:
+        return f"занята: {e}"
     c = client(acc)
     try:
         await c.connect()
@@ -121,6 +127,7 @@ async def check_session(acc: Account, p: Profile | None = None) -> str:
         return f"СТОП: {kind}" if kind else f"не проверено: {type(e).__name__}"
     finally:
         await c.disconnect()
+        lock.release()
 
 
 async def login(acc: Account) -> str:
@@ -128,7 +135,10 @@ async def login(acc: Account) -> str:
     кроме файла сессии (секрет, вне git)."""
     from telethon.errors import SessionPasswordNeededError
 
+    from lead_catcher.lock import SessionLock
+
     acc.session_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
     c = client(acc)
     await c.connect()
     try:
@@ -144,6 +154,7 @@ async def login(acc: Account) -> str:
         return f"вход выполнен: номер {acc.number}, аккаунт id …{str(me.id)[-3:]}; сессия {acc.session_file} — секрет"
     finally:
         await c.disconnect()
+        lock.release()
         if os.name != "nt" and acc.session_file.exists():
             os.chmod(acc.session_file, 0o600)
 

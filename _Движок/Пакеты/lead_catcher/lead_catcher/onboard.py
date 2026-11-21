@@ -46,6 +46,17 @@ def _in_git(path: Path) -> Path | None:
     return None
 
 
+def _ignored(repo: Path, path: Path) -> bool:
+    """git закрывает этот путь? Хранилище секретов устройства может жить внутри репозитория базы знаний,
+    если папка в .gitignore. Нет git или ошибка — считаем не закрытым."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", str(path)], capture_output=True)
+    except OSError:
+        return False
+    return r.returncode == 0
+
+
 def onboard(instance_dir: Path, secrets_env: str, sessions_dir: str, accounts: list[tuple[int, str, str]],
             proxy_env: list[str]) -> list[Path]:
     instance_dir = instance_dir.resolve()
@@ -54,13 +65,15 @@ def onboard(instance_dir: Path, secrets_env: str, sessions_dir: str, accounts: l
     sess = Path(sessions_dir)
     sess = sess if sess.is_absolute() else instance_dir / sess
     repo = _in_git(sess.resolve())
-    if repo is not None:
-        raise SystemExit(f"папка сессий {sess} внутри git-репозитория {repo} — сессии должны лежать вне git")
+    if repo is not None and not _ignored(repo, sess.resolve() / "probe.session"):
+        raise SystemExit(f"папка сессий {sess} внутри git-репозитория {repo} и не закрыта .gitignore — "
+                         "сессии должны лежать вне git")
     sec = Path(secrets_env)
     sec = sec if sec.is_absolute() else instance_dir / sec
     repo = _in_git(sec.resolve().parent)
-    if repo is not None:
-        raise SystemExit(f"файл секретов {sec} внутри git-репозитория {repo} — ключи должны лежать вне git")
+    if repo is not None and not _ignored(repo, sec.resolve()):
+        raise SystemExit(f"файл секретов {sec} внутри git-репозитория {repo} и не закрыт .gitignore — "
+                         "ключи должны лежать вне git")
     if not accounts:
         raise SystemExit("нужен хотя бы один аккаунт: --account N:ИМЯ_API_ID:ИМЯ_API_HASH")
     acc_lines = "\n".join(f"  {n}: {{api_id: {i}, api_hash: {h}, session: tg_reader_{n}, proxy: null}}"

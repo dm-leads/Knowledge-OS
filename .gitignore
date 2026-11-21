@@ -20,6 +20,11 @@ _raw/
 *token*.json
 service-account*.json
 *.key
+# Сессии Telegram — доступ к аккаунту без кода; хранилище устройства — /Секретные ключи/telegram/ (21.11.2026)
+*.session
+*.session-journal
+*.session.lock
+/Секретные ключи/
 __pycache__/
 .venv/
 node_modules/

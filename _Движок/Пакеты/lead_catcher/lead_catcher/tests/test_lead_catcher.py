@@ -286,3 +286,47 @@ def test_search_counts_in_day_cap(tmp_path, monkeypatch):
     asyncio.run(collect.search_groups(p, A.resolve(p, 1), ["@a"], ["душно"]))
     assert collect.day_left(p, collect.out_dir(p)) == 0
     assert asyncio.run(collect.read_sample(p, A.resolve(p, 1), ["@a"])) == 0  # потолок выбран — чтения нет
+
+
+# --- 1.1.0: общее хранилище сессий устройства и замок ---
+def test_session_lock_blocks_second_holder(tmp_path):
+    from lead_catcher.lock import SessionBusy, SessionLock
+
+    f = tmp_path / "tg_reader_2.session"
+    a = SessionLock(f, "проект А").acquire()
+    try:
+        with pytest.raises(SessionBusy, match="проект А"):
+            SessionLock(f, "проект Б").acquire()
+    finally:
+        a.release()
+    SessionLock(f, "проект Б").acquire().release()  # после снятия — свободна
+
+
+def test_check_session_reports_busy(tmp_path):
+    from lead_catcher.lock import SessionLock
+
+    inst = make_instance(tmp_path)
+    p = P.load(inst)
+    acc = A.resolve(p, 2)
+    acc.session_file.write_bytes(b"")
+    held = SessionLock(acc.session_file, "другой проект").acquire()
+    try:
+        assert asyncio.run(A.check_session(acc, p)).startswith("занята")
+    finally:
+        held.release()
+
+
+def test_onboard_accepts_gitignored_store_inside_repo(tmp_path):
+    import subprocess
+
+    repo = tmp_path / "kb"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    (repo / ".gitignore").write_text("/store/\n", encoding="utf-8")
+    store = repo / "store" / "telegram"
+    store.mkdir(parents=True)
+    (store / ".env").write_text("ID1=1\n", encoding="utf-8")
+    made = onboard(tmp_path / "proj" / "inst", str(store / ".env"), str(store), [(1, "ID1", "HASH1")], [])
+    assert made
+    with pytest.raises(SystemExit, match="gitignore"):
+        onboard(tmp_path / "proj" / "inst2", str(store / ".env"), str(repo / "open"), [(1, "ID1", "HASH1")], [])
