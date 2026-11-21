@@ -411,3 +411,15 @@ def test_qr_svg_renders(tmp_path):
     out = tmp_path / "q.svg"
     qrcode.make("tg://login?token=" + "x" * 40, image_factory=qrcode.image.svg.SvgFillImage).save(str(out))
     assert out.read_text(encoding="utf-8").lstrip().startswith("<")
+
+
+def test_desktop_identity_reaches_client(tmp_path):
+    acc = A.Account(1, 12345, "0" * 32, tmp_path / "s", "напрямую", {})
+    assert A.client(acc, memory=True).session is not None  # умолчания Telethon
+    d = A.with_overrides(None, acc, None, False, desktop=True)
+    assert d.device["lang_code"] == "ru" and "x64" in d.device["app_version"]
+    c = A.client(d, memory=True)
+    assert c._init_request.lang_code == "ru"
+    assert c._init_request.device_model == d.device["device_model"]
+    assert A._as_requested(acc, {"desktop": True}).device == d.device
+    assert A._as_requested(acc, {}).device == {}

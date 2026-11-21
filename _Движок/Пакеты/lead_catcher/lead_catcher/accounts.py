@@ -8,7 +8,7 @@ from __future__ import annotations
 import getpass
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -24,6 +24,7 @@ class Account:
     net_label: str
     net: dict
     owner: str = ""            # папка экземпляра — кто держит замок сессии
+    device: dict = field(default_factory=dict)  # как клиент представляется Telegram (--desktop)
 
     @property
     def session_file(self) -> Path:
@@ -81,7 +82,7 @@ def client(acc: Account, memory: bool = False):
     from telethon.sessions import StringSession
 
     sess = StringSession() if memory else str(acc.session_path)
-    return TelegramClient(sess, acc.api_id, acc.api_hash, flood_sleep_threshold=60, **acc.net)
+    return TelegramClient(sess, acc.api_id, acc.api_hash, flood_sleep_threshold=60, **acc.net, **acc.device)
 
 
 async def probe_keys(acc: Account) -> str:
@@ -236,14 +237,37 @@ def _pending_file(acc: Account) -> Path:
     return acc.session_path.with_name(acc.session_path.name + ".pending")
 
 
-def with_overrides(p: Profile, acc: Account, keys_from: int | None, direct: bool) -> Account:
-    """Диагностика входа: ключи другого номера (--keys M) и/или без прокси (--direct). Сессия остаётся своя."""
+def desktop_identity() -> dict:
+    """Параметры клиента как у Telegram Desktop на этом компьютере: имя ПК, Windows x64, версия Desktop, язык ru.
+    По умолчанию Telethon называет себя «AMD64», приложение — версией Telethon, язык — en; для свежего аккаунта
+    это похоже на бота. 21.11.2026 код входа с умолчаниями Telegram «отправлял», но не доставлял."""
+    import platform
+    u = platform.uname()
+    system = f"Windows {u.release} x64" if u.system == "Windows" else f"{u.system} {u.release}"
+    return {"device_model": u.node or "Desktop", "system_version": system, "app_version": "5.16.4 x64",
+            "lang_code": "ru", "system_lang_code": "ru-RU"}
+
+
+def with_overrides(p: Profile, acc: Account, keys_from: int | None, direct: bool,
+                   desktop: bool = False) -> Account:
+    """Диагностика входа: ключи другого номера (--keys M), без прокси (--direct), клиент как Telegram Desktop
+    (--desktop). Сессия остаётся своя."""
     from dataclasses import replace
+    if desktop:
+        acc = replace(acc, device=desktop_identity())
     if keys_from is not None:
         other = resolve(p, keys_from)
         acc = replace(acc, api_id=other.api_id, api_hash=other.api_hash)
     if direct:
         acc = replace(acc, net={}, net_label="напрямую")
+    return acc
+
+
+def _as_requested(acc: Account, pend: dict) -> Account:
+    """Шаги входа после запроса кода идут тем же клиентом, каким код запрошен (--desktop из запроса)."""
+    from dataclasses import replace
+    if pend.get("desktop") and not acc.device:
+        acc = replace(acc, device=desktop_identity())
     return acc
 
 
@@ -261,7 +285,7 @@ async def send_code_step(acc: Account, phone: str, note: dict) -> str:
         sent = await c.send_code_request(phone)
         _pending_file(acc).write_text(json.dumps({"phone": phone, "hash": sent.phone_code_hash, **note}),
                                       encoding="utf-8")
-        return describe_code(sent) + f" Дальше: login {acc.number} --code <код> (те же --keys/--direct)."
+        return describe_code(sent) + f" Дальше: login {acc.number} --code <код> (те же --keys/--direct/--desktop)."
     finally:
         await c.disconnect()
         lock.release()
@@ -272,6 +296,7 @@ async def resend_code_step(acc: Account) -> str:
     from lead_catcher.lock import SessionLock
 
     pend = json.loads(_pending_file(acc).read_text(encoding="utf-8"))
+    acc = _as_requested(acc, pend)
     lock = SessionLock(acc.session_file, acc.owner).acquire()
     c = client(acc)
     await c.connect()
@@ -293,6 +318,7 @@ async def code_step(acc: Account, code: str | None, password: bool = False) -> s
     if not pf.is_file() and not password:   # пароль после входа по QR — без запроса кода
         raise ProfileError(f"нет запроса кода для №{acc.number}: сначала login {acc.number} --phone <номер>")
     pend = json.loads(pf.read_text(encoding="utf-8")) if pf.is_file() else {}
+    acc = _as_requested(acc, pend)
     lock = SessionLock(acc.session_file, acc.owner).acquire()
     c = client(acc)
     await c.connect()

@@ -55,6 +55,8 @@ def _parser() -> argparse.ArgumentParser:
     lg.add_argument("--password", action="store_true", help="облачный пароль — вводит человек в своём терминале")
     lg.add_argument("--keys", type=int, help="диагностика: ключи другого номера для этого входа")
     lg.add_argument("--direct", action="store_true", help="диагностика: без прокси")
+    lg.add_argument("--desktop", action="store_true",
+                    help="клиент представляется как Telegram Desktop (имя ПК, Windows, язык ru)")
     ck = sub.add_parser("check")
     ck.add_argument("n", type=int, nargs="?")
     u = sub.add_parser("use")
@@ -149,13 +151,13 @@ def _run(argv: list[str] | None = None) -> int:
 
     from lead_catcher import accounts as A
     if a.cmd == "login":
-        acc = A.with_overrides(p, A.resolve(p, a.n), a.keys, a.direct)
+        acc = A.with_overrides(p, A.resolve(p, a.n), a.keys, a.direct, a.desktop)
         keys = f"ключи №{a.keys}" if a.keys is not None else f"ключи №{a.n}"
-        print(f"сеть: {acc.net_label}; {keys}")
+        print(f"сеть: {acc.net_label}; {keys}" + ("; клиент как Telegram Desktop" if a.desktop else ""))
         if a.qr:
             print(asyncio.run(A.qr_login(acc)))
         elif a.phone:
-            print(asyncio.run(A.send_code_step(acc, a.phone, {"keys": a.keys, "direct": a.direct})))
+            print(asyncio.run(A.send_code_step(acc, a.phone, {"keys": a.keys, "direct": a.direct, "desktop": a.desktop})))
         elif a.resend:
             print(asyncio.run(A.resend_code_step(acc)))
         elif a.code or a.password:
