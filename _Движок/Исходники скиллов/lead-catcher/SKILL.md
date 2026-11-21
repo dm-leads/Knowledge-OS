@@ -56,7 +56,7 @@ uv run --project "D:\Knowledge-OS\_Движок\Пакеты\lead_catcher" pytho
 3. `onboard --secrets-env "D:\Knowledge-OS\Секретные ключи\telegram\.env" --sessions-dir "D:\Knowledge-OS\Секретные ключи\telegram" --account 2:TG_API_MAIN_KEY_2:TG_API_MAIN_SECRET_2 --proxy-env TG_READER_PROXY_URL HTTP_PROXY`
    — папка экземпляра в репозитории проекта рядом с работой по каналу. Onboard откажет, если сессии или ключи в
    git и не закрыты `.gitignore`. Скопируй в экземпляр `login.cmd` (двойной щелчок — вход по номеру; с аргументами —
-   любая команда) из экземпляра Бризекса или собери такой же.
+   любая команда) из экземпляра Бризекса или собери такой же — только с переводами строк Windows (CRLF) и `.gitattributes` `*.cmd text eol=crlf`: с LF окно cmd рвёт строки с кириллицей на куски («не является командой»).
 4. `status`: «ключи приняты» по каждому номеру. «не проверено: …» — сеть: проверь прокси.
 5. Вход — команда `login N` человеку, в его терминал. Сам вход не запускай.
 
