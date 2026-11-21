@@ -290,9 +290,9 @@ async def code_step(acc: Account, code: str | None, password: bool = False) -> s
     from lead_catcher.lock import SessionLock
 
     pf = _pending_file(acc)
-    if not pf.is_file():
+    if not pf.is_file() and not password:   # пароль после входа по QR — без запроса кода
         raise ProfileError(f"нет запроса кода для №{acc.number}: сначала login {acc.number} --phone <номер>")
-    pend = json.loads(pf.read_text(encoding="utf-8"))
+    pend = json.loads(pf.read_text(encoding="utf-8")) if pf.is_file() else {}
     lock = SessionLock(acc.session_file, acc.owner).acquire()
     c = client(acc)
     await c.connect()
@@ -306,9 +306,66 @@ async def code_step(acc: Account, code: str | None, password: bool = False) -> s
             return (f"код принят, нужен облачный пароль: человек запускает в своём терминале "
                     f"login {acc.number} --password (те же --keys/--direct)")
         me = await c.get_me()
-        pf.unlink()
+        if pf.is_file():
+            pf.unlink()
         return f"вход выполнен: номер {acc.number}, аккаунт id …{str(me.id)[-3:]}; сессия {acc.session_file} — секрет"
     finally:
+        await c.disconnect()
+        lock.release()
+
+
+async def qr_login(acc: Account, total_s: int = 240) -> str:
+    """Вход по QR без кода: человек сканирует QR в Telegram на телефоне, где аккаунт уже открыт
+    (Настройки → Устройства → Подключить устройство). Нужен, когда Telegram «отправляет» код в приложение, но не
+    доставляет (21.11.2026: неофициальная программа + прокси + свежий аккаунт). QR — секрет на ~30 с: картинка в папке
+    сессий (вне git), удаляется после входа или по истечении."""
+    import asyncio
+    import time
+
+    import qrcode
+    import qrcode.image.svg
+    from telethon.errors import SessionPasswordNeededError
+
+    from lead_catcher.lock import SessionLock
+
+    img = acc.session_path.with_name(acc.session_path.name + ".qr.svg")
+    acc.session_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = SessionLock(acc.session_file, acc.owner).acquire()
+    c = client(acc)
+    await c.connect()
+    try:
+        if await c.is_user_authorized():
+            return "вход уже выполнен"
+        qr = await c.qr_login()
+        end = time.monotonic() + total_s
+        shown = False
+        while time.monotonic() < end:
+            qrcode.make(qr.url, image_factory=qrcode.image.svg.SvgFillImage, box_size=20).save(str(img))
+            if not shown:
+                print("QR открыт в браузере. Телефон: Telegram этого аккаунта → Настройки → Устройства → "
+                      "«Подключить устройство» → наведите камеру. QR обновляется сам, окно не закрывайте.")
+                if os.name == "nt":
+                    os.startfile(str(img))  # noqa: S606 — открыть картинку человеку
+                shown = True
+            else:
+                print("QR обновлён — обновите страницу в браузере (F5).")
+            try:
+                await qr.wait(timeout=max(5, min(25, end - time.monotonic())))
+                break
+            except asyncio.TimeoutError:
+                await qr.recreate()
+            except SessionPasswordNeededError:
+                return (f"QR принят, нужен облачный пароль: запустите login {acc.number} --password "
+                        f"(или login.cmd {acc.number} --password) и введите пароль сами")
+        else:
+            return "время вышло — QR не отсканирован; запустите вход по QR заново"
+        me = await c.get_me()
+        return f"вход выполнен: номер {acc.number}, аккаунт id …{str(me.id)[-3:]}; сессия {acc.session_file} — секрет"
+    finally:
+        try:
+            img.unlink()
+        except OSError:
+            pass
         await c.disconnect()
         lock.release()
 

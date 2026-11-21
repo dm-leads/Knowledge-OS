@@ -51,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     lg.add_argument("--phone", help="шаг 1 входа в два шага: запросить код (номер не печатается)")
     lg.add_argument("--code", help="шаг 2: код из приложения Telegram")
     lg.add_argument("--resend", action="store_true", help="запросить код другим способом")
+    lg.add_argument("--qr", action="store_true", help="вход по QR без кода: сканировать в Telegram на телефоне")
     lg.add_argument("--password", action="store_true", help="облачный пароль — вводит человек в своём терминале")
     lg.add_argument("--keys", type=int, help="диагностика: ключи другого номера для этого входа")
     lg.add_argument("--direct", action="store_true", help="диагностика: без прокси")
@@ -151,7 +152,9 @@ def _run(argv: list[str] | None = None) -> int:
         acc = A.with_overrides(p, A.resolve(p, a.n), a.keys, a.direct)
         keys = f"ключи №{a.keys}" if a.keys is not None else f"ключи №{a.n}"
         print(f"сеть: {acc.net_label}; {keys}")
-        if a.phone:
+        if a.qr:
+            print(asyncio.run(A.qr_login(acc)))
+        elif a.phone:
             print(asyncio.run(A.send_code_step(acc, a.phone, {"keys": a.keys, "direct": a.direct})))
         elif a.resend:
             print(asyncio.run(A.resend_code_step(acc)))

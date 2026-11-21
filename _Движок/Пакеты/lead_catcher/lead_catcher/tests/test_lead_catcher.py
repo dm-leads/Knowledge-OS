@@ -403,3 +403,11 @@ def test_describe_code_app_then_sms():
 def test_cli_error_is_printed_not_silent(tmp_path, capsys):
     rc = cli.main(["--instance", str(tmp_path / "nope"), "status"])
     assert rc == 3 and "ОШИБКА" in capsys.readouterr().err
+
+
+def test_qr_svg_renders(tmp_path):
+    import qrcode
+    import qrcode.image.svg
+    out = tmp_path / "q.svg"
+    qrcode.make("tg://login?token=" + "x" * 40, image_factory=qrcode.image.svg.SvgFillImage).save(str(out))
+    assert out.read_text(encoding="utf-8").lstrip().startswith("<")
