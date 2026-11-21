@@ -133,8 +133,6 @@ async def check_session(acc: Account, p: Profile | None = None) -> str:
 async def login(acc: Account) -> str:
     """Вход по номеру: телефон, код и облачный пароль вводит человек в терминале; ничего не сохраняется,
     кроме файла сессии (секрет, вне git)."""
-    from telethon.errors import SessionPasswordNeededError
-
     from lead_catcher.lock import SessionLock
 
     acc.session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,13 +141,10 @@ async def login(acc: Account) -> str:
     await c.connect()
     try:
         if not await c.is_user_authorized():
-            phone = input(f"Номер телефона аккаунта №{acc.number}, с кодом страны: ").strip()
+            phone = normalize_phone(input(f"Номер телефона аккаунта №{acc.number} (+7…): "))
+            print(f"Запрашиваю код для номера …{phone[-2:]}")
             sent = await c.send_code_request(phone)
-            code = input("Код из Телеграма (придёт в приложение этого аккаунта): ").strip()
-            try:
-                await c.sign_in(phone=phone, code=code, phone_code_hash=sent.phone_code_hash)
-            except SessionPasswordNeededError:
-                await c.sign_in(password=getpass.getpass("Облачный пароль (двухэтапная проверка): "))
+            await _enter_code(c, phone, sent)
         me = await c.get_me()
         return f"вход выполнен: номер {acc.number}, аккаунт id …{str(me.id)[-3:]}; сессия {acc.session_file} — секрет"
     finally:
@@ -157,6 +152,80 @@ async def login(acc: Account) -> str:
         lock.release()
         if os.name != "nt" and acc.session_file.exists():
             os.chmod(acc.session_file, 0o600)
+
+
+CODE_ROUTES = {
+    "SentCodeTypeApp": "в приложение Telegram этого аккаунта — служебный чат «Telegram» на телефоне или в Desktop, "
+                       "НЕ по SMS",
+    "SentCodeTypeSms": "по SMS",
+    "SentCodeTypeFirebaseSms": "по SMS",
+    "SentCodeTypeSmsWord": "по SMS (слово)",
+    "SentCodeTypeSmsPhrase": "по SMS (фраза)",
+    "SentCodeTypeCall": "голосовым звонком",
+    "SentCodeTypeFlashCall": "сброшенным звонком: код — последние цифры номера звонящего",
+    "SentCodeTypeMissedCall": "пропущенным звонком: код — последние цифры номера звонящего",
+    "SentCodeTypeEmailCode": "на почту, привязанную к аккаунту",
+    "SentCodeTypeFragmentSms": "через Fragment (анонимный номер)",
+    "SentCodeTypeSetUpEmailRequired": "никуда: Telegram требует сначала привязать почту — войдите в официальном "
+                                      "приложении и привяжите почту в настройках",
+}
+
+
+def normalize_phone(raw: str) -> str:
+    """Российский номер с «8» в начале, без «+» или с пробелами и скобками → «+7» и 10 цифр."""
+    d = "".join(ch for ch in raw if ch.isdigit())
+    if len(d) == 11 and d[0] == "8":
+        d = "7" + d[1:]
+    if len(d) < 10:
+        raise ProfileError("номер телефона слишком короткий — нужен полный номер с кодом страны (+7…)")
+    return "+" + d
+
+
+def describe_code(sent) -> str:
+    """Куда Telegram отправил код и что будет при повторной просьбе (без самого кода и номера)."""
+    name = type(getattr(sent, "type", None)).__name__
+    text = f"Код отправлен {CODE_ROUTES.get(name, f'способом {name}')}."
+    nxt = getattr(sent, "next_type", None)
+    if nxt is not None:
+        n2 = type(nxt).__name__.replace("CodeType", "SentCodeType")
+        how = CODE_ROUTES.get(n2, n2).split(":")[0]
+        wait = getattr(sent, "timeout", None)
+        text += f" Не пришёл — нажмите Enter без кода, запрошу другим способом ({how})"
+        text += f", Telegram разрешит через {wait} с." if wait else "."
+    else:
+        text += " Другого способа Telegram не предлагает."
+    return text
+
+
+async def _enter_code(c, phone: str, sent) -> None:
+    from telethon.errors import (PhoneCodeExpiredError, PhoneCodeInvalidError, SessionPasswordNeededError)
+    from telethon.tl.functions.auth import ResendCodeRequest
+
+    print(describe_code(sent))
+    for _ in range(6):
+        code = input("Код (Enter без кода — прислать другим способом): ").strip()
+        if not code:
+            if getattr(sent, "next_type", None) is None:
+                print("Другого способа нет. Проверьте чат «Telegram» в приложении этого аккаунта.")
+                continue
+            try:
+                sent = await c(ResendCodeRequest(phone_number=phone, phone_code_hash=sent.phone_code_hash))
+            except Exception as e:  # FloodWait, SEND_CODE_UNAVAILABLE и т. п. — человеку, без повтора
+                print(f"Telegram не прислал код другим способом: {type(e).__name__}. Подождите и повторите вход.")
+                raise
+            print(describe_code(sent))
+            continue
+        try:
+            await c.sign_in(phone=phone, code=code, phone_code_hash=sent.phone_code_hash)
+            return
+        except PhoneCodeInvalidError:
+            print("Код неверный, введите ещё раз.")
+        except PhoneCodeExpiredError:
+            raise ProfileError("код устарел — запустите вход заново")
+        except SessionPasswordNeededError:
+            await c.sign_in(password=getpass.getpass("Облачный пароль (двухэтапная проверка): "))
+            return
+    raise ProfileError("вход не завершён: слишком много попыток")
 
 
 def last_stop(p: Profile, number: int) -> dict | None:

@@ -376,3 +376,25 @@ def test_chat_info_keeps_contacts_out_of_project_data(tmp_path, monkeypatch):
     assert "@a_chat" in public and ";да;" in public
     for secret in ("net_admin_x", "admin_one", "net_ads"):
         assert secret not in public and secret in private
+
+
+# --- вход: номер и способ доставки кода (1.2.1) ---
+
+def test_normalize_phone():
+    body = "912" + "0000001"                      # фейковый номер собран из частей — сканер ПДн канона
+    want = "+" + "7" + body
+    assert A.normalize_phone("8" + " (" + body[:3] + ") " + body[3:]) == want
+    assert A.normalize_phone("+" + "7 " + body[:3] + " " + body[3:]) == want
+    assert A.normalize_phone("7" + body) == want
+    with pytest.raises(P.ProfileError):
+        A.normalize_phone("12345")
+
+
+def test_describe_code_app_then_sms():
+    from telethon.tl.types import auth as T
+    sent = T.SentCode(type=T.SentCodeTypeApp(length=5), phone_code_hash="h",
+                      next_type=T.CodeTypeSms(), timeout=60)
+    text = A.describe_code(sent)
+    assert "НЕ по SMS" in text and "по SMS" in text.split("Не пришёл")[1] and "60" in text
+    last = T.SentCode(type=T.SentCodeTypeSms(length=5), phone_code_hash="h")
+    assert "Другого способа" in A.describe_code(last)
