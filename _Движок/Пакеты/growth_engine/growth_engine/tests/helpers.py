@@ -46,7 +46,11 @@ NOISE_SHARE = ratio(n("leads", 1578, flow="web"), n("visits", 101146, flow="web"
 LAUNCH = dict(zone=ZONE_OWN, change="убрать шаг 2 формы подбора", start_date=date(2026, 9, 20),
               window_days=28, expected_n=9000, threshold=0.003,
               failure_criterion="CR1 страницы не вышел за порог за окно",
-              rat=("посетители бросают форму на шаге 2",))
+              rat=("посетители бросают форму на шаге 2",),
+              # Карточка 1.9.0: защитная метрика с порогом ухудшения и критерии остановки до конца окна.
+              guard_metric="доля квалифицированных заявок", guard_threshold=0.1,
+              stop_criteria=("доля квалифицированных заявок упала больше чем на 10 %",
+                             "за 7 дней ни одной заявки через форму подбора"))
 
 
 def candidate(hid="H-001", **card):

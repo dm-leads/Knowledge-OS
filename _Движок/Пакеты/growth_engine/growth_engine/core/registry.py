@@ -66,6 +66,10 @@ CANDIDATE_FIELDS = ("cycle_id", "business_task", "tree_branch", "model_lever", "
                     "fact_basis", "effect_goal_units", "effect_rub", "mechanic", "main_metric", "owner")
 LAUNCH_FIELDS = ("owner", "zone", "change", "start_date", "window_days", "main_metric",
                  "expected_n", "threshold", "failure_criterion", "rat")
+# С 1.9.0 карточка запуска несёт ещё защитную метрику с порогом ухудшения и критерии остановки до конца окна (стандарт
+# гипотез, раздел «Карточка гипотезы», 17.11.2026); флаг «нет исходного замера» запрещает запуск. Запуски до 1.9.0 этих
+# полей не имеют и задним числом по ним не проверяются (`is_legacy_card`).
+CARD_1_9_FIELDS = ("guard_metric", "guard_threshold", "stop_criteria")
 CONCLUSION_FIELDS = ("decision", "conclusion", "knowledge_row")
 
 
@@ -101,6 +105,10 @@ class Hypothesis:
     noise_threshold: Number | None = None  # порог шума: у гейта — на базе доли, при запуске — на ожидаемом N теста
     failure_criterion: str = ""
     rat: tuple[str, ...] = ()
+    guard_metric: str = ""                 # защитная метрика: что не должно ухудшиться (страж 7, с 1.9.0)
+    guard_threshold: float | None = None   # порог её ухудшения, доля больше нуля: 0,10 = на 10 %
+    stop_criteria: tuple[str, ...] = ()    # когда прекращаем раньше конца окна — не то же, что критерий провала
+    baseline_missing: bool = False         # нет исходного значения метрики: «требует замера до запуска»
     deferred_until: date | None = None
     blocked_class: str = ""
     status_reason: str = ""                # почему статус выставлен кодом (например, страж 5)
@@ -180,6 +188,50 @@ def _check_noise(h: Hypothesis, legacy: bool = False) -> Hypothesis:
     return replace(h, noise_threshold=at_launch)
 
 
+def is_legacy_card(h: Hypothesis) -> bool:
+    """Запуск до 1.9.0: у запущенной записи нет ни одного поля карточки 1.9.0 и не поднят флаг «нет исходного замера».
+
+    Запуск 1.9.0 пишет защитную метрику, её порог и критерии остановки вместе — страж 7 не пускает в тест без любого из
+    них. Поэтому пустые все три — запись прежней версии; заполнена хотя бы часть — запись новой, и она проверяется
+    целиком (стёртое поле — правка вне движка)."""
+    return (h.status in LAUNCHED and not h.baseline_missing
+            and all(getattr(h, name) in (None, "", ()) for name in CARD_1_9_FIELDS))
+
+
+def _card_value(value):
+    """Значение поля карточки для сравнения: список и кортеж критериев остановки — одно и то же."""
+    return tuple(value) if isinstance(value, list) else value
+
+
+def _check_baseline(h: Hypothesis) -> None:
+    if h.baseline_missing:
+        raise GuardViolation(7, f"гипотеза {h.id}: нет исходного замера метрики — требует замера до запуска: без "
+                                "исходного значения порог шума и эффект не посчитать, значение не берётся «примерно»")
+
+
+def _check_launch_card(h: Hypothesis) -> None:
+    """Страж 7 (с 1.9.0): до старта объявлены не только порог главной метрики, но и защитная метрика с порогом
+    ухудшения и критерии остановки; без исходного замера тест не запускается."""
+    _check_baseline(h)
+    if not h.guard_metric.strip() or h.guard_threshold is None:
+        raise GuardViolation(7, f"гипотеза {h.id}: не объявлена защитная метрика с порогом ухудшения (guard_metric, "
+                                "guard_threshold) — без неё вредный побочный эффект теста не остановить")
+    if h.guard_metric.strip() == h.main_metric.strip():
+        raise GuardViolation(7, f"гипотеза {h.id}: защитная метрика «{h.guard_metric}» совпадает с главной — нужна "
+                                "другая метрика, которая не должна ухудшиться")
+    if not _finite(h.guard_threshold) or not 0 < h.guard_threshold <= 1:
+        raise GuardViolation(7, f"гипотеза {h.id}: порог защитной метрики {h.guard_threshold!r} — нужна доля больше "
+                                "нуля и не больше 1 (0,10 = ухудшение на 10 %)")
+    criteria = h.stop_criteria if isinstance(h.stop_criteria, tuple) else ()
+    if not criteria or any(not isinstance(c, str) or not c.strip() for c in criteria):
+        raise GuardViolation(7, f"гипотеза {h.id}: не заданы критерии остановки до конца окна (stop_criteria) — "
+                                "нужен хотя бы один, словами")
+    failure = h.failure_criterion.strip().casefold()
+    if any(c.strip().casefold() == failure for c in criteria):
+        raise GuardViolation(7, f"гипотеза {h.id}: критерий остановки повторяет критерий провала — нужны оба, не "
+                                "одно вместо другого")
+
+
 def _check_card(h: Hypothesis) -> None:
     _require(h, 6, CANDIDATE_FIELDS)
     text = f" {h.formulation.lower()} "
@@ -211,6 +263,15 @@ def transition(h: Hypothesis, to: HStatus, **changes) -> Hypothesis:
         if declared:
             raise GuardViolation(5, f"гипотеза {h.id}: {', '.join(declared)} объявляются гейтом шума до запуска, "
                                     "а не при запуске")
+    if h.status in LAUNCHED and to not in (HStatus.IN_TEST, HStatus.WAITING_OWNER):
+        # Поля карточки 1.9.0 объявляются при запуске и проверяются стражем 7 только там. Переписать или стереть их
+        # другим переходом нельзя: запись со стёртыми полями выглядела бы запуском до 1.9.0 (ревью Codex 22.11.2026).
+        rewritten = [name for name in CARD_1_9_FIELDS + ("baseline_missing",)
+                     if name in changes and _card_value(changes[name]) != _card_value(getattr(h, name))]
+        if rewritten:
+            raise GuardViolation(7, f"гипотеза {h.id}: {', '.join(rewritten)} объявлены при запуске — после запуска "
+                                    "не переписываются")
+        changes = {k: v for k, v in changes.items() if k not in CARD_1_9_FIELDS + ("baseline_missing",)}
     if h.status is HStatus.IN_TEST and to is HStatus.ARCHIVE:
         # Запуск, которого не было на деле (вариант не выложили), закрывается архивом с причиной. Тест, у которого есть
         # замер, так закрыть нельзя: его исход решает замер и вывод цикла, а не архив (1.7.6).
@@ -230,7 +291,9 @@ def transition(h: Hypothesis, to: HStatus, **changes) -> Hypothesis:
     if to is HStatus.CANDIDATE:
         _check_card(new)
     if to in (HStatus.IN_TEST, HStatus.WAITING_OWNER):
+        _check_baseline(new)               # причина — нет замера, а не пустые поля, которые из-за этого пусты
         _require(new, 7, LAUNCH_FIELDS)
+        _check_launch_card(new)
         if new.zone not in (ZONE_OWN, ZONE_PACKAGE):
             raise GuardViolation(7, f"гипотеза {h.id}: зона «{new.zone}» не из контракта")
         if to is HStatus.WAITING_OWNER and new.zone != ZONE_PACKAGE:
@@ -279,6 +342,8 @@ def check_state(h: Hypothesis) -> None:
         _check_card(h)
     if h.status in LAUNCHED:
         _require(h, 7, LAUNCH_FIELDS)
+        if not is_legacy_card(h):
+            _check_launch_card(h)          # запуски до 1.9.0 задним числом не проверяются — как порог шума в 1.8.0
         if h.zone not in (ZONE_OWN, ZONE_PACKAGE):
             raise GuardViolation(7, f"гипотеза {h.id}: зона «{h.zone}» не из контракта")
         if h.status is HStatus.WAITING_OWNER and h.zone != ZONE_PACKAGE:

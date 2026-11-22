@@ -59,7 +59,9 @@ def launch_json() -> str:
                        "start_date": LAUNCH["start_date"].isoformat(), "window_days": LAUNCH["window_days"],
                        "expected_n": LAUNCH["expected_n"], "threshold": LAUNCH["threshold"],
                        "failure_criterion": LAUNCH["failure_criterion"], "rat": list(LAUNCH["rat"]),
-                       "owner": CARD["owner"], "main_metric": CARD["main_metric"]}, ensure_ascii=False)
+                       "owner": CARD["owner"], "main_metric": CARD["main_metric"],
+                       "guard_metric": LAUNCH["guard_metric"], "guard_threshold": LAUNCH["guard_threshold"],
+                       "stop_criteria": list(LAUNCH["stop_criteria"])}, ensure_ascii=False)
 
 
 def close_json(**changes) -> str:

@@ -52,7 +52,11 @@ HYPOTHESIS_KINDS = {
     "window_days": "int", "expected_n": "int", "threshold": "float", "expected_delta": "float",
     "noise_share": "number", "noise_threshold": "number", "rat": "json_tuple", "deferred_until": "date",
     "measured": "number", "in_threshold": "bool", "decision": "decision",
+    "guard_threshold": "float", "stop_criteria": "opt_tuple", "baseline_missing": "flag",
 }
+# Колонки карточки запуска 1.9.0. Лист реестра прежней версии их не имеет: строка читается с пустыми значениями, а
+# пустые значения кодируются пустой ячейкой — повтор той же записи не расходится со строкой, записанной до 1.9.0.
+HYPOTHESIS_COLUMNS_1_9 = ("guard_metric", "guard_threshold", "stop_criteria", "baseline_missing")
 ROUTE_FIELDS = (("cycle_id", "text"), ("goal", "text"), ("written_on", "date"), ("expected_confidence", "text"),
                 ("main_class", "text"), ("notes", "json_tuple"), ("closed_at", "int"), ("closed_reason", "text"),
                 ("sales_goal", "bool"))
@@ -120,6 +124,10 @@ def _encode(value, kind: str) -> str:
         text = value.isoformat()
     elif kind == "bool":
         text = YES if value else NO
+    elif kind == "flag":                    # флаг: поднят — «да», не поднят — пустая ячейка
+        text = YES if value else ""
+    elif kind == "opt_tuple":               # список, пустой — пустая ячейка
+        text = json.dumps(_plain_json(value), ensure_ascii=False, separators=(",", ":")) if value else ""
     elif kind in _ENUMS:
         text = value.value
     elif kind in ("json", "json_tuple"):
@@ -136,6 +144,10 @@ def _decode(cell, kind: str):
     text = decode_text(cell)
     if kind == "text":
         return text
+    if text == "" and kind == "flag":
+        return False
+    if text == "" and kind == "opt_tuple":
+        return ()
     if text == "":
         return None
     try:
@@ -147,8 +159,13 @@ def _decode(cell, kind: str):
             return float(text)
         if kind == "date":
             return date.fromisoformat(text)
-        if kind == "bool":
+        if kind in ("bool", "flag"):
             return {YES: True, NO: False}[text]
+        if kind == "opt_tuple":
+            value = json.loads(text)
+            if not isinstance(value, list):
+                raise TypeError
+            return tuple(value)
         if kind in _ENUMS:
             return _ENUMS[kind](text)
         if kind == "json":
@@ -245,6 +262,9 @@ def hypothesis_from_row(row: dict, numbers: dict) -> Hypothesis:
         kind = _hypothesis_kind(field)
         if kind == "number":
             values[field.name] = _resolve(numbers, decode_text(_cell(row, f"{field.name}_id")), owner, field.name)
+        elif field.name in HYPOTHESIS_COLUMNS_1_9:
+            # Колонки появились в 1.9.0: строки реестра, записанные раньше, их не имеют — это пустые значения.
+            values[field.name] = _decode(row.get(field.name, ""), kind)
         else:
             values[field.name] = _decode(_cell(row, field.name), kind)
     return Hypothesis(**values)

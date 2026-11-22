@@ -86,7 +86,7 @@ Code). **Один движок (`_Движок`) — много проектов
 - Прочие: `growth-*` (шаги Движка роста), `ads-*` (Авито, ВК, Telegram, Директ), `keysso`, `topvisor`, `seo-niche-research`,
   `claude-brief`, `second-agent`, `questions`, `image-edit`, `brand-voice`, `agent-hygiene`,
   `llm-pipeline-economy`, `graphify-graph`, `anthropic-cookbook`, `text-editor`, `task-chain`, `smm-frameworks`,
-  `social-scrape`, `tutor`, `jev`, `return-point` (два последних — черновики, ссылками в `~/.claude/skills` пока не поставлены).
+  `social-scrape`, `lead-catcher` (ловец лидов в Telegram, только чтение), `tutor`, `jev`, `return-point` (два последних — черновики, ссылками в `~/.claude/skills` пока не поставлены).
 
 ## Сценарии (`_Движок\Сценарии\`)
 

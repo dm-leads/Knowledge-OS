@@ -38,6 +38,8 @@ LABELS = {
     "threshold": "Порог шума", "expected_delta": "Ожидаемый эффект", "expected_kind": "Вид эффекта",
     "noise_share_id": "Доля для порога (№ числа)", "noise_threshold_id": "Порог шума (№ числа)",
     "failure_criterion": "Критерий провала", "rat": "Допущения (RAT)", "deferred_until": "Отложена до",
+    "guard_metric": "Защитная метрика", "guard_threshold": "Порог защитной метрики",
+    "stop_criteria": "Критерии остановки", "baseline_missing": "Нет исходного замера",
     "blocked_class": "Заблокирована классом", "status_reason": "Причина статуса", "measured_id": "Замер (№ числа)",
     "in_threshold": "Эффект выше шума", "decision": "Решение", "conclusion": "Вывод", "knowledge_row": "Строка знаний",
     # Карта знаний

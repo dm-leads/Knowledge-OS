@@ -583,6 +583,10 @@ def _gate(store, hid: str, fields: dict, out, label: str) -> int:
             + " (доля, не проценты; при N теста = N базы — при меньшем ожидаемом N реестр пересчитает порог выше)")
         out(f"   минимум ожидаемого изменения для мощности 80 %: "
             f"{noise_min_effect(stored.noise_threshold.value):.6f}".rstrip("0") + " (доля)")
+    if stored.noise_threshold is not None:
+        out("   карточка запуска (с 1.9.0) обязательно несёт ещё: guard_metric — защитная метрика (не главная), "
+            "guard_threshold — порог её ухудшения (доля > 0), stop_criteria — список критериев остановки до конца "
+            "окна (не повтор failure_criterion); baseline_missing: true — запуск запрещён, требует замера до запуска")
     reason = f" — {stored.status_reason}" if stored.status_reason else ""
     out(f"ИТОГ: статус гипотезы {hid} — «{stored.status.value}»{reason}")
     return 0
@@ -756,7 +760,7 @@ def _create(store, hid: str, fields: dict, wanted: HStatus | None, out, label: s
 
 
 DATE_FIELDS = ("start_date", "deferred_until")
-TUPLE_FIELDS = ("rat",)
+TUPLE_FIELDS = ("rat", "stop_criteria")
 
 
 def _changes(fields: dict) -> dict:
@@ -767,14 +771,19 @@ def _changes(fields: dict) -> dict:
             changes[name] = date.fromisoformat(fields[name])
     for name in TUPLE_FIELDS:
         if name in fields:
-            changes[name] = tuple(fields[name])
+            value = fields[name]
+            # Строка вместо списка разобралась бы по буквам — критерием остановки стала бы каждая буква.
+            if not isinstance(value, list):
+                raise GuardViolation(9, f"поле «{name}» — список строк в JSON, например [\"…\"]")
+            changes[name] = tuple(value)
     return changes
 
 
 def _move(store, hid: str, wanted: HStatus | None, fields: dict, out, label: str) -> int:
     """Перевод статуса — только через операцию хранилища: стражи переходов реестра действуют и здесь (Х9).
 
-    Карточка перехода идёт полями: запуск теста требует десяти (`LAUNCH_FIELDS`), отложенный замер — своей даты.
+    Карточка перехода идёт полями: запуск теста требует десяти (`LAUNCH_FIELDS`) и с 1.9.0 ещё трёх
+    (`CARD_1_9_FIELDS`: защитная метрика, её порог, критерии остановки), отложенный замер — своей даты.
     Без них командой нельзя было бы запустить тест, и замерять было бы нечего.
     """
     if wanted is None:
