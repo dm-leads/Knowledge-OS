@@ -5,8 +5,11 @@
 от состояния книги, поэтому повторный запуск на собранной книге ничего не делает.
 """
 from growth_engine.core.storage import COLUMNS, SHEETS, SYSTEM_COLUMNS
-from growth_engine.google_book import (COPIED, HYPOTHESIS_NOTES, HYPOTHESIS_VISIBLE, WORKING_ORDER,
-                                       hypothesis_header, plan, ref_errors)
+from growth_engine.google_book import (CARD_WIDTHS, COPIED, HYPOTHESIS_NOTES, HYPOTHESIS_VISIBLE,
+                                       HYPOTHESIS_VISIBLE_CARD, WORKING_ORDER, hidden_range, hypothesis_header, plan,
+                                       ref_errors)
+
+FRONT = len(HYPOTHESIS_VISIBLE) + len(HYPOTHESIS_VISIBLE_CARD)     # видимые колонки слева в книге 1.9.1
 from growth_engine.storage.labels import LABELS
 
 
@@ -22,10 +25,11 @@ def built_book():
                   list(COLUMNS[next(k for k, v in SHEETS.items() if v == title)]) + list(SYSTEM_COLUMNS)
                   if title in SHEETS.values() else ["что-то"])
         sheets[title] = {"index": index, "hidden": title not in WORKING_ORDER, "header": header, "empty": False,
-                         "hidden_columns": (len(HYPOTHESIS_VISIBLE), len(header)) if title == SHEETS["hypotheses"]
+                         "hidden_columns": (FRONT, len(header)) if title == SHEETS["hypotheses"]
                          else None, "frozen_rows": 1 if title == SHEETS["hypotheses"] else 0,
                          "labelled": True, "styled": title == SHEETS["hypotheses"],
-                         "notes": title == SHEETS["hypotheses"]}
+                         "notes": title == SHEETS["hypotheses"],
+                         "widths": dict(CARD_WIDTHS) if title == SHEETS["hypotheses"] else {}}
     return {"folder": "папка", "book": "книга", "sheets": sheets}
 
 
@@ -36,7 +40,7 @@ def kinds(actions):
 def test_hypothesis_header_puts_working_columns_first_and_keeps_every_engine_column_once():
     header = hypothesis_header()
     engine = list(COLUMNS["hypotheses"]) + list(SYSTEM_COLUMNS)
-    assert header[:len(HYPOTHESIS_VISIBLE)] == list(HYPOTHESIS_VISIBLE)
+    assert header[:FRONT] == list(HYPOTHESIS_VISIBLE) + list(HYPOTHESIS_VISIBLE_CARD)
     assert sorted(header) == sorted(engine) and len(header) == len(set(header))
 
 
@@ -53,7 +57,7 @@ def test_empty_drive_gets_folder_book_copies_engine_sheets_and_hiding():
     assert sorted(created) == sorted(SHEETS.values())
     hidden = [a[1] for a in actions if a[0] == "hide_sheet"]
     assert sorted(hidden) == sorted(v for k, v in SHEETS.items() if k != "hypotheses")
-    assert ("hide_columns", SHEETS["hypotheses"], len(HYPOTHESIS_VISIBLE), len(hypothesis_header())) in actions
+    assert ("hide_columns", SHEETS["hypotheses"], FRONT, len(hypothesis_header())) in actions
     assert ("order", WORKING_ORDER) in actions
 
 
@@ -107,7 +111,7 @@ def test_hypotheses_sheet_is_styled_and_noted_once():
 
 
 def test_every_working_column_has_a_note():
-    assert sorted(HYPOTHESIS_NOTES) == sorted(HYPOTHESIS_VISIBLE)
+    assert sorted(HYPOTHESIS_NOTES) == sorted(HYPOTHESIS_VISIBLE + HYPOTHESIS_VISIBLE_CARD)
     assert all(len(note) > 10 for note in HYPOTHESIS_NOTES.values())
 
 
@@ -116,9 +120,9 @@ def test_people_columns_get_their_width_once():
     state = built_book()
     sheet = state["sheets"]["Гипотезы"]
     sheet["header"] = sheet["header"] + ["Исполнитель", "ТЗ исполнителю"]
-    sheet["widths"] = {"Исполнитель": 100, "ТЗ исполнителю": 100}
+    sheet["widths"] = {**CARD_WIDTHS, "Исполнитель": 100, "ТЗ исполнителю": 100}
     assert plan(state) == [("widen", "Гипотезы", {"Исполнитель": 180, "ТЗ исполнителю": 480})]
-    sheet["widths"] = {"Исполнитель": 180, "ТЗ исполнителю": 480}
+    sheet["widths"] = {**CARD_WIDTHS, "Исполнитель": 180, "ТЗ исполнителю": 480}
     assert plan(state) == []
 
 
@@ -128,9 +132,52 @@ def test_people_columns_hidden_by_mistake_are_shown_and_engine_ones_stay_hidden(
     sheet = state["sheets"]["Гипотезы"]
     engine_end = len(sheet["header"])
     sheet["header"] = sheet["header"] + ["Исполнитель", "ТЗ исполнителю"]
-    sheet["widths"] = {"Исполнитель": 180, "ТЗ исполнителю": 480}
-    sheet["hidden_columns"] = (len(HYPOTHESIS_VISIBLE), engine_end + 2)
+    sheet["widths"] = {**CARD_WIDTHS, "Исполнитель": 180, "ТЗ исполнителю": 480}
+    sheet["hidden_columns"] = (FRONT, engine_end + 2)
     assert plan(state) == [("show_columns", "Гипотезы", engine_end, engine_end + 2)]
+
+
+def old_book_with_card_columns():
+    """Книга, собранная до 1.9.0: рабочие колонки слева, служебные скрыты, колонки людей в конце; хранилище 1.9.0
+    дописало колонки карточки запуска за колонками людей."""
+    state = built_book()
+    sheet = state["sheets"]["Гипотезы"]
+    old = list(HYPOTHESIS_VISIBLE) + [c for c in hypothesis_header()
+                                     if c not in HYPOTHESIS_VISIBLE and c not in HYPOTHESIS_VISIBLE_CARD]
+    sheet["header"] = old + ["Исполнитель", "ТЗ исполнителю"] + list(HYPOTHESIS_VISIBLE_CARD)
+    sheet["hidden_columns"] = (len(HYPOTHESIS_VISIBLE), len(old))
+    sheet["widths"] = {**CARD_WIDTHS, "Исполнитель": 180, "ТЗ исполнителю": 480}
+    return state, len(old)
+
+
+def test_card_columns_appended_to_an_old_book_stay_visible_and_people_columns_are_not_hidden():
+    """Ревью 22.11.2026: прятать «от 16-й до последней колонки движка» после 1.9.0 спрятало бы колонки людей, за
+    которыми хранилище дописало колонки карточки. Прячется только сплошной кусок служебных колонок."""
+    state, old_end = old_book_with_card_columns()
+    assert hidden_range(state["sheets"]["Гипотезы"]["header"]) == (len(HYPOTHESIS_VISIBLE), old_end)
+    assert plan(state) == []
+
+
+def test_columns_hidden_too_far_in_an_old_book_are_shown_again():
+    state, old_end = old_book_with_card_columns()
+    sheet = state["sheets"]["Гипотезы"]
+    sheet["hidden_columns"] = (len(HYPOTHESIS_VISIBLE), len(sheet["header"]))
+    assert plan(state) == [("show_columns", "Гипотезы", old_end, len(sheet["header"]))]
+
+
+def test_card_columns_of_an_old_book_get_notes_and_width_where_they_stand():
+    state, _ = old_book_with_card_columns()
+    sheet = state["sheets"]["Гипотезы"]
+    sheet.update(notes=False, widths={"Исполнитель": 180, "ТЗ исполнителю": 480})
+    assert plan(state) == [("notes", "Гипотезы"), ("widen", "Гипотезы", dict(CARD_WIDTHS))]
+
+
+def test_engine_column_opened_inside_the_hidden_block_is_hidden_again():
+    """Ревью Codex 22.11.2026: человек открыл одну служебную колонку внутри скрытого куска — первая и последняя
+    скрытые прежние, но сборка должна спрятать кусок заново."""
+    state = built_book()
+    state["sheets"]["Гипотезы"]["hidden_gaps"] = True
+    assert plan(state) == [("hide_columns", "Гипотезы", FRONT, len(hypothesis_header()))]
 
 
 def test_workbench_retries_the_per_minute_limit(tmp_path, monkeypatch):

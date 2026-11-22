@@ -17,7 +17,7 @@ import sys
 import yaml
 
 from .core.errors import GuardViolation
-from .core.storage import COLUMNS, SHEETS, SYSTEM_COLUMNS
+from .core.storage import COLUMNS, HYPOTHESIS_COLUMNS_1_9, SHEETS, SYSTEM_COLUMNS
 from .storage.labels import LABELS, NAMES, LabelledBackend
 
 FOLDER_NAME = "Движок роста"
@@ -27,6 +27,11 @@ WORKING_ORDER = [SHEETS["hypotheses"], "Воронка и оценка гипо�
 HYPOTHESIS_VISIBLE = ("id", "formulation", "status", "model_lever", "unit_of_action", "main_metric", "mechanic",
                       "owner", "start_date", "window_days", "threshold", "expected_delta", "in_threshold", "decision",
                       "conclusion")
+# Колонки карточки запуска 1.9.0 тоже видны человеку. В новой книге стоят сразу за рабочими, в книге прежней версии —
+# там, куда их дописало хранилище (в конце шапки, иногда после колонок людей): прячется только сплошной кусок
+# служебных колонок движка, и он обрывается на первой видимой колонке.
+HYPOTHESIS_VISIBLE_CARD = HYPOTHESIS_COLUMNS_1_9
+VISIBLE_COLUMNS = frozenset(HYPOTHESIS_VISIBLE + HYPOTHESIS_VISIBLE_CARD)
 # Пометки к рабочим колонкам «Гипотез» — всплывают при наведении на заголовок.
 HYPOTHESIS_NOTES = {
     "id": "Номер гипотезы. Присваивает движок при заведении.",
@@ -46,6 +51,11 @@ HYPOTHESIS_NOTES = {
     "in_threshold": "После замера: изменение больше порога шума (да) или нет.",
     "decision": "scale — масштабировать; iterate — новая версия; kill — убрать; research — дособрать данные.",
     "conclusion": "Что узнали о рынке — одной фразой. Уходит в карту знаний.",
+    "guard_metric": "Защитная метрика — что не должно ухудшиться за время теста (маржа, качество заявок, возвраты). "
+                    "Объявляется до запуска, не совпадает с главной.",
+    "guard_threshold": "Порог защитной метрики в долях (0,10 = ухудшение на 10 %). Ушла за порог — тест останавливают.",
+    "stop_criteria": "Когда прекращаем раньше окна: вред, окно без сигнала, дорогой откат. Не повторяет критерий провала.",
+    "baseline_missing": "«да» — нет исходного замера метрики: тест не запускается, пока замер не сделан.",
 }
 # Оформление — как у соседних листов книги: Trebuchet MS, шапка жирная на светло-голубом фоне, перенос строк.
 HEADER_FILL = {"red": 0.8117647, "green": 0.8862745, "blue": 0.9529412}
@@ -55,14 +65,35 @@ WIDTHS = {"id": 70, "formulation": 420, "status": 100, "model_lever": 110, "unit
           "in_threshold": 95, "decision": 100, "conclusion": 320}
 # Колонки людей на «Гипотезах» (их пишет task_brief): ширина ставится, когда колонка появилась.
 PEOPLE_WIDTHS = {"Исполнитель": 180, "ТЗ исполнителю": 480, "Как это работает": 360}
+# Колонки карточки 1.9.0: ширина ставится там, где колонка стоит, — как у колонок людей.
+CARD_WIDTHS = {"guard_metric": 150, "guard_threshold": 110, "stop_criteria": 300, "baseline_missing": 110}
+PLACED_WIDTHS = {**PEOPLE_WIDTHS, **CARD_WIDTHS}
 FOLDER_MIME = "application/vnd.google-apps.folder"
 DRIVE_FILES = "https://www.googleapis.com/drive/v3/files"
 
 
 def hypothesis_header() -> list[str]:
-    """Шапка «Гипотез»: рабочие колонки слева, дальше остальные колонки движка в их порядке."""
+    """Шапка «Гипотез»: рабочие колонки слева, за ними колонки карточки запуска, дальше остальные колонки движка."""
     engine = list(COLUMNS["hypotheses"]) + list(SYSTEM_COLUMNS)
-    return list(HYPOTHESIS_VISIBLE) + [column for column in engine if column not in HYPOTHESIS_VISIBLE]
+    front = list(HYPOTHESIS_VISIBLE) + list(HYPOTHESIS_VISIBLE_CARD)
+    return front + [column for column in engine if column not in front]
+
+
+def hidden_range(header: list[str]) -> tuple[int, int] | None:
+    """Какие колонки прятать: сплошной кусок служебных колонок движка сразу за видимыми слева. Кусок обрывается на
+    первой колонке не движка (колонки людей) или видимой (карточка 1.9.0, дописанная в книгу прежней версии).
+    None — рабочие колонки стоят не слева, прятать по положению нельзя."""
+    if tuple(header[:len(HYPOTHESIS_VISIBLE)]) != HYPOTHESIS_VISIBLE:
+        return None
+    start = len(HYPOTHESIS_VISIBLE)
+    card = len(HYPOTHESIS_VISIBLE_CARD)
+    if tuple(header[start:start + card]) == HYPOTHESIS_VISIBLE_CARD:
+        start += card
+    engine = set(hypothesis_header())
+    end = start
+    while end < len(header) and header[end] in engine and header[end] not in VISIBLE_COLUMNS:
+        end += 1
+    return start, end
 
 
 def engine_header(title: str) -> list[str]:
@@ -98,17 +129,18 @@ def plan(state: dict) -> list[tuple]:
             actions.append(("hide_sheet", title))
 
     header = existing["header"] if existing else hypothesis_header()
-    # Прячутся только колонки движка: колонки людей (исполнитель, ТЗ) дописываются в конец шапки и должны быть видны.
-    engine = set(hypothesis_header())
-    engine_end = max((i + 1 for i, column in enumerate(header) if column in engine), default=len(header))
-    wanted = (len(HYPOTHESIS_VISIBLE), engine_end)
+    # Прячутся только служебные колонки движка: колонки людей (исполнитель, ТЗ) и карточки запуска 1.9.0 видны.
+    wanted = hidden_range(header)
     hidden = (existing or {}).get("hidden_columns")
-    # Прятать по положению можно, только если рабочие колонки действительно стоят слева.
-    if tuple(header[:len(HYPOTHESIS_VISIBLE)]) == HYPOTHESIS_VISIBLE and hidden != wanted:
-        if hidden and hidden[0] == wanted[0] and hidden[1] > wanted[1]:
+    gaps = bool((existing or {}).get("hidden_gaps"))
+    if wanted is not None and (hidden != wanted or gaps):
+        if hidden and hidden[1] > wanted[1]:
             actions.append(("show_columns", hypotheses, wanted[1], hidden[1]))
-        else:
-            actions.append(("hide_columns", hypotheses, *wanted))
+        if hidden and hidden[0] < wanted[0]:
+            actions.append(("show_columns", hypotheses, hidden[0], wanted[0]))
+        if gaps or not hidden or hidden[0] > wanted[0] or hidden[1] < wanted[1]:
+            if wanted[1] > wanted[0]:
+                actions.append(("hide_columns", hypotheses, *wanted))
     if (existing or {}).get("frozen_rows") != 1:
         actions.append(("freeze", hypotheses))
     if not (existing or {}).get("styled"):
@@ -117,7 +149,7 @@ def plan(state: dict) -> list[tuple]:
         actions.append(("notes", hypotheses))
     if existing:
         widths = existing.get("widths") or {}
-        wrong = {column: width for column, width in PEOPLE_WIDTHS.items()
+        wrong = {column: width for column, width in PLACED_WIDTHS.items()
                  if column in existing["header"] and widths.get(column) != width}
         if wrong:
             actions.append(("widen", hypotheses, wrong))
@@ -211,16 +243,18 @@ class Workbench:
                 "header": header, "raw_header": raw, "empty": not values,
                 "labelled": not any(column in LABELS and column not in NAMES for column in raw),
                 "hidden_columns": (hidden[0], hidden[-1] + 1) if hidden else None,
+                # Внутри скрытого куска открыта колонка — по первой и последней скрытой этого не видно (ревью Codex).
+                "hidden_gaps": bool(hidden) and len(hidden) != hidden[-1] + 1 - hidden[0],
                 "frozen_rows": props.get("gridProperties", {}).get("frozenRowCount", 0)}
             if props["title"] == SHEETS["hypotheses"]:
                 first = (cells[0].get("userEnteredFormat") or {}).get("textFormat", {}) if cells else {}
                 state["sheets"][props["title"]]["styled"] = bool(first.get("bold")) and first.get("fontFamily") == FONT
-                visible = len(HYPOTHESIS_VISIBLE)
-                state["sheets"][props["title"]]["notes"] = (len(cells) >= visible
-                                                             and all(cell.get("note") for cell in cells[:visible]))
+                noted = [i for i, column in enumerate(header) if column in HYPOTHESIS_NOTES]
+                state["sheets"][props["title"]]["notes"] = bool(noted) and all(
+                    i < len(cells) and cells[i].get("note") for i in noted)
                 state["sheets"][props["title"]]["widths"] = {
                     column: (columns[i].get("pixelSize") if i < len(columns) else None)
-                    for i, column in enumerate(header) if column in PEOPLE_WIDTHS}
+                    for i, column in enumerate(header) if column in PLACED_WIDTHS}
         return state
 
     def apply(self, actions: list[tuple], folder: str | None, book: str | None, parent: str, title: str,
@@ -303,9 +337,10 @@ class Workbench:
             return requests
         if kind == "notes":
             sheet_id, header = sheets[action[1]]["sheet_id"], sheets[action[1]]["header"]
-            values = [{"note": HYPOTHESIS_NOTES.get(column, "")} for column in header[:len(HYPOTHESIS_VISIBLE)]]
-            return [{"updateCells": {"rows": [{"values": values}], "fields": "note",
-                                     "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": 0}}}]
+            # Пометка — каждой колонке, у которой она есть, там, где колонка стоит; чужие ячейки не трогаются.
+            return [{"updateCells": {"rows": [{"values": [{"note": HYPOTHESIS_NOTES[column]}]}], "fields": "note",
+                                     "start": {"sheetId": sheet_id, "rowIndex": 0, "columnIndex": index}}}
+                    for index, column in enumerate(header) if column in HYPOTHESIS_NOTES]
         if kind == "widen":
             sheet_id, header = sheets[action[1]]["sheet_id"], sheets[action[1]]["header"]
             return [{"updateDimensionProperties": {
