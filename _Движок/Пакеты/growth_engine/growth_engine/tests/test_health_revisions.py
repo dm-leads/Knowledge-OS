@@ -46,7 +46,7 @@ def test_revisions_compare_with_the_latest_earlier_take_of_the_same_system():
 
 
 def test_revisions_ignore_an_effect_estimate_lying_at_the_fact_address():
-    """BACKLOG п. 11: оценка эффекта гипотезы по адресу факта — не прежний съём факта (viklimat, 04.11.2026)."""
+    """BACKLOG п. 11: оценка эффекта гипотезы по адресу факта — не прежний съём факта (случай инстанса 04.11.2026)."""
     fact = n("sales_entry", 55, scope="p1+p2", period=AUG, as_of=LATER)
     effect = replace(fact, value=2.372, status=Status.ESTIMATE, as_of=AS_OF)
     alone = check_revisions([effect], [fact], Tolerance(2, 0.03))

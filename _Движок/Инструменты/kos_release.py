@@ -23,6 +23,13 @@
 выбранные файлы папки из коммита канона (чужие незакоммиченные правки в выпуск не попадают): так проекту без доступа
 к канону отдают нужные методологии (17.11.2026, командная работа «Учебного центра»).
 Код возврата 1 — выпуск правили руками или выпустить нельзя; печатается причина.
+
+Чужие имена (22.11.2026): в выпуск компании не уезжают упоминания других проектов владельца. Правила — в
+`kos_release_foreign_names.json` рядом с инструментом (он в проекты не выпускается): для каталога выпуска, путь которого
+содержит метку правила, перечислены запрещённые слова. `issue` проверяет каждый файл выпуска целиком — код,
+пояснения, тесты, данные — и при совпадении отказывает до записи; `check` находит их в уже лежащем выпуске. Причина:
+в выпуске для компании нашлось имя другого проекта в пояснении к коду и тесте — тест границы пакета пояснения не
+проверял, а вписать запрещённое имя в сам тест нельзя: тест уезжает в выпуск.
 """
 from __future__ import annotations
 
@@ -38,6 +45,7 @@ from datetime import date
 from pathlib import Path
 
 PASSPORT = "_паспорт_выпуска.json"
+NAMES_FILE = Path(__file__).with_name("kos_release_foreign_names.json")
 SKIPPED_DIRS = {"__pycache__", ".pytest_cache"}
 SKIPPED_SUFFIXES = {".pyc", ".pyo"}
 
@@ -57,10 +65,40 @@ class Report:
     extra: list[str] = field(default_factory=list)
     behind: int | None = None
     canon_version: str | None = None
+    foreign: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
-        return not (self.changed or self.missing or self.extra)
+        return not (self.changed or self.missing or self.extra or self.foreign)
+
+
+def foreign_words(into: Path) -> list[str]:
+    """Запрещённые слова для этого каталога выпуска: правила, чья метка есть в его пути (без учёта регистра)."""
+    if not NAMES_FILE.is_file():
+        return []
+    where = Path(into).resolve().as_posix().casefold()
+    words: list[str] = []
+    for rule in json.loads(NAMES_FILE.read_text(encoding="utf-8"))["rules"]:
+        if rule["into_contains"].casefold() in where:
+            words += [word.casefold() for word in rule["forbidden"]]
+    return words
+
+
+def foreign_hits(contents: dict[str, bytes], words: list[str]) -> list[str]:
+    """Где в файлах выпуска встречаются запрещённые слова: «файл:строка: слово». Двоичные файлы — по байтам UTF-8."""
+    hits = []
+    for relative, data in sorted(contents.items()):
+        text = data.decode("utf-8", errors="replace").casefold()
+        for number, line in enumerate(text.splitlines(), 1):
+            hits += [f"{relative}:{number}: {word}" for word in words if word in line]
+    return hits
+
+
+def _refuse_foreign(contents: dict[str, bytes], into: Path) -> None:
+    hits = foreign_hits(contents, foreign_words(into))
+    if hits:
+        raise ReleaseError("в выпуске упоминание другого проекта (правило kos_release_foreign_names.json) — убрать в "
+                           "каноне и выпустить снова: " + "; ".join(hits[:20]))
 
 
 def fingerprint(path: Path) -> str:
@@ -136,6 +174,8 @@ def check(into: Path, package: Path | None = None) -> Report:
         raise ReleaseError(f"в {into} нет паспорта выпуска {PASSPORT} — это не выпуск канона")
     changed, missing, extra = compare(into, passport)
     report = Report(passport["package"], passport["version"], passport["canon_commit"], changed, missing, extra)
+    report.foreign = foreign_hits({relative: path.read_bytes() for relative, path in release_files(into).items()},
+                                  foreign_words(into))
     if package is not None:
         package = Path(package)
         paths = passport.get("only") or ["."]
@@ -171,6 +211,7 @@ def issue(package: Path, into: Path, first: bool = False, only: list[str] | None
         raise ReleaseError(f"в {into} уже лежит код без паспорта выпуска — первый выпуск поверх него только с "
                            "ключом --first")
     files = release_files(source)
+    _refuse_foreign({relative: path.read_bytes() for relative, path in files.items()}, into)
     if into.exists():
         for old_file in release_files(into).values():
             old_file.unlink()
@@ -220,6 +261,7 @@ def _issue_only(package: Path, into: Path, first: bool, only: list[str]) -> dict
             raise ReleaseError(f"файла {relative} нет в коммите канона {commit[:7]}")
         contents[relative] = result.stdout
     _guard_old_release(into, name, first)
+    _refuse_foreign(contents, into)
     if into.exists():
         for old_file in release_files(into).values():
             old_file.unlink()
@@ -262,7 +304,8 @@ def main(argv=None) -> int:
         print(f"❌ {exc}")
         return 1
     print(f"выпуск {report.package} {report.version} (коммит канона {report.commit[:7]})")
-    for label, names in (("изменены", report.changed), ("пропали", report.missing), ("лишние", report.extra)):
+    for label, names in (("изменены", report.changed), ("пропали", report.missing), ("лишние", report.extra),
+                         ("упоминание другого проекта", report.foreign)):
         if names:
             print(f"❌ {label}: {', '.join(names)}")
     if report.behind:
@@ -270,7 +313,11 @@ def main(argv=None) -> int:
               f"{report.canon_version}; обновить: issue --package … --into …")
     elif report.behind == 0:
         print("канон: выпуск свежий")
-    print("ИТОГ: " + ("выпуск совпадает с паспортом" if report.ok else "выпуск правили руками — правку в канон"))
+    verdict = ("выпуск совпадает с паспортом" if report.ok else
+               "в выпуске упоминание другого проекта — убрать в каноне и выпустить снова"
+               if report.foreign and not (report.changed or report.missing or report.extra) else
+               "выпуск правили руками — правку в канон")
+    print("ИТОГ: " + verdict)
     return 0 if report.ok else 1
 
 

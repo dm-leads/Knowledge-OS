@@ -196,3 +196,45 @@ def test_only_selected_files_from_the_commit(tmp_path):
     assert not (into / "Методология — Лишняя.md").exists()
     report = check(into, meth)
     assert report.ok and report.behind == 0
+
+
+@pytest.fixture
+def names(tmp_path, monkeypatch):
+    """Правило чужих имён: в каталог с меткой «компания» не уезжает слово «соседпроект»."""
+    path = tmp_path / "names.json"
+    path.write_text(json.dumps({"rules": [{"into_contains": "компания", "forbidden": ["СоседПроект"]}]},
+                               ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(kos_release, "NAMES_FILE", path)
+    return path
+
+
+def test_foreign_name_in_prose_or_tests_stops_the_release_before_writing(tmp_path, canon, names):
+    """22.11.2026: имя другого проекта в пояснении к коду уехало в выпуск компании — тест границы пояснения не видел."""
+    (canon / "demo" / "sub" / "calc.py").write_text('"""Пример из проекта соседпроект."""\n', encoding="utf-8")
+    commit(canon.parents[1], "пояснение с чужим именем")
+    into = tmp_path / "компания" / "demo"
+    with pytest.raises(ReleaseError, match="sub/calc.py:1: соседпроект"):
+        issue(canon, into, first=True)
+    assert not into.exists()
+
+
+def test_foreign_rule_applies_only_to_its_target(tmp_path, canon, names):
+    (canon / "demo" / "sub" / "calc.py").write_text("# соседпроект\n", encoding="utf-8")
+    commit(canon.parents[1], "чужое имя")
+    issue(canon, tmp_path / "другое место" / "demo", first=True)
+
+
+def test_check_finds_a_foreign_name_already_in_the_release(tmp_path, canon, names, capsys):
+    into = tmp_path / "компания" / "demo"
+    issue(canon, into, first=True)
+    report = check(into)
+    assert report.ok
+    (canon / "demo" / "sub" / "calc.py").write_text("# соседпроект\n", encoding="utf-8")
+    passport = json.loads((into / PASSPORT).read_text(encoding="utf-8"))
+    (into / "sub" / "calc.py").write_text("# соседпроект\n", encoding="utf-8")
+    passport["files"]["sub/calc.py"] = kos_release.fingerprint(into / "sub" / "calc.py")
+    (into / PASSPORT).write_text(json.dumps(passport, ensure_ascii=False), encoding="utf-8")
+    report = check(into)
+    assert report.foreign == ["sub/calc.py:1: соседпроект"] and not report.ok
+    assert kos_release.main(["check", "--into", str(into)]) == 1
+    assert "упоминание другого проекта" in capsys.readouterr().out
