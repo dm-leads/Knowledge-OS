@@ -12,7 +12,7 @@ r"""
   • после каждого запроса печатается, сколько списано и сколько осталось;
   • кэш сервиса по умолчанию — ответ не старше 1 дня бесплатен (--cache-days 0 — всегда свежий).
 
-Ключ — переменная scrapecreators_api (или SCRAPECREATORS_API_KEY) в мастер-.env устройства; путь к другому
+Ключ — SCRAPECREATORS_API_KEY (или scrapecreators_api): файл секретов устройства или «Секретные ключи/.env»
 .env — переменная окружения KOS_ENV. Ключ не печатается.
 
 Команды:
@@ -45,7 +45,6 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE = "https://api.scrapecreators.com"
-ENV_DEFAULT = r"C:\Users\redmi\Second Brain Secrets\.env"
 EXPENSIVE = {  # путь → худшая цена, кредитов
     "/v2/instagram/media/transcript": 30,
     "/v2/instagram/post/comments": 15,
@@ -56,18 +55,51 @@ CLOSED = ("payment", "purchase", "checkout", "/v1/account/get-api-usage")
 HIT_FACTOR = 5  # ролик в 5 раз выше медианы — хит, показываем отдельно
 
 
+# Где ключи (21.11.2026, команда «Учебного центра»): KOS_ENV — явный путь, только он; иначе файл секретов устройства
+# (путь — в ~/.claude/kos/secrets-env.txt, у коллеги его нет), поверх него — «Секретные ключи/.env» проекта, который
+# ищется вверх от текущей папки. Ключ проекта важнее ключа устройства. Значения не печатаются.
+def env_files() -> list[Path]:
+    if os.environ.get("KOS_ENV"):
+        return [Path(os.environ["KOS_ENV"])]
+    files = []
+    pointer = Path.home() / ".claude" / "kos" / "secrets-env.txt"
+    if pointer.is_file():
+        lines = [s.strip() for s in pointer.read_text(encoding="utf-8").splitlines() if s.strip() and not s.startswith("#")]
+        if lines:
+            files.append(Path(os.path.expanduser(lines[0])))
+    for folder in (Path.cwd(), *Path.cwd().parents):
+        project = folder / "Секретные ключи" / ".env"
+        if project.is_file():
+            files.append(project)
+            break
+    return files
+
+
+def load_env() -> dict:
+    env = {}
+    for path in env_files():
+        if path.is_file():
+            env.update({k: v for k, v in _dotenv(path).items() if v})
+    return env
+
+
+def need(env: dict, *names: str) -> None:
+    missing = [n for n in names if not env.get(n)]
+    if missing:
+        where = ", ".join(str(p) for p in env_files()) or "файлов нет"
+        sys.exit(f"Нет ключа {', '.join(missing)}: впишите в «Секретные ключи/.env» проекта (искал: {where})")
+
+
+def _dotenv(path):
+    from dotenv import dotenv_values
+    return dotenv_values(path)
+
+
 def load_key():
-    path = os.environ.get("KOS_ENV", ENV_DEFAULT)
-    key = None
-    try:
-        from dotenv import dotenv_values
-        vals = dotenv_values(path)
-        key = vals.get("scrapecreators_api") or vals.get("SCRAPECREATORS_API_KEY")
-    except ImportError:
-        pass
-    key = key or os.environ.get("SCRAPECREATORS_API_KEY")
+    env = load_env()
+    key = env.get("SCRAPECREATORS_API_KEY") or env.get("scrapecreators_api") or os.environ.get("SCRAPECREATORS_API_KEY")
     if not key:
-        sys.exit(f"Нет ключа: задайте scrapecreators_api в {path}")
+        need({}, "SCRAPECREATORS_API_KEY")
     return key
 
 

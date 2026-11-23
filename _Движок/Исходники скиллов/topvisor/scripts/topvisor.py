@@ -18,15 +18,51 @@ Topvisor хранит позиции сайта в поиске по регио�
 - позиция в ответе — строка: число — место в выдаче, «--» — проверка была, сайт в глубине проверки не найден;
   даты, когда запрос не проверялся, в ответе нет вовсе. Пустое и «не найден» — разные состояния, в ноль не сводятся;
 - 0 строк — код выхода 2: пустой результат не выдаётся за успех.
-Ключи — Topvisor_API_KEY, Topvisor_User_Id, Topvisor_ID_Project в мастер-.env, значения не печатаются.
+Ключи — Topvisor_API_KEY, Topvisor_User_Id, Topvisor_ID_Project: файл секретов устройства или «Секретные ключи/.env»
+проекта (см. env_files); значения не печатаются.
 """
-import argparse, csv, json, re, sys, urllib.error, urllib.request
+import argparse, csv, json, os, re, sys, urllib.error, urllib.request
 from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import dotenv_values
 
-ENV = {k.lower(): v for k, v in dotenv_values(Path(r"C:\Users\redmi\Second Brain Secrets\.env")).items()}
+# Где ключи (21.11.2026, команда «Учебного центра»): KOS_ENV — явный путь, только он; иначе файл секретов устройства
+# (путь — в ~/.claude/kos/secrets-env.txt, у коллеги его нет), поверх него — «Секретные ключи/.env» проекта, который
+# ищется вверх от текущей папки. Ключ проекта важнее ключа устройства. Значения не печатаются.
+def env_files() -> list[Path]:
+    if os.environ.get("KOS_ENV"):
+        return [Path(os.environ["KOS_ENV"])]
+    files = []
+    pointer = Path.home() / ".claude" / "kos" / "secrets-env.txt"
+    if pointer.is_file():
+        lines = [s.strip() for s in pointer.read_text(encoding="utf-8").splitlines() if s.strip() and not s.startswith("#")]
+        if lines:
+            files.append(Path(os.path.expanduser(lines[0])))
+    for folder in (Path.cwd(), *Path.cwd().parents):
+        project = folder / "Секретные ключи" / ".env"
+        if project.is_file():
+            files.append(project)
+            break
+    return files
+
+
+def load_env() -> dict:
+    env = {}
+    for path in env_files():
+        if path.is_file():
+            env.update({k: v for k, v in dotenv_values(path).items() if v})
+    return env
+
+
+def need(env: dict, *names: str) -> None:
+    missing = [n for n in names if not env.get(n)]
+    if missing:
+        where = ", ".join(str(p) for p in env_files()) or "файлов нет"
+        sys.exit(f"Нет ключа {', '.join(missing)}: впишите в «Секретные ключи/.env» проекта (искал: {where})")
+
+
+ENV = {k.lower(): v for k, v in load_env().items()}
 API = "https://api.topvisor.com/v2/json/"
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 NOT_FOUND = "--"

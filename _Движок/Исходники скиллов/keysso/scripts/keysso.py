@@ -6,20 +6,20 @@
 
 Запуск (любой Python с python-dotenv):
     python keysso.py limits
-    python keysso.py get /report/simple/domain_dashboard base=msk domain=бризекс.рф --out <папка>
+    python keysso.py get /report/simple/domain_dashboard base=msk domain=пример.рф --out <папка>
     python keysso.py get /report/simple/organic/keywords base=msk domain=tion.ru \
         "sort=wsk|desc" "filter=pos<=10^wsk>=10" --all --max-rows 20000 --out <папка>
     python keysso.py post /tools/check-top base=msk --json тело.json --out <папка>
 
 Правила, которые клиент соблюдает сам:
-- кириллический домен передаётся как есть (бризекс.рф); punycode API не находит;
+- кириллический домен передаётся как есть (пример.рф); punycode API не находит;
 - ответ с полем code=202 — отчёт ещё строится: ждём и переспрашиваем, до 6 минут;
 - не больше 10 запросов за 10 секунд (лимит API);
 - при --all листаем страницы; если сортировка по одному полю — добавляем второе, иначе строки на стыке
   страниц теряются или дублируются;
 - 0 строк при --all — код выхода 2: пустой результат не выдаётся за успех.
-Ключ — KEYSO_API_KEY в мастер-.env, значение не печатается. Путь к .env переопределяется переменной окружения
-KOS_ENV: у проекта может быть свой ключ, который перевыпускают отдельно от ключа устройства.
+Ключ — KEYSO_API_KEY: файл секретов устройства или «Секретные ключи/.env» проекта (см. env_files), значение не
+печатается. KOS_ENV — явный путь к .env.
 """
 import argparse, csv, io, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
 from datetime import datetime
@@ -27,8 +27,42 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-ENV_PATH = Path(os.environ.get("KOS_ENV") or r"C:\Users\redmi\Second Brain Secrets\.env")
-ENV = dotenv_values(ENV_PATH)
+# Где ключи (21.11.2026, команда «Учебного центра»): KOS_ENV — явный путь, только он; иначе файл секретов устройства
+# (путь — в ~/.claude/kos/secrets-env.txt, у коллеги его нет), поверх него — «Секретные ключи/.env» проекта, который
+# ищется вверх от текущей папки. Ключ проекта важнее ключа устройства. Значения не печатаются.
+def env_files() -> list[Path]:
+    if os.environ.get("KOS_ENV"):
+        return [Path(os.environ["KOS_ENV"])]
+    files = []
+    pointer = Path.home() / ".claude" / "kos" / "secrets-env.txt"
+    if pointer.is_file():
+        lines = [s.strip() for s in pointer.read_text(encoding="utf-8").splitlines() if s.strip() and not s.startswith("#")]
+        if lines:
+            files.append(Path(os.path.expanduser(lines[0])))
+    for folder in (Path.cwd(), *Path.cwd().parents):
+        project = folder / "Секретные ключи" / ".env"
+        if project.is_file():
+            files.append(project)
+            break
+    return files
+
+
+def load_env() -> dict:
+    env = {}
+    for path in env_files():
+        if path.is_file():
+            env.update({k: v for k, v in dotenv_values(path).items() if v})
+    return env
+
+
+def need(env: dict, *names: str) -> None:
+    missing = [n for n in names if not env.get(n)]
+    if missing:
+        where = ", ".join(str(p) for p in env_files()) or "файлов нет"
+        sys.exit(f"Нет ключа {', '.join(missing)}: впишите в «Секретные ключи/.env» проекта (искал: {where})")
+
+
+ENV = load_env()
 API = "https://api.keys.so"
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 _calls: list = []

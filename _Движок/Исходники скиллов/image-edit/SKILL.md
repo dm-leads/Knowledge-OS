@@ -26,7 +26,7 @@ description: >-
 - Это **платный внешний вызов** (~$0.067 за картинку 1K, тарифы Google на 28.09.2026; перед крупной партией
   цену снять со страницы тарифов заново) и **картинка уходит в Google** → сказать стоимость и получить «да» (особенно для чувствительного/ПДн — тогда нельзя).
 - Это **полный ре-рендер**: модель перерисовывает всю картинку, не вырезает кусочек. После — **сверить**, не «поплыло» ли что-то ещё; и **размер может измениться** (модель отдаёт крупнее / чуть иную пропорцию) — при необходимости подогнать под исходные размеры.
-- Ключ: `GOOGLE_AI_STUDIO_API_KEY` из `C:\Users\redmi\Second Brain Secrets\.env` (в чат не печатать). Предпочитать его, не OpenRouter (личные деньги).
+- Ключ: `GOOGLE_AI_STUDIO_API_KEY` — «Секретные ключи/.env» проекта, иначе файл секретов устройства (путь — `~/.claude/kos/secrets-env.txt`); в чат не печатать. Предпочитать его, не OpenRouter (личные деньги).
 
 ## Рабочий рецепт (проверен 2026-08-12, модель сменена 2026-09-28)
 
@@ -38,10 +38,19 @@ description: >-
 
 ```python
 import base64, json, urllib.request, re
-env=r"C:\Users\redmi\Second Brain Secrets\.env"; key=None
-for line in open(env,encoding='utf-8',errors='ignore'):
-    m=re.match(r'\s*GOOGLE_AI_STUDIO_API_KEY\s*=\s*(.+)\s*$',line)
-    if m: key=m.group(1).strip().strip('"').strip("'"); break
+from pathlib import Path
+import os
+cands=[Path(p) for p in [os.environ.get('KOS_ENV','')] if p]
+cands+=[d/'Секретные ключи'/'.env' for d in (Path.cwd(),*Path.cwd().parents)]  # ключ проекта
+ptr=Path.home()/'.claude'/'kos'/'secrets-env.txt'                                 # файл устройства
+if ptr.is_file(): cands+=[Path(os.path.expanduser(l.strip())) for l in ptr.read_text(encoding='utf-8').splitlines() if l.strip() and not l.startswith('#')][:1]
+key=None
+for env in cands:
+    if not env.is_file(): continue
+    for line in open(env,encoding='utf-8',errors='ignore'):
+        m=re.match(r'\s*GOOGLE_AI_STUDIO_API_KEY\s*=\s*(.+)\s*$',line)
+        if m: key=m.group(1).strip().strip('"').strip("'"); break
+    if key: break
 b64=base64.b64encode(open(SRC,'rb').read()).decode()
 prompt=("Edit this image. <ЧТО ИМЕННО поменять и где>. Keep the exact same font, weight, color, size, "
 "position, background/gradient, and absolutely everything else identical. Do NOT change <ЧТО НЕ ТРОГАТЬ>. "

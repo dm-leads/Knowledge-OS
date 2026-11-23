@@ -25,7 +25,7 @@ description: >-
 | Сколько ищут фразу, какие расширения и ассоциации | Wordstat (Yandex Cloud) | `python scripts/wordstat.py top <фразы> --n 50 --out <папка>` |
 | Растёт или падает спрос, сезонность | Wordstat, помесячно | `python scripts/wordstat.py dynamics <фразы> --months 24 --out <папка>` |
 | Кто стоит в топ-10 Яндекса по запросу | Yandex Search API | в Бризексе — `research_orchestrator/adapter_serp_yandex.py "<запрос>"` |
-| Какие разделы и темы у конкурента, что он публиковал недавно | карты сайтов (advertools) | `C:/Users/redmi/Tools/seo-venv/Scripts/python.exe scripts/competitor_inventory.py <домены> --recent 90 --out <папка>` |
+| Какие разделы и темы у конкурента, что он публиковал недавно | карты сайтов (advertools) | `<python с advertools и pandas> scripts/competitor_inventory.py <домены> --recent 90 --out <папка>` |
 | Наш сайт в Google: запросы, позиции, CTR, быстрые победы, каннибализация | MCP `gsc` | `list_properties` → `get_search_analytics`, `get_search_by_page_query`, `compare_search_periods`, `inspect_url_enhanced` |
 | Наш сайт в Яндексе: запросы и позиции | Вебмастер | в Бризексе — `research_orchestrator/adapter_webmaster_popular.py` |
 | Что обсуждают по теме за 30 дней (YouTube, Reddit, X, HN) | навык `last30days` | передай свой план запросов через `--plan`, сохраняй локально `--save-dir` |
@@ -52,9 +52,9 @@ description: >-
 - **Запросы Wordstat и Search API платные** (Yandex Cloud). На пачку больше ~50 фраз сначала назови цену. Цены — со страницы тарифов Yandex Cloud, не по памяти.
 - **Старый API Вордстата мёртв**: `api.wordstat.yandex.net` и инструменты `wordstat_*` в MCP `yandex-direct` падают с ошибкой сертификата. Рабочий путь — только `scripts/wordstat.py` (Cloud).
 - **Карта сайта без дат изменения** (`lastmod`) не даёт увидеть свежие страницы — инвентаризация покажет 0% «с датой». Сайты без карты сайта (например, ballu.ru) скрипт не разберёт — нужен обход страниц.
-- **Search Console**: нужен доступ сервисного аккаунта `breezeks-mcp-google@breezeks.iam.gserviceaccount.com` к ресурсу сайта. Операции удаления и добавления сайтов выключены (`GSC_ALLOW_DESTRUCTIVE=false`).
+- **Search Console**: нужен доступ сервисного аккаунта проекта к ресурсу сайта (какой — в паспорте проекта и в `reference/проекты-владельца.md`, он есть только у владельца канона). Операции удаления и добавления сайтов выключены (`GSC_ALLOW_DESTRUCTIVE=false`).
 - **last30days** для русских ниш тонкий: Reddit и X почти пусты, работает в основном YouTube. Флаг `--publish` выкладывает отчёт в открытый доступ на ht-ml.app — на устройстве его блокирует хук.
-- **MCP `yandex-direct`** сейчас смотрит в рекламный кабинет viKLIMAT, а не Бризекса. Для SEO это не важно: Метрика Бризекса через него читается, Вордстат и Вебмастер от кабинета не зависят.
+- **MCP `yandex-direct`** смотрит в один рекламный кабинет; какой — `reference/проекты-владельца.md`. Для SEO это не важно: Вордстат и Вебмастер от кабинета не зависят.
 
 ## Для гипотез роста
 

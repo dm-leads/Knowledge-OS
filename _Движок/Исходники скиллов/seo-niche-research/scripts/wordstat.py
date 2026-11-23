@@ -4,7 +4,8 @@
 Старый API api.wordstat.yandex.net мёртв (ошибка сертификата с августа 2026); этот работает
 на ключе Search API. Запросы тарифицируются Яндексом — на большие пачки сначала назови цену.
 
-Ключи из мастер-.env (значения не печатаются): YANDEX_SEARCH_API_KEY, YANDEX_FOLDER_ID.
+Ключи — YANDEX_SEARCH_API_KEY, YANDEX_FOLDER_ID: файл секретов устройства или «Секретные ключи/.env» проекта
+(см. env_files); значения не печатаются.
 
 Запуск (любой Python с python-dotenv):
     python wordstat.py top бризер "приточная вентиляция" --n 50 --out <папка>
@@ -20,7 +21,43 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-ENV = dotenv_values(Path(r"C:\Users\redmi\Second Brain Secrets\.env"))
+# Где ключи (21.11.2026, команда «Учебного центра»): KOS_ENV — явный путь, только он; иначе файл секретов устройства
+# (путь — в ~/.claude/kos/secrets-env.txt, у коллеги его нет), поверх него — «Секретные ключи/.env» проекта, который
+# ищется вверх от текущей папки. Ключ проекта важнее ключа устройства. Значения не печатаются.
+def env_files() -> list[Path]:
+    if os.environ.get("KOS_ENV"):
+        return [Path(os.environ["KOS_ENV"])]
+    files = []
+    pointer = Path.home() / ".claude" / "kos" / "secrets-env.txt"
+    if pointer.is_file():
+        lines = [s.strip() for s in pointer.read_text(encoding="utf-8").splitlines() if s.strip() and not s.startswith("#")]
+        if lines:
+            files.append(Path(os.path.expanduser(lines[0])))
+    for folder in (Path.cwd(), *Path.cwd().parents):
+        project = folder / "Секретные ключи" / ".env"
+        if project.is_file():
+            files.append(project)
+            break
+    return files
+
+
+def load_env() -> dict:
+    env = {}
+    for path in env_files():
+        if path.is_file():
+            env.update({k: v for k, v in dotenv_values(path).items() if v})
+    return env
+
+
+def need(env: dict, *names: str) -> None:
+    missing = [n for n in names if not env.get(n)]
+    if missing:
+        where = ", ".join(str(p) for p in env_files()) or "файлов нет"
+        sys.exit(f"Нет ключа {', '.join(missing)}: впишите в «Секретные ключи/.env» проекта (искал: {where})")
+
+
+ENV = load_env()
+need(ENV, "YANDEX_SEARCH_API_KEY", "YANDEX_FOLDER_ID")
 URL = "https://searchapi.api.cloud.yandex.net/v2/wordstat/"
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 

@@ -13,7 +13,7 @@ description: >-
 Сервис ScrapeCreators: один ключ, 38 площадок, 196 путей (полная спецификация — `reference/openapi.json`).
 Оценка и вердикт — карточка «Справочник — Оценка ScrapeCreators» в реестре инструментов канона.
 
-Клиент — `scripts/social_scrape.py`. Ключ — `scrapecreators_api` в мастер-.env устройства; другой `.env` —
+Клиент — `scripts/social_scrape.py`. Ключ — `SCRAPECREATORS_API_KEY` (или `scrapecreators_api`): файл секретов устройства или «Секретные ключи/.env» проекта (поиск — `env_files` в скрипте; `KOS_ENV` — явный путь).
 переменная окружения `KOS_ENV`. Ключ не печатать.
 
 ```

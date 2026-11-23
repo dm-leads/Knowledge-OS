@@ -9,10 +9,10 @@
 только в коммерческих базах выдачи.
 
 Запуск (окружение с advertools):
-    C:/Users/redmi/Tools/seo-venv/Scripts/python.exe competitor_inventory.py tion.ru ballu.ru \
+    <python с advertools и pandas> competitor_inventory.py tion.ru ballu.ru \
         --out <папка> [--recent 90] [--section blog]
 
-Кириллические домены (бризекс.рф) переводятся в punycode автоматически.
+Кириллические домены (пример.рф) переводятся в punycode автоматически.
 Выход: <папка>/inventory_<дата>.csv (все URL) и сводка в консоль. Если ни у одного домена
 не нашлось URL — код выхода 2: пустой результат не выдаётся за успех.
 """
