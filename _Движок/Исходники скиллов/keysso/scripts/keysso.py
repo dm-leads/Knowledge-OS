@@ -77,6 +77,9 @@ def _throttle():
     _calls.append(time.time())
 
 
+ENV_PATH = "файле секретов (см. env_files)"  # для текста подсказок; сами пути ищет env_files()
+
+
 def call(method: str, path: str, params: dict, body=None) -> dict:
     url = API + path + ("?" + urllib.parse.urlencode(params) if params else "")
     data = json.dumps(body).encode() if body is not None else None
