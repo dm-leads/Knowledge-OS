@@ -798,8 +798,17 @@ def _move(store, hid: str, wanted: HStatus | None, fields: dict, out, label: str
         raise GuardViolation(9, f"гипотеза {hid}: нужен --status — целевой статус перехода")
     if not store.read("hypotheses", id=hid):
         raise GuardViolation(13, f"гипотезы {hid} нет в реестре — переводить нечего")
+    changes = _changes(fields)
+    if wanted is HStatus.CANDIDATE:
+        # Карточка кандидата у заведённой гипотезы — те же номера чисел и координаты единицы действия, что при заведении
+        # (1.9.4): без разбора `fact_basis_id` и прочие доходили до записи сырыми ключами, и перевод падал.
+        numbers = {number_id(number): number for number in store.read("numbers")}
+        changes = _card({**changes, **({"unit_of_action": fields["unit_of_action"]} if "unit_of_action" in fields
+                                       else {})}, numbers)
+        current, = store.read("hypotheses", id=hid)
+        _check_route(store, replace(current, **{k: v for k, v in changes.items() if hasattr(current, k)}))
     try:
-        reports = store.update_status(hid, wanted, **_changes(fields))
+        reports = store.update_status(hid, wanted, **changes)
     except ValueError as exc:                      # контракт переходов отвечает ValueError, а не стражем
         raise GuardViolation(7, f"гипотеза {hid}: {exc}")
     out(f"хранилище: {label}")

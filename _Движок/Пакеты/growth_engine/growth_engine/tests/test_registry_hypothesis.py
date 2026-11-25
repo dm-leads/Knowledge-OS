@@ -290,3 +290,16 @@ def test_transition_of_absent_hypothesis_is_code_1(tmp_path):
     with_numbers(tmp_path)
     code, lines = call(tmp_path, id="H-404", status="research")
     assert code == 1 and "H-404" in lines[-1]
+
+
+def test_existing_research_hypothesis_becomes_candidate_with_card_numbers(tmp_path):
+    """1.9.4: перевод заведённой гипотезы в кандидаты принимает номера чисел и координаты, как заведение."""
+    with_numbers(tmp_path)
+    call(tmp_path, id="H-100", json=json.dumps({"formulation": FORMULA}, ensure_ascii=False))
+    call(tmp_path, id="H-100", status="research")
+    card = json.loads(card_json())
+    card.pop("formulation")
+    code, lines = call(tmp_path, id="H-100", status="candidate", json=json.dumps(card, ensure_ascii=False))
+    assert code == 0, lines[-1]
+    stored, = store(tmp_path).read("hypotheses", id="H-100")
+    assert stored.status.value == "candidate" and stored.fact_basis == FACT and stored.unit_of_action == UNIT

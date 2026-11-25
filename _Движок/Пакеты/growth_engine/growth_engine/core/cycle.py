@@ -119,6 +119,10 @@ def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str, des
                   f"{_points(expected)} п.п. меньше минимума {_points(noise_min_effect(threshold.value))} п.п. "
                   f"при пороге шума {_points(threshold.value)} п.п. (страж 5)")
     else:
+        # Пройденный гейт снимает причину прежнего отказа стража 5 (1.9.4): иначе в записи оставалось «тест не
+        # увидит…» от гейта, который уже переобъявлен.
+        if "(страж 5)" in (stamped.status_reason or ""):
+            stamped = replace(stamped, status_reason="")
         return stamped
     if h.status is HStatus.RESEARCH:
         return replace(stamped, status_reason=reason)
