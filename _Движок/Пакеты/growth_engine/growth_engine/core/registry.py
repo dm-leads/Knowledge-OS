@@ -38,7 +38,10 @@ COUNT_UNITS = ("шт", "доля")   # не денежные единицы
 CHANGE_ABSOLUTE = "абсолютное"      # изменение доли в долях: 0,01 = 1 п.п.
 CHANGE_RELATIVE = "относительное"   # доля от текущего значения: 0,10 = +10%; в п.п. переводит гейт шума
 CHANGE_KINDS = (CHANGE_ABSOLUTE, CHANGE_RELATIVE)
-GATE_FIELDS = ("expected_delta", "expected_kind", "noise_share", "noise_threshold")   # объявляет гейт шума
+TEST_AB = "ab"                             # схема A/B: два плеча одного окна (1.9.3)
+TEST_DESIGNS = ("", TEST_AB)
+GATE_FIELDS = ("expected_delta", "expected_kind", "noise_share", "noise_threshold", "test_design", "ab_variant",
+               "ab_control")   # объявляет гейт шума
 # Доля для порога шума — не старше квартала до старта теста. Решение ревью 15.09.2026, подтверждено Дмитрием 15.09
 # («чтобы не городить лишнего шума»); кандидат в канон.
 NOISE_SHARE_MAX_AGE_DAYS = 92
@@ -101,6 +104,9 @@ class Hypothesis:
     threshold: float | None = None         # порог ± объявляется до старта (страж 7); в долях: 0,01 = 1 п.п.
     expected_delta: float | None = None    # ожидаемое абсолютное изменение главной доли, в долях (страж 5)
     expected_kind: str = ""                # как объявлено изменение: абсолютное или относительное — ставит гейт
+    test_design: str = ""                  # схема теста (1.9.3): "" — база до старта против окна, "ab" — два плеча окна
+    ab_variant: str = ""                   # A/B: разрез варианта, объявленный гейтом («ab_h17=B»)
+    ab_control: str = ""                   # A/B: разрез контроля, объявленный гейтом («ab_h17=A»)
     noise_share: Number | None = None      # главная доля, из которой движок считает порог шума (страж 5)
     noise_threshold: Number | None = None  # порог шума: у гейта — на базе доли, при запуске — на ожидаемом N теста
     failure_criterion: str = ""
@@ -114,6 +120,7 @@ class Hypothesis:
     status_reason: str = ""                # почему статус выставлен кодом (например, страж 5)
     # после замера
     measured: Number | None = None
+    control: Number | None = None          # A/B: доля контрольного плеча того же окна и съёма (1.9.3)
     in_threshold: bool | None = None
     decision: Decision | None = None
     conclusion: str = ""
@@ -138,7 +145,7 @@ def _check_noise(h: Hypothesis, legacy: bool = False) -> Hypothesis:
     мощности 80 % (2,842·SE_D). legacy=True — проверка записи, запущенной до 1.8.0 (порог одной доли «ожидаемый N
     теста=N»): объявленное до старта не переписывается (страж 7), поэтому такая запись сверяется по правилу своего
     запуска. Новые запуски — всегда по новому правилу."""
-    from .economy import NOISE_POWER_Z, NOISE_VERDICT_Z, noise, noise_diff, noise_min_effect   # экономика импортирует реестр — импорт при вызове
+    from .economy import NOISE_POWER_Z, NOISE_VERDICT_Z, noise, noise_ab, noise_diff, noise_min_effect   # экономика импортирует реестр — импорт при вызове
 
     share = h.noise_share
     if share is None or h.expected_delta is None:
@@ -165,7 +172,10 @@ def _check_noise(h: Hypothesis, legacy: bool = False) -> Hypothesis:
         raise GuardViolation(5, f"гипотеза {h.id}: порог ± {h.threshold:g} — нужен больше нуля")
     if isinstance(h.expected_n, bool) or not isinstance(h.expected_n, int) or h.expected_n <= 0:
         raise GuardViolation(5, f"гипотеза {h.id}: ожидаемый N теста {h.expected_n!r} — нужно целое больше нуля")
-    at_launch = noise(share, base=h.expected_n) if legacy else noise_diff(share, h.expected_n)
+    if h.test_design == TEST_AB:
+        at_launch = noise_ab(share, h.expected_n, h.expected_n)   # ожидаемый N — визиты одного плеча (1.9.3)
+    else:
+        at_launch = noise(share, base=h.expected_n) if legacy else noise_diff(share, h.expected_n)
     if at_launch.value is None:
         raise GuardViolation(5, f"гипотеза {h.id}: порог шума при N = {h.expected_n} не определён — {at_launch.missing}")
     if not 0 <= share.value + h.expected_delta <= 1:

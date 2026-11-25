@@ -326,6 +326,34 @@ def noise_diff(share: Number, test_n: int | None = None) -> Number:
     return Number(**common, status=status, value=NOISE_VERDICT_Z * se_d, missing=missing)
 
 
+def noise_ab(share: Number, n_a: int, n_b: int) -> Number:
+    """Порог вердикта A/B-теста (1.9.3): разница долей двух вариантов ОДНОГО окна, 2·√(p(1−p)·(1/N_A + 1/N_B)).
+
+    Схема «база до старта → окно теста» (noise_diff) для A/B неверна: в A/B оба плеча идут одновременно, шум прошлой
+    базы в сравнение не входит, а её фиксированный N не даёт порогу опуститься при любом окне. p — уровень доли (база до
+    старта или контрольный вариант), N_A и N_B — визиты плеч: ожидаемые при запуске, фактические при замере."""
+    if share.unit != "доля":
+        raise GuardViolation(9, f"порог шума считается для доли, а «{share.metric}» — в «{share.unit}»")
+    for name, size in (("A", n_a), ("B", n_b)):
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise GuardViolation(9, f"порог A/B: N плеча {name} = {size!r} — нужно целое больше нуля")
+    label = f"A/B: плечо A N={n_a}, плечо B N={n_b}"
+    common = dict(metric=f"{share.metric}: порог шума", level=share.level, scope=share.scope, flow=share.flow,
+                  segment=share.segment, period_start=share.period_start, period_end=share.period_end,
+                  as_of=share.as_of, source=share.source, unit="доля", denominator=label)
+    if share.value is None or not 0 <= share.value <= 1:
+        return Number(**common, status=Status.NO_DATA, value=None,
+                      missing="у доли нет значения или оно вне [0; 1] — порог A/B не определён")
+    p = share.value
+    for name, size in (("A", n_a), ("B", n_b)):
+        if size * p < NOISE_MIN_EXPECTED or size * (1 - p) < NOISE_MIN_EXPECTED:
+            return Number(**common, status=Status.NO_DATA, value=None,
+                          missing=f"плечо {name}: N·p = {size * p:g}, N·(1−p) = {size * (1 - p):g} — меньше "
+                                  f"{NOISE_MIN_EXPECTED}: нормальное приближение неприменимо, порог шума не определён")
+    se_d = math.sqrt(p * (1 - p) * (1 / n_a + 1 / n_b))
+    return Number(**common, status=share.status, value=NOISE_VERDICT_Z * se_d, missing=share.missing)
+
+
 def _next_month(day: date) -> date:
     return date(day.year + (day.month == 12), day.month % 12 + 1, 1)
 

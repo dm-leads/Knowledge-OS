@@ -51,12 +51,14 @@ HYPOTHESIS_KINDS = {
     "fact_basis": "number", "effect_goal_units": "number", "effect_rub": "number", "start_date": "date",
     "window_days": "int", "expected_n": "int", "threshold": "float", "expected_delta": "float",
     "noise_share": "number", "noise_threshold": "number", "rat": "json_tuple", "deferred_until": "date",
-    "measured": "number", "in_threshold": "bool", "decision": "decision",
+    "measured": "number", "control": "number", "in_threshold": "bool", "decision": "decision",
     "guard_threshold": "float", "stop_criteria": "opt_tuple", "baseline_missing": "flag",
 }
 # Колонки карточки запуска 1.9.0. Лист реестра прежней версии их не имеет: строка читается с пустыми значениями, а
 # пустые значения кодируются пустой ячейкой — повтор той же записи не расходится со строкой, записанной до 1.9.0.
 HYPOTHESIS_COLUMNS_1_9 = ("guard_metric", "guard_threshold", "stop_criteria", "baseline_missing")
+# Колонки, которых нет у строк, записанных раньше: читаются пустыми (1.9.0 — карточка запуска, 1.9.3 — схема теста).
+HYPOTHESIS_LATE_COLUMNS = HYPOTHESIS_COLUMNS_1_9 + ("test_design", "ab_variant", "ab_control", "control")
 ROUTE_FIELDS = (("cycle_id", "text"), ("goal", "text"), ("written_on", "date"), ("expected_confidence", "text"),
                 ("main_class", "text"), ("notes", "json_tuple"), ("closed_at", "int"), ("closed_reason", "text"),
                 ("sales_goal", "bool"))
@@ -261,8 +263,11 @@ def hypothesis_from_row(row: dict, numbers: dict) -> Hypothesis:
     for field in fields(Hypothesis):
         kind = _hypothesis_kind(field)
         if kind == "number":
+            if field.name in HYPOTHESIS_LATE_COLUMNS and f"{field.name}_id" not in row:
+                values[field.name] = None          # колонки ещё нет у строк, записанных раньше (1.9.3)
+                continue
             values[field.name] = _resolve(numbers, decode_text(_cell(row, f"{field.name}_id")), owner, field.name)
-        elif field.name in HYPOTHESIS_COLUMNS_1_9:
+        elif field.name in HYPOTHESIS_LATE_COLUMNS:
             # Колонки появились в 1.9.0: строки реестра, записанные раньше, их не имеют — это пустые значения.
             values[field.name] = _decode(row.get(field.name, ""), kind)
         else:
@@ -747,15 +752,17 @@ class RegistryStore:
         hypothesis, revision = self._hypothesis(hypothesis_id)
         return self._store_hypothesis(transition(hypothesis, to, **changes), revision)
 
-    def declare_expectation(self, hypothesis_id: str, share: Number, change: float, kind: str) -> list[WriteReport]:
+    def declare_expectation(self, hypothesis_id: str, share: Number, change: float, kind: str, design: str = "",
+                            arm_n: int | None = None, variant: str = "", control: str = "") -> list[WriteReport]:
         """Объявить ожидаемое изменение через гейт шума (страж 5); статус может уйти в research кодом."""
         hypothesis, revision = self._hypothesis(hypothesis_id)
-        return self._store_hypothesis(apply_noise_gate(hypothesis, share, change, kind), revision)
+        return self._store_hypothesis(apply_noise_gate(hypothesis, share, change, kind, design, arm_n, variant, control),
+                                      revision)
 
-    def add_measurement(self, hypothesis_id: str, measured: Number) -> list[WriteReport]:
+    def add_measurement(self, hypothesis_id: str, measured: Number, control: Number | None = None) -> list[WriteReport]:
         """Добавить замер — через measure(): попадание в порог считает код, второй замер невозможен (Х9)."""
         hypothesis, revision = self._hypothesis(hypothesis_id)
-        return self._store_hypothesis(measure(hypothesis, measured), revision)
+        return self._store_hypothesis(measure(hypothesis, measured, control), revision)
 
     def link_to_tree(self, hypothesis_id: str, goal_id: str, branch_id: str) -> list[WriteReport]:
         """Связать гипотезу с веткой дерева цели: номер гипотезы — в список ветки, ветка — в поле гипотезы.

@@ -551,7 +551,12 @@ def _measure(store, hid: str, fields: dict, out, label: str) -> int:
     reference = str(fields["measured_id"])
     if reference not in numbers:
         raise GuardViolation(13, f"замер: число {reference} не найдено на листе снимков")
-    reports = store.add_measurement(hid, numbers[reference])
+    control = None
+    if fields.get("control_id"):
+        if str(fields["control_id"]) not in numbers:
+            raise GuardViolation(13, f"замер: контрольное число {fields['control_id']} не найдено на листе снимков")
+        control = numbers[str(fields["control_id"])]
+    reports = store.add_measurement(hid, numbers[reference], control)
     stored, = store.read("hypotheses", id=hid)
     out(f"хранилище: {label}")
     _report(reports, out)
@@ -570,7 +575,10 @@ def _gate(store, hid: str, fields: dict, out, label: str) -> int:
     reference = str(fields.get("share_id", ""))
     if reference not in numbers:
         raise GuardViolation(13, f"гейт шума: доля {reference or '—'} не найдена на листе снимков")
-    reports = store.declare_expectation(hid, numbers[reference], float(fields["change"]), fields["kind"])
+    arm_n = fields.get("arm_n")
+    reports = store.declare_expectation(hid, numbers[reference], float(fields["change"]), fields["kind"],
+                                        str(fields.get("design") or ""), int(arm_n) if arm_n is not None else None,
+                                        str(fields.get("variant") or ""), str(fields.get("control") or ""))
     stored, = store.read("hypotheses", id=hid)
     out(f"хранилище: {label}")
     _report(reports, out)

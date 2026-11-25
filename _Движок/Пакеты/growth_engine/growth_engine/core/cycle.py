@@ -11,10 +11,11 @@ import re
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
-from .economy import is_legacy_noise, noise_diff, noise_min_effect, share_base
+from .economy import is_legacy_noise, noise_ab, noise_diff, noise_min_effect, share_base
 from .errors import GuardViolation
 from .number import Number
-from .registry import CHANGE_ABSOLUTE, CHANGE_KINDS, COUNT_UNITS, MODEL_SYSTEM, HStatus, Hypothesis, transition
+from .registry import (CHANGE_ABSOLUTE, CHANGE_KINDS, COUNT_UNITS, MODEL_SYSTEM, TEST_AB, TEST_DESIGNS, HStatus,
+                       Hypothesis, transition)
 
 CREDIBILITY_FACTORS = ("сила факта", "ясность проблемы", "близость к ключевой метрике", "job-fit", "прецедент",
                        "измеримость")
@@ -63,7 +64,8 @@ def _points(share: float) -> str:
 GATE_STATUSES = (HStatus.IDEA, HStatus.RESEARCH, HStatus.CANDIDATE, HStatus.BLOCKED_NO_DATA)
 
 
-def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> Hypothesis:
+def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str, design: str = "",
+                     arm_n: int | None = None, variant: str = "", control: str = "") -> Hypothesis:
     """Страж 5: порог шума главной доли считает движок экономики как шум разницы двух долей (база и окно теста; до
     запуска N теста принят равным N базы); ожидаемое изменение меньше порога или меньше минимума мощности 80 %
     (2,842·SE_D) — research кодом.
@@ -85,8 +87,26 @@ def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> 
     if expected is not None and (abs(expected) > 1 or (p is not None and not 0 <= p + expected <= 1)):
         raise GuardViolation(5, f"гипотеза {h.id}: ожидаемая доля {(p or 0) + expected:g} вне [0; 1] или изменение по "
                                 "модулю больше 1 — изменение записано не в долях")
-    threshold = noise_diff(share)   # до запуска N теста не объявлен — принят равным N базы, порог — оценка
-    stamped = replace(h, expected_delta=expected, expected_kind=kind, noise_share=share, noise_threshold=threshold)
+    if design not in TEST_DESIGNS:
+        raise GuardViolation(9, f"гипотеза {h.id}: схема теста {design!r} не из {' / '.join(repr(d) for d in TEST_DESIGNS)}")
+    if design == TEST_AB:
+        # A/B (1.9.3): два плеча одного окна, N плеча объявляется до запуска (ожидаемые визиты одного варианта), и
+        # до запуска же — какое значение разреза вариант, а какое контроль: иначе при замере пару выбирали бы по знаку.
+        if isinstance(arm_n, bool) or not isinstance(arm_n, int) or arm_n <= 0:
+            raise GuardViolation(9, f"гипотеза {h.id}: для схемы A/B нужен arm_n — ожидаемые визиты одного плеча, целое > 0")
+        dims = {variant.partition("=")[0], control.partition("=")[0]}
+        if ("=" not in variant or "=" not in control or variant == control or len(dims) != 1
+                or not all(v.partition("=")[2] for v in (variant, control))):
+            raise GuardViolation(9, f"гипотеза {h.id}: для схемы A/B нужны variant и control — разные значения одного "
+                                    "разреза, например «ab_h17=B» и «ab_h17=A»")
+        threshold = noise_ab(share, arm_n, arm_n)
+    else:
+        if arm_n is not None or variant or control:
+            raise GuardViolation(9, f"гипотеза {h.id}: arm_n, variant и control — только для схемы A/B (design «ab»)")
+        threshold = noise_diff(share)   # до запуска N теста не объявлен — принят равным N базы, порог — оценка
+    stamped = replace(h, expected_delta=expected, expected_kind=kind, noise_share=share, noise_threshold=threshold,
+                      test_design=design, ab_variant=variant if design == TEST_AB else "",
+                      ab_control=control if design == TEST_AB else "")
     if expected is None:
         reason = "доля не определена — относительное изменение не переводится в п.п. (страж 5)"
     elif threshold.value is None:
@@ -108,7 +128,7 @@ def apply_noise_gate(h: Hypothesis, share: Number, change: float, kind: str) -> 
 MEASURABLE = (HStatus.IN_TEST, HStatus.DEFERRED)
 
 
-def measure(h: Hypothesis, measured: Number) -> Hypothesis:
+def measure(h: Hypothesis, measured: Number, control: Number | None = None) -> Hypothesis:
     """Замер теста (Х9) — единственный путь в статус «замер». Замер — та же доля, что у гейта шума (метрика, кабинет,
     поток, разрез, единица, система), за объявленное окно от даты старта, снятый не раньше конца окна (у отложенного
     замера — не раньше его даты). Попал ли в порог — считает код: изменение от доли гейта того же знака, что ожидание,
@@ -120,6 +140,10 @@ def measure(h: Hypothesis, measured: Number) -> Hypothesis:
     base = h.noise_share
     if base is None or h.expected_delta is None or h.threshold is None or h.start_date is None or not h.window_days:
         raise GuardViolation(7, f"гипотеза {h.id}: до старта не объявлены доля, ожидание, порог или окно")
+    if h.test_design == TEST_AB:
+        return _measure_ab(h, measured, control)
+    if control is not None:
+        raise GuardViolation(7, f"гипотеза {h.id}: контрольное плечо подаётся только для схемы A/B")
     if (measured.metric, measured.scope, measured.flow, measured.segment, measured.unit) != \
             (base.metric, base.scope, base.flow, base.segment, base.unit):
         raise GuardViolation(7, f"гипотеза {h.id}: замер «{measured.metric}» ({measured.scope}, {measured.flow}) — не та "
@@ -166,6 +190,59 @@ def measure(h: Hypothesis, measured: Number) -> Hypothesis:
     reason = (f"изменение {_points(delta)} п.п. от доли гейта, порог ± {_points(threshold)} п.п. ({note}) — "
               f"{'в пороге' if in_threshold else 'не в пороге'}")
     return transition(h, HStatus.MEASURED, measured=measured, in_threshold=in_threshold, status_reason=reason)
+
+
+def _measure_ab(h: Hypothesis, measured: Number, control: Number | None) -> Hypothesis:
+    """Замер A/B (1.9.3): вариант против контроля ОДНОГО окна. Обе доли — та же метрика, кабинет, поток, единица и
+    система, что у доли гейта, разрезы одного измерения с разными значениями; окно — объявленное, снято не раньше конца.
+    Изменение — вариант минус контроль; порог — больший из объявленного и пересчитанного по фактическим N плеч."""
+    base = h.noise_share
+    if control is None:
+        raise GuardViolation(7, f"гипотеза {h.id}: схема A/B — нужен и замер контрольного плеча (control_id)")
+    window_end = h.start_date + timedelta(days=h.window_days)
+    ready = max(window_end, h.deferred_until) if h.status is HStatus.DEFERRED and h.deferred_until else window_end
+    for role, x in (("вариант", measured), ("контроль", control)):
+        if (x.metric, x.scope, x.flow, x.unit) != (base.metric, base.scope, base.flow, base.unit):
+            raise GuardViolation(7, f"гипотеза {h.id}: {role} «{x.metric}» ({x.scope}, {x.flow}) — не та доля, что "
+                                    f"объявлена до старта: «{base.metric}» ({base.scope}, {base.flow})")
+        if (x.source_class, x.source_system) != (base.source_class, base.source_system):
+            raise GuardViolation(4, f"гипотеза {h.id}: {role} из «{x.source_system}», а доля гейта — из "
+                                    f"«{base.source_system}»: смешанная метрика")
+        if (x.period_start, x.period_end) != (h.start_date, window_end):
+            raise GuardViolation(7, f"гипотеза {h.id}: окно {role}а {x.period_start:%d.%m.%Y}–{x.period_end:%d.%m.%Y} "
+                                    f"не совпадает с объявленным {h.start_date:%d.%m.%Y}–{window_end:%d.%m.%Y}")
+        if x.as_of is None or x.as_of < ready:
+            raise GuardViolation(7, f"гипотеза {h.id}: {role} снят раньше {ready:%d.%m.%Y} — окно не закончилось")
+        if x.value is None:
+            raise GuardViolation(7, f"гипотеза {h.id}: у {role}а нет значения — {x.missing or 'нет данных'}")
+    if (measured.segment, control.segment) != (h.ab_variant, h.ab_control):
+        raise GuardViolation(7, f"гипотеза {h.id}: вариант и контроль объявлены гейтом как «{h.ab_variant}» и "
+                                f"«{h.ab_control}», а поданы «{measured.segment}» и «{control.segment}»")
+    if measured.as_of != control.as_of:
+        raise GuardViolation(7, f"гипотеза {h.id}: вариант и контроль — разные значения одного разреза одного съёма "
+                                f"(съёмы {measured.as_of} и {control.as_of})")
+    delta = measured.value - control.value
+    n_b, n_a = share_base(measured), share_base(control)
+    threshold, note, countable = h.threshold, f"объявлен до старта {_points(h.threshold)} п.п.", True
+    if n_a is None or n_b is None:
+        countable = False
+        note += "; N плеч неизвестен (знаменатель не вида «метрика=N») — в порог не засчитано"
+    else:
+        # Уровень p — общая доля двух плеч (ревью 1.9.3): доля контроля занижала бы порог при положительном эффекте.
+        pooled = replace(control, value=(control.value * n_a + measured.value * n_b) / (n_a + n_b))
+        recomputed = noise_ab(pooled, n_a, n_b)
+        if recomputed.value is None:
+            countable = False
+            note += f"; по фактическим N плеч порог не определён: {recomputed.missing} — в порог не засчитано"
+        else:
+            threshold = max(h.threshold, recomputed.value)
+            note += f", по фактическим N {n_a} и {n_b} — {_points(recomputed.value)} п.п."
+    in_threshold = (countable and delta != 0 and (delta > 0) == (h.expected_delta > 0) and abs(delta) >= threshold)
+    reason = (f"A/B: {measured.segment} {_points(measured.value)} % против {control.segment} {_points(control.value)} %, "
+              f"изменение {_points(delta)} п.п., порог ± {_points(threshold)} п.п. ({note}) — "
+              f"{'в пороге' if in_threshold else 'не в пороге'}")
+    return transition(h, HStatus.MEASURED, measured=measured, control=control, in_threshold=in_threshold,
+                      status_reason=reason)
 
 
 @dataclass(frozen=True)
