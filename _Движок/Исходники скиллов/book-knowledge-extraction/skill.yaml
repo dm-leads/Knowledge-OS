@@ -1,0 +1,14 @@
+schema_version: 1
+name: book-knowledge-extraction
+kind: methodology
+detachable: true
+runtime: any-modern-ai-assistant
+deps:
+  external: []
+  workspace: []
+requires_skills: []
+requires_credentials: []
+entrypoints: []
+tests: []
+fixtures: []
+canonical_source: SKILL.md
