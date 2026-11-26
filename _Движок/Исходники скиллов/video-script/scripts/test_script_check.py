@@ -71,7 +71,7 @@ def test_music_and_pause():
                                                                "Смотрим площадку.")
     errors, _ = run(bad)
     assert any("музыки" in e for e in errors)
-    assert any("паузы-вопроса" in e for e in errors)
+    assert any("«пауза-вопрос»" in e for e in errors)
 
 
 def test_placeholder_and_shotlist(tmp_path):
@@ -91,3 +91,43 @@ def test_short_skips_lesson_rules():
                     "| 0:02–0:20 | Вот здесь. Ссылка в профиле. | Палец на кнопке | | |\n")
     errors, _ = run(short, kind="short")
     assert errors == []
+
+
+def test_negation_is_not_promise_but_income_without_sum_is():
+    ok = GOOD.replace("Следующий шаг — запись на разговор.", "Мы не обещаем трудоустройство. Напишите менеджеру.")
+    assert not any("обещание работы" in e for e in run(ok)[0])
+    bad = GOOD.replace("Следующий шаг — запись на разговор.", "После курса вы будете зарабатывать.")
+    assert any("без условия" in e for e in run(bad)[0])
+
+
+def test_pace_too_fast():
+    bad = GOOD.replace("Разберём одну заявку от начала до конца.",
+                       "Сейчас мы очень быстро разберём одну заявку от начала до самого конца и сразу перейдём к машине")
+    assert any("слов/мин" in e for e in run(bad)[0])
+
+
+def test_escaped_pipe_and_separator():
+    esc = GOOD.replace("Экран с заявкой крупно", r"Сравним А \| Б")
+    errors, rows = run(esc)
+    assert errors == [] and rows[0].frame == "Сравним А | Б"
+    nosep = GOOD.replace("|---|---|---|---|---|\n", "")
+    errors, rows = run(nosep)
+    assert any("разделителя" in e for e in errors) and len(rows) == 4
+    extra = GOOD.replace("Экран с заявкой крупно", "А | Б")
+    assert any("ячеек 6" in e for e in run(extra)[0])
+
+
+def test_unconfirmed_note_and_pause_without_question():
+    bad = GOOD.replace("| призыв |", "| сверить преподавателю |").replace(
+        "Остановите видео и ответьте: какую машину ищем?", "Остановите видео и подумайте.")
+    errors, _ = run(bad)
+    assert any("неподтверждённое" in e for e in errors)
+    assert any("без вопроса" in e for e in errors)
+
+
+def test_draft_shotlist_marked(tmp_path):
+    f = tmp_path / "s.md"
+    f.write_text("# Сценарий — проба\n\n" + GOOD.replace("| призыв |", "| сверить |"), encoding="utf-8")
+    out = tmp_path / "лист.md"
+    sc.main([str(f), "--type", "lesson", "--shotlist", str(out)])
+    assert "ЧЕРНОВИК" in out.read_text(encoding="utf-8")

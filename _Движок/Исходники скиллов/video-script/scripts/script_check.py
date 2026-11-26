@@ -33,6 +33,8 @@ PROMISES = [
     (r"трудоустро\w*|устроим на работу|найдём вам работу", "обещание работы"),
     (r"(?:зарабат\w*|доход\w*|зарплат\w*)[^.!?]{0,40}?\d[\d\s]*(?:тыс|000|₽|руб)", "сумма заработка — обещание дохода"),
     (r"\d[\d\s]*(?:тыс\.?|000)\s*(?:₽|руб\w*)?\s*в месяц[^.!?]{0,30}?(?:зарабат|доход|получа)", "сумма заработка — обещание дохода"),
+    (r"будете зарабатывать|начн[её]те зарабатывать|заработаете|выйдете на доход|найдёте работу|получите работу",
+     "обещание дохода или работы без условия"),
     (r"осталось\s+\d+\s+мест|только сегодня|успейте|последний шанс|пока не поздно", "искусственная срочность"),
     (r"\b100\s*%", "«100 %» — абсолютное обещание"),
     (r"без риска|никакого риска|точно получится|у всех получается", "обещание результата"),
@@ -40,7 +42,10 @@ PROMISES = [
 ]
 
 MUSIC = re.compile(r"музык\w*|саундтрек|\bбит\b", re.I)
-PAUSE = re.compile(r"пауз\w*|останов\w*|поставьте на паузу|ответьте|запишите|попробуйте", re.I)
+PAUSE_MARK = re.compile(r"пауза-вопрос", re.I)
+NEGATION = re.compile(r"(?:^|[^а-яё])(?:не|ни|нет)\s+(?:\S+\s+){0,2}$", re.I)
+UNCONFIRMED = re.compile(r"сверить|уточнить|проверить у|под вопросом", re.I)
+WPM_LIMIT = 200   # Гуо: средний темп 156 слов/мин, SD 31; выше 200 — проверить читкой
 WORD = re.compile(r"[а-яёa-z0-9]+", re.I)
 TIME = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})\s*$")
 
@@ -83,22 +88,29 @@ def parse_seconds(value: str) -> int:
 
 
 def split_row(line: str) -> list[str]:
-    return [c.strip() for c in line.strip().strip("|").split("|")]
+    body = line.strip()
+    body = body[1:] if body.startswith("|") else body
+    body = body[:-1] if body.endswith("|") and not body.endswith("\\|") else body
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", body)]
 
 
-def parse_table(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
-    """Первая таблица Markdown с колонкой «Время»: (заголовки, [(номер строки файла, ячейки)])."""
+SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+
+
+def parse_table(text: str) -> tuple[list[str], list[tuple[int, list[str]]], bool]:
+    """Первая таблица Markdown с колонкой «Время»: (заголовки, [(номер строки файла, ячейки)], есть ли разделитель)."""
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if line.lstrip().startswith("|") and "время" in line.lower():
             header = [h.lower() for h in split_row(line)]
+            sep = i + 1 < len(lines) and bool(SEPARATOR.match(lines[i + 1]))
             rows = []
-            for j in range(i + 2, len(lines)):
+            for j in range(i + 2 if sep else i + 1, len(lines)):
                 if not lines[j].lstrip().startswith("|"):
                     break
                 rows.append((j + 1, split_row(lines[j])))
-            return header, rows
-    return [], []
+            return header, rows, sep
+    return [], [], False
 
 
 def col(header: list[str], *names: str) -> int | None:
@@ -109,10 +121,14 @@ def col(header: list[str], *names: str) -> int | None:
 
 
 def load_rows(text: str, rep: Report) -> list[Row]:
-    header, raw = parse_table(text)
+    header, raw, sep = parse_table(text)
     rep.check(bool(header), "нет таблицы сценария с колонкой «Время» (формат — references/scenario-format.md)")
     if not header:
         return []
+    rep.check(sep, "под заголовком таблицы нет строки-разделителя |---|")
+    for ln, cells in raw:
+        rep.check(len(cells) == len(header), f"строка {ln}: ячеек {len(cells)}, колонок {len(header)} — "
+                                             "лишний «|» внутри ячейки? писать \\|")
     idx = {k: col(header, *n) for k, n in {"t": ("время",), "say": ("говорит", "речь", "текст диктора"),
                                            "frame": ("в кадре", "кадр", "картинк"),
                                            "screen": ("на экране", "титр", "подпис"), "note": ("заметк", "примеч")}.items()}
@@ -166,9 +182,13 @@ def check_opening(rows: list[Row], rep: Report, kind: str) -> None:
 
 def check_promises(rows: list[Row], rep: Report) -> None:
     for r in rows:
+        text = r.say + " " + r.screen
         for pat, why in PROMISES:
-            m = re.search(pat, r.say + " " + r.screen, re.I)
-            rep.check(not m, f"строка {r.line}: «{m and m[0]}» — {why}")
+            for m in re.finditer(pat, text, re.I):
+                if NEGATION.search(text[:m.start()]):
+                    continue   # «не обещаем трудоустройство» — честное ограничение, а не обещание
+                rep.check(False, f"строка {r.line}: «{m[0]}» — {why}")
+            rep.checks += 1
 
 
 def words(s: str) -> list[str]:
@@ -193,8 +213,28 @@ def check_music(rows: list[Row], rep: Report) -> None:
 
 
 def check_pause(rows: list[Row], rep: Report) -> None:
-    rep.check(any(PAUSE.search(r.text) for r in rows),
-              "нет паузы-вопроса: «остановите видео и ответьте…» — генеративная активность и вопросы в ролике")
+    marked = [r for r in rows if PAUSE_MARK.search(r.note)]
+    rep.check(bool(marked), "нет строки с заметкой «пауза-вопрос» — генеративная активность и вопросы в ролике")
+    for r in marked:
+        rep.check("?" in r.say, f"строка {r.line}: пауза-вопрос без вопроса в речи")
+
+
+def check_pace(rows: list[Row], rep: Report) -> None:
+    for r in rows:
+        sec = r.end - r.start
+        n = len(words(r.say))
+        if sec <= 0 or n < 5:
+            continue
+        wpm = n * 60 / sec
+        rep.check(wpm <= WPM_LIMIT, f"строка {r.line}: {n} слов за {sec} с — {wpm:.0f} слов/мин; "
+                                    "растянуть время или сократить, проверить читкой с секундомером")
+
+
+def check_unconfirmed(rows: list[Row], rep: Report) -> None:
+    for r in rows:
+        m = UNCONFIRMED.search(r.note)
+        rep.check(not m, f"строка {r.line}: «{m and m[0]}» в заметке — неподтверждённое оформить маркером "
+                         "[нужно от проекта: …]")
 
 
 def check_tail(rows: list[Row], rep: Report) -> None:
@@ -217,6 +257,8 @@ def run(text: str, kind: str, max_sec: int | None, sound: bool) -> tuple[Report,
     check_frames(rows, rep)
     check_opening(rows, rep, kind)
     check_promises(rows, rep)
+    check_pace(rows, rep)
+    check_unconfirmed(rows, rep)
     if sound and kind != "short":
         check_redundancy(rows, rep)
     if kind in ("lesson", "series", "sales"):
@@ -240,8 +282,12 @@ SHOOT_RULES = """## Правила съёмки (методика, разд. 4)
 """
 
 
-def shotlist(rows: list[Row], title: str, placeholders: list[str]) -> str:
-    out = [f"# Съёмочный лист — {title}", "", SHOOT_RULES, "## Сцены", ""]
+def shotlist(rows: list[Row], title: str, placeholders: list[str], remarks: int = 0) -> str:
+    out = [f"# Съёмочный лист — {title}", ""]
+    if remarks:
+        out += [f"> **ЧЕРНОВИК, не для съёмки:** у сценария {remarks} замечаний проверки. Готовый лист — когда "
+                "замечаний 0 и графа «Подготовить заранее» заполнена.", ""]
+    out += [SHOOT_RULES, "## Сцены", ""]
     for n, r in enumerate(rows, 1):
         out += [f"### {n}. {mmss(r.start)}–{mmss(r.end)}", "",
                 f"- **В кадре:** {r.frame or '—'}",
@@ -275,7 +321,8 @@ def main(argv: list[str] | None = None) -> int:
           f"длина: {mmss(rows[-1].end) if rows else '—'}")
     if a.shotlist and rows:
         title = next((ln[1:].strip() for ln in text.splitlines() if ln.startswith("# ")), path.stem)
-        Path(a.shotlist).write_text(shotlist(rows, title, PLACEHOLDER.findall(text)), encoding="utf-8")
+        Path(a.shotlist).write_text(shotlist(rows, title, PLACEHOLDER.findall(text), len(rep.errors)),
+                                    encoding="utf-8")
         back = Path(a.shotlist).read_text(encoding="utf-8").count("\n### ")
         print(f"съёмочный лист: {a.shotlist}, сцен записано и прочитано обратно: {back}")
     return 1 if rep.errors else 0
