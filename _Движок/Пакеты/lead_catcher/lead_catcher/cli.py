@@ -9,6 +9,9 @@
   chat-info @чат …           описание группы и видимые администраторы (контакты — в private_dir, вне git)
   read-sample @чат[:часы] …  [--hours 24 --max 300]   пробное чтение разрешённых чатов
   search-groups --groups @чат … --words слово …  [--days 365 --limit 30]   поиск по истории разрешённых чатов
+  reply --queue ФАЙЛ [--send]  ответ автору вопроса в личку по одобренной очереди (только при outreach.enabled;
+                             без --send — сухой прогон); номер — outreach.account
+  inbox                      ответы жителей на наши сообщения — в private_dir, сводка обезличенно
 
 Всё, что печатается после загрузки профиля, проходит маску секретов: значения ключей и логин/пароль прокси
 заменяются на ***. Код выхода 4 — стоп-сигнал аккаунта (сбор остановлен, номер не переключён).
@@ -37,7 +40,7 @@ class _Masked(io.TextIOBase):
 
 
 def _parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="lead_catcher", description=f"Ловец лидов {__version__} — только чтение")
+    ap = argparse.ArgumentParser(prog="lead_catcher", description=f"Ловец лидов {__version__} — чтение; ответы авторам — только при outreach.enabled")
     ap.add_argument("--instance", required=True, help="папка экземпляра проекта (с profile.yaml)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     o = sub.add_parser("onboard")
@@ -74,6 +77,10 @@ def _parser() -> argparse.ArgumentParser:
     sg.add_argument("--words", nargs="+", required=True)
     sg.add_argument("--days", type=int, default=365)
     sg.add_argument("--limit", type=int, default=30)
+    rp = sub.add_parser("reply")
+    rp.add_argument("--queue", required=True, help="CSV «;»: ссылка;текст;статус (берутся строки «отправить»)")
+    rp.add_argument("--send", action="store_true", help="отправить по-настоящему; без флага — сухой прогон")
+    sub.add_parser("inbox")
     return ap
 
 
@@ -169,6 +176,16 @@ def _run(argv: list[str] | None = None) -> int:
         acc = A.resolve(p, a.n)
         print(f"№{acc.number}: сессия {asyncio.run(A.check_session(acc, p))}")
         return 0
+
+    if a.cmd in ("reply", "inbox"):
+        from lead_catcher import outreach as O
+        if p.outreach is None:
+            raise P.ProfileError("отправка выключена: в профиле нет outreach.enabled: true (решение человека)")
+        acc = A.resolve(p, p.outreach.account)
+        print(f"аккаунт №{acc.number} (outreach); сеть: {acc.net_label}")
+        if a.cmd == "reply":
+            return asyncio.run(O.reply(p, acc, Path(a.queue), send=a.send))
+        return asyncio.run(O.inbox(p, acc))
 
     from lead_catcher import collect as C
     acc = A.resolve(p, None)

@@ -51,6 +51,41 @@ class AccountSpec:
     proxy_var: str | None = None
 
 
+@dataclass(frozen=True)
+class Outreach:
+    """Ответ автору вопроса в личку (этап «Касание»). Выключено, пока в профиле нет outreach.enabled: true."""
+    account: int
+    required_phrase: str          # кто пишет — в первой фразе; без неё сообщение не уходит
+    per_day: int = 10             # новых людей в сутки на номер
+    interval_s: tuple[int, int] = (240, 720)
+    window: tuple[int, int] = (10, 20)   # часы отправки, местное время
+    utc_offset_hours: int = 3
+    max_age_days: int = 14
+    max_chars: int = 450
+
+
+def _outreach(d: dict | None, accs: dict) -> Outreach | None:
+    if not d or not d.get("enabled"):
+        return None
+    n = d.get("account")
+    if n not in accs:
+        raise ProfileError(f"outreach.account={n!r} — такого номера нет в accounts")
+    phrase = str(d.get("required_phrase") or "").strip()
+    if len(phrase) < 10:
+        raise ProfileError("outreach.required_phrase — фраза «кто пишет» (от 10 знаков) обязательна")
+    iv = d.get("interval_s", [240, 720])
+    win = d.get("window", [10, 20])
+    o = Outreach(int(n), phrase, int(d.get("per_day", 10)), (int(iv[0]), int(iv[1])), (int(win[0]), int(win[1])),
+                 int(d.get("utc_offset_hours", 3)), int(d.get("max_age_days", 14)), int(d.get("max_chars", 450)))
+    if not (1 <= o.per_day <= 50):
+        raise ProfileError("outreach.per_day — от 1 до 50")
+    if not (60 <= o.interval_s[0] <= o.interval_s[1]):
+        raise ProfileError("outreach.interval_s — [от, до] секунд, от не меньше 60")
+    if not (0 <= o.window[0] < o.window[1] <= 24):
+        raise ProfileError("outreach.window — [час начала, час конца]")
+    return o
+
+
 @dataclass
 class Profile:
     root: Path
@@ -65,6 +100,7 @@ class Profile:
     seconds_between_requests: float = 3.0
     messages_per_day: int = 500
     private_dir: Path | None = None   # контакты администраторов и полные описания — вне git
+    outreach: "Outreach | None" = None  # ответы авторам вопросов; None — отправка выключена
     _env: dict[str, str] | None = field(default=None, repr=False)
 
     # --- секреты ---
@@ -190,6 +226,7 @@ def load(instance_dir: str | Path) -> Profile:
         seconds_between_requests=float(pace.get("seconds_between_requests", 3)),
         messages_per_day=int(pace.get("messages_per_day_to_model", 500)),
         private_dir=_path(root, d.get("private_dir"), "private_dir", required=False),
+        outreach=_outreach(d.get("outreach"), accs),
     )
 
 
