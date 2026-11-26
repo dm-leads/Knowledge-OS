@@ -1,0 +1,20 @@
+schema_version: 1
+name: video-script
+kind: methodology
+detachable: true
+runtime: any-modern-ai-assistant
+deps:
+  external: []
+  workspace:
+    - Методологии/Методология — Сценарии видео и бесплатного урока.md
+    - Методологии/Методология — Воронки и автоворонки.md
+    - Методологии/Методология — Свои площадки- соцсети, короткое видео, репутация.md
+    - Методологии/Методология — Лестница Ханта (лестница узнавания).md
+requires_skills: [text-editor]
+requires_credentials: []
+entrypoints:
+  - scripts/script_check.py
+tests:
+  - scripts/test_script_check.py
+fixtures: []
+canonical_source: SKILL.md
