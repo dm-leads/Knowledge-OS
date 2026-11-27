@@ -55,7 +55,8 @@ def test_promises():
                        "Гарантируем трудоустройство, зарабатывать от 100 000 ₽, осталось 3 места")
     errors, _ = run(bad)
     text = " ".join(errors)
-    assert "обещание работы" in text and "обещание дохода" in text and "срочность" in text
+    # 27.11.2026: трудоустройство и настоящая срочность — не запрет навыка; гарантия и сумма без источника — да
+    assert "гарантия" in text and "без источника" in text and "срочность" not in text
 
 
 def test_redundancy_and_short_caption():
@@ -93,11 +94,15 @@ def test_short_skips_lesson_rules():
     assert errors == []
 
 
-def test_negation_is_not_promise_but_income_without_sum_is():
-    ok = GOOD.replace("Следующий шаг — запись на разговор.", "Мы не обещаем трудоустройство. Напишите менеджеру.")
-    assert not any("обещание работы" in e for e in run(ok)[0])
-    bad = GOOD.replace("Следующий шаг — запись на разговор.", "После курса вы будете зарабатывать.")
-    assert any("без условия" in e for e in run(bad)[0])
+def test_employment_and_income_allowed_sum_needs_source():
+    # 27.11.2026: о трудоустройстве и заработке говорить можно; сумма — только с источником или кейсом
+    ok = GOOD.replace("Следующий шаг — запись на разговор.",
+                      "Помогаем с трудоустройством. После курса вы будете зарабатывать.")
+    assert not any("гарантия" in e or "без источника" in e for e in run(ok)[0])
+    bad = GOOD.replace("Следующий шаг — запись на разговор.", "Будете зарабатывать от 100 000 ₽.")
+    assert any("без источника" in e for e in run(bad)[0])
+    src = GOOD.replace("Следующий шаг — запись на разговор.", "Логисты зарабатывают от 100 000 ₽ по вакансиям hh.ru.")
+    assert not any("без источника" in e for e in run(src)[0])
 
 
 def test_pace_too_fast():
